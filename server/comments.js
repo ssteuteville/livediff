@@ -110,6 +110,28 @@ export async function deleteComment(wsId, repoPath, id) {
   return true;
 }
 
+/**
+ * Append `from`'s comments onto `into`'s and delete `from`'s store. Used when two registry
+ * entries collapse to one workspace. Returns how many comments moved.
+ */
+export async function mergeInto(fromWsId, intoWsId) {
+  if (fromWsId === intoWsId) return 0;
+  let incoming = [];
+  try {
+    incoming = await readComments(fromWsId, null);
+  } catch {
+    return 0;
+  }
+  if (!incoming.length) {
+    await rm(storePath(fromWsId), { force: true });
+    return 0;
+  }
+  const existing = await readComments(intoWsId, null);
+  await writeComments(intoWsId, [...existing, ...incoming]);
+  await rm(storePath(fromWsId), { force: true });
+  return incoming.length;
+}
+
 /** mtime signature used by the hub to detect edits (including migration) for live reload. */
 export async function commentsSignature(wsId) {
   try {
