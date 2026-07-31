@@ -1,0 +1,12 @@
+{
+  "name": "livediff",
+  "description": "livediff — a local, live git worktree diff hub with agent-readable review comments",
+  "owner": { "name": "Shane" },
+  "plugins": [
+    {
+      "name": "livediff",
+      "source": "./",
+      "description": "Register a git worktree in the livediff hub and read/answer its inline review comments"
+    }
+  ]
+}
