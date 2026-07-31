@@ -116,6 +116,49 @@ test("comments round-trip through the CLI without touching files", async () => {
   });
 });
 
+test("--wait blocks until the review is marked done, then summarizes", async () => {
+  await withTempXdg(async ({ root }) => {
+    const repo = await makeRepo(join(root, "repo"));
+    try {
+      const waiting = cli([repo, "--no-open", "--wait"]);
+
+      // Wait for the CLI to have registered the workspace and opened its review request.
+      let review = null;
+      const deadline = Date.now() + 10_000;
+      while (Date.now() < deadline && !review) {
+        const state = await readState();
+        if (state) {
+          const ws = await fetch(
+            `http://127.0.0.1:${state.port}/api/resolve?path=${encodeURIComponent(repo)}`
+          )
+            .then((r) => (r.ok ? r.json() : null))
+            .catch(() => null);
+          if (ws) {
+            const body = await fetch(`http://127.0.0.1:${state.port}/api/reviews?ws=${ws.id}`)
+              .then((r) => r.json())
+              .catch(() => ({}));
+            review = body.review;
+          }
+        }
+        if (!review) await new Promise((r) => setTimeout(r, 50));
+      }
+      assert.ok(review, "CLI never opened a review request");
+
+      const state = await readState();
+      await fetch(`http://127.0.0.1:${state.port}/api/reviews/${review.reviewId}/done`, {
+        method: "POST",
+      });
+
+      const res = await waiting;
+      assert.equal(res.code, 0);
+      assert.match(res.stdout, /review complete/);
+      assert.match(res.stdout, /0 comments \(0 open\)/);
+    } finally {
+      await stopHub();
+    }
+  });
+});
+
 test("--help prints usage to stdout and exits 0 without starting a hub", async () => {
   await withTempXdg(async () => {
     const res = await cli(["--help"]);

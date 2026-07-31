@@ -58,6 +58,77 @@ function openBrowser(url) {
   execFile(opener, [url], () => {});
 }
 
+/**
+ * Consume an SSE stream, yielding `{event, data}`. Node has no EventSource, and pulling in a
+ * polyfill for one long-lived connection is not worth a dependency.
+ */
+async function* sseEvents(base, signal) {
+  const res = await fetch(`${base}/api/events`, { signal });
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buf = "";
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) return;
+    buf += decoder.decode(value, { stream: true });
+    let i;
+    while ((i = buf.indexOf("\n\n")) !== -1) {
+      const frame = buf.slice(0, i);
+      buf = buf.slice(i + 2);
+      const event = /^event: (.+)$/m.exec(frame)?.[1];
+      const raw = /^data: (.+)$/m.exec(frame)?.[1];
+      if (!event || !raw) continue;
+      try {
+        yield { event, data: JSON.parse(raw) };
+      } catch {
+        /* keepalive or malformed frame */
+      }
+    }
+  }
+}
+
+function flagValue(name) {
+  const i = argv.indexOf(name);
+  if (i === -1) return null;
+  return argv[i + 1] ?? null;
+}
+
+async function waitForReview(base, ws) {
+  const review = await api(base, "/api/reviews", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ ws: ws.id }),
+  });
+
+  const ac = new AbortController();
+  const cancel = () => {
+    fetch(`${base}/api/reviews/${review.reviewId}`, { method: "DELETE" }).finally(() => {
+      ac.abort();
+      process.exit(EXIT_ERROR);
+    });
+  };
+  process.once("SIGINT", cancel);
+
+  const seconds = Number(flagValue("--timeout") || 0);
+  const timer = seconds > 0 ? setTimeout(() => ac.abort(), seconds * 1000) : null;
+
+  if (!JSON_OUT) console.log('waiting for review… (click "Done reviewing" in the browser)');
+
+  try {
+    for await (const { event, data } of sseEvents(base, ac.signal)) {
+      if (event !== "review") continue;
+      if (data.reviewId !== review.reviewId) continue;
+      if (data.state === "done") return true;
+      if (data.state === "cancelled") return false;
+    }
+  } catch {
+    if (timer) clearTimeout(timer);
+    await die(`timed out after ${seconds}s waiting for review`);
+  }
+  if (timer) clearTimeout(timer);
+  return false;
+}
+
 async function cmdOpen(pathArg) {
   const base = await ensureHub();
   const path = resolve(pathArg || process.cwd());
@@ -70,6 +141,20 @@ async function cmdOpen(pathArg) {
   const quiet = flags.has("--no-open");
   if (!quiet) openBrowser(url);
   out(`${quiet ? "registered" : "opened"} ${ws.label} → ${url}`, { ...ws, url });
+
+  if (!flags.has("--wait")) return;
+
+  const completed = await waitForReview(base, ws);
+  const { comments } = await api(base, `/api/comments?ws=${ws.id}`);
+  const open = comments.filter((c) => c.status === "open").length;
+  if (!completed) await die("review cancelled");
+  out(`review complete ✓ — ${comments.length} comments (${open} open)`, {
+    ...ws,
+    url,
+    review: "done",
+    comments: comments.length,
+    openComments: open,
+  });
 }
 
 async function cmdHubUi() {

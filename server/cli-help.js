@@ -17,17 +17,26 @@ export const COMMANDS = [
   {
     id: "open",
     name: "<path>",
-    usage: "livediff <path> [--no-open]",
+    usage: "livediff <path> [--no-open] [--wait] [--timeout <sec>]",
     summary: "register a worktree and open its focused view",
     details:
       "Registers the git worktree containing <path> and opens it in the browser.\n" +
       "Any subdirectory resolves to its worktree root, so the same worktree never\n" +
-      "registers twice. The hub is started automatically if it is not running.",
-    flags: [["--no-open", "register only; print the URL instead of launching a browser"]],
+      "registers twice. The hub is started automatically if it is not running.\n" +
+      "\n" +
+      "With --wait, the command blocks until you click \"Done reviewing\" in the\n" +
+      "browser, then prints a summary. Open comments are expected at that point —\n" +
+      "they are the output of the review, not a failure.",
+    flags: [
+      ["--no-open", "register only; print the URL instead of launching a browser"],
+      ["--wait", 'block until "Done reviewing" is clicked in the browser'],
+      ["--timeout <sec>", "give up waiting after <sec> seconds (default: never)"],
+    ],
     examples: [
       ["livediff .", "register the current worktree and open it"],
       ["livediff ~/work/feat-a", "register a worktree by path"],
       ["livediff . --no-open --json", "register quietly and print JSON"],
+      ["livediff . --wait", "open, then wait for the review to be marked done"],
     ],
   },
   {
