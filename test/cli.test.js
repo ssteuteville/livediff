@@ -153,6 +153,7 @@ test("--wait blocks until the review is marked done, then summarizes", async () 
       assert.equal(res.code, 0);
       assert.match(res.stdout, /review complete/);
       assert.match(res.stdout, /0 comments \(0 open\)/);
+      assert.doesNotMatch(res.stdout, /1 comments/);
     } finally {
       await stopHub();
     }

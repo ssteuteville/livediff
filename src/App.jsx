@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import FileDiff, { DiffModeEnum } from "./components/FileDiff.jsx";
 import WorkspaceRail from "./components/WorkspaceRail.jsx";
+import ReviewBanner from "./components/ReviewBanner.jsx";
 import {
   fetchWorkspaces,
   addWorkspace,
@@ -11,6 +12,8 @@ import {
   createComment,
   patchComment,
   removeComment,
+  fetchReview,
+  completeReview,
   subscribe,
 } from "./api.js";
 
@@ -36,6 +39,7 @@ export default function App() {
   const [mode, setMode] = useState(DiffModeEnum.Split);
   const [filter, setFilter] = useState("all");
   const [flash, setFlash] = useState(false);
+  const [review, setReview] = useState(null);
   const [error, setError] = useState(null);
   const theme = useTheme();
   const fileRefs = useRef({});
@@ -72,6 +76,14 @@ export default function App() {
     return fetchComments(ws).then(setComments).catch(() => {});
   }, []);
 
+  const loadReview = useCallback((ws) => {
+    if (!ws) {
+      setReview(null);
+      return Promise.resolve();
+    }
+    return fetchReview(ws).then(setReview).catch(() => setReview(null));
+  }, []);
+
   useEffect(() => {
     loadWorkspaces();
   }, [loadWorkspaces]);
@@ -98,7 +110,8 @@ export default function App() {
   useEffect(() => {
     loadDiff(selected, base);
     loadComments(selected);
-  }, [selected, base, loadDiff, loadComments]);
+    loadReview(selected);
+  }, [selected, base, loadDiff, loadComments, loadReview]);
 
   useEffect(() => {
     return subscribe({
@@ -115,8 +128,18 @@ export default function App() {
         loadWorkspaces();
         if (ws === selectedRef.current) loadComments(selectedRef.current);
       },
+      onReview: ({ ws, state }) => {
+        if (ws !== selectedRef.current) return;
+        if (state === "open") loadReview(selectedRef.current);
+        else setReview(null);
+      },
     });
-  }, [loadWorkspaces, loadDiff, loadComments]);
+  }, [loadWorkspaces, loadDiff, loadComments, loadReview]);
+
+  const onDoneReviewing = useCallback(
+    () => completeReview(review.reviewId).then(() => setReview(null)).catch(() => {}),
+    [review]
+  );
 
   const onAddWorkspace = useCallback(
     (path) => addWorkspace(path).then(loadWorkspaces).catch((e) => setError(String(e.message || e))),
@@ -182,6 +205,10 @@ export default function App() {
             <span className={"h-2 w-2 rounded-full " + (flash ? "bg-amber-400" : "bg-green-500")} />
             {flash ? "updated" : "live"}
           </span>
+        )}
+
+        {review && (
+          <ReviewBanner openCount={openTotal} total={comments.length} onDone={onDoneReviewing} />
         )}
 
         <div className="ml-auto flex items-center gap-2 text-xs">
@@ -278,13 +305,13 @@ export default function App() {
           {!selectedWs && focused && (
             <div className="mt-24 text-center text-sm text-neutral-400">
               That workspace isn’t registered. Run{" "}
-              <code className="rounded bg-neutral-200 px-1 dark:bg-neutral-800">livediff add &lt;path&gt;</code> first.
+              <code className="rounded bg-neutral-200 px-1 dark:bg-neutral-800">livediff &lt;path&gt;</code> first.
             </div>
           )}
           {!selectedWs && !focused && (
             <div className="mt-24 text-center text-sm text-neutral-400">
-              No workspace selected. Register a worktree to get started —{" "}
-              <code className="rounded bg-neutral-200 px-1 dark:bg-neutral-800">livediff add &lt;path&gt;</code> or ask Claude.
+              No workspace selected. Register a worktree to get started — run{" "}
+              <code className="rounded bg-neutral-200 px-1 dark:bg-neutral-800">livediff .</code> in it, or ask Claude.
             </div>
           )}
           {selectedWs && diff && diff.files.length === 0 && (

@@ -148,7 +148,8 @@ async function cmdOpen(pathArg) {
   const { comments } = await api(base, `/api/comments?ws=${ws.id}`);
   const open = comments.filter((c) => c.status === "open").length;
   if (!completed) await die("review cancelled");
-  out(`review complete ✓ — ${comments.length} comments (${open} open)`, {
+  const plural = comments.length === 1 ? "comment" : "comments";
+  out(`review complete ✓ — ${comments.length} ${plural} (${open} open)`, {
     ...ws,
     url,
     review: "done",

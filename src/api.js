@@ -54,11 +54,20 @@ export function removeComment(ws, id) {
   return fetch(`/api/comments/${id}?ws=${ws}`, { method: "DELETE" }).then(json);
 }
 
+/** The open review request for a workspace, or null. Set by `livediff <path> --wait`. */
+export function fetchReview(ws) {
+  return fetch(`/api/reviews?ws=${ws}`).then(json).then((d) => d.review);
+}
+
+export function completeReview(reviewId) {
+  return fetch(`/api/reviews/${reviewId}/done`, { method: "POST" }).then(json);
+}
+
 /**
  * Subscribe to live hub events. Handlers receive the parsed payload `{ ws, reason }`.
  * Returns an unsubscribe function.
  */
-export function subscribe({ onDiff, onComments, onWorkspaces }) {
+export function subscribe({ onDiff, onComments, onWorkspaces, onReview }) {
   const es = new EventSource("/api/events");
   const parse = (fn) => (e) => {
     let data = {};
@@ -72,5 +81,6 @@ export function subscribe({ onDiff, onComments, onWorkspaces }) {
   es.addEventListener("diff", parse(onDiff));
   es.addEventListener("comments", parse(onComments));
   es.addEventListener("workspaces", parse(onWorkspaces));
+  es.addEventListener("review", parse(onReview));
   return () => es.close();
 }

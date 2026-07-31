@@ -74,7 +74,7 @@ export default function WorkspaceRail({ workspaces, selected, onSelect, onRemove
         {workspaces.length === 0 ? (
           <div className="px-2 py-6 text-xs leading-relaxed text-neutral-400">
             No workspaces yet. Ask Claude to register a worktree, or run{" "}
-            <code className="rounded bg-neutral-100 px-1 dark:bg-neutral-800">livediff add &lt;path&gt;</code>.
+            <code className="rounded bg-neutral-100 px-1 dark:bg-neutral-800">livediff .</code> in one.
           </div>
         ) : (
           workspaces.map((ws) => (
