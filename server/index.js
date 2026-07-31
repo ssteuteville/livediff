@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import { dirname, join, extname, resolve as resolvePath } from "node:path";
 import { execFile } from "node:child_process";
 
-import { getDiff, summary, worktreeSignature } from "./git.js";
+import { getDiff, summary, worktreeSignature, isGitRepo } from "./git.js";
 import { readComments, addComment, updateComment, deleteComment, commentsSignature } from "./comments.js";
 import {
   readRegistry,
@@ -122,7 +122,13 @@ const server = createServer(async (req, res) => {
 
   try {
     if (pathname === "/api/meta") {
-      return send(res, 200, { name: "livediff", port: BOUND_PORT, version: VERSION });
+      return send(res, 200, {
+        name: "livediff",
+        port: BOUND_PORT,
+        version: VERSION,
+        clients: sseClients.size,
+        polling: pollTimer !== null,
+      });
     }
 
     if (pathname === "/api/shutdown" && req.method === "POST") {
@@ -210,7 +216,11 @@ const server = createServer(async (req, res) => {
       });
       res.write("retry: 2000\n\n");
       sseClients.add(res);
-      req.on("close", () => sseClients.delete(res));
+      startPolling();
+      req.on("close", () => {
+        sseClients.delete(res);
+        if (sseClients.size === 0) stopPolling();
+      });
       return;
     }
 
@@ -248,54 +258,86 @@ async function listenWithFallback(srv, preferred, tries = 20) {
   throw new Error(`no free port in ${preferred}..${preferred + tries - 1}`);
 }
 
-async function main() {
-  await migrateRegistry();
+const diffSigs = new Map();
+const commentSigs = new Map();
+let registrySig = null;
+let pollTimer = null;
 
-  const diffSigs = new Map();
-  const commentSigs = new Map();
-  let registrySig = null;
+/**
+ * Drop workspaces whose worktree is gone. Keeps the rail honest without the user having to
+ * `livediff rm` every deleted agent worktree.
+ */
+async function prune(registered) {
+  const kept = [];
+  for (const w of registered) {
+    if (await isGitRepo(w.path)) {
+      kept.push(w);
+      continue;
+    }
+    await removeWorkspace(w.id);
+    broadcast("workspaces", { reason: "pruned", ws: w.id });
+  }
+  return kept;
+}
 
-  const poll = async () => {
+async function poll() {
+  try {
+    const sig = await registrySignature();
+    if (registrySig !== null && sig !== registrySig) broadcast("workspaces", { reason: "registry" });
+    registrySig = sig;
+  } catch {
+    /* ignore */
+  }
+
+  let registered = [];
+  try {
+    registered = await prune(await readRegistry());
+  } catch {
+    return;
+  }
+  const liveIds = new Set(registered.map((w) => w.id));
+  for (const id of diffSigs.keys()) if (!liveIds.has(id)) diffSigs.delete(id);
+  for (const id of commentSigs.keys()) if (!liveIds.has(id)) commentSigs.delete(id);
+
+  for (const w of registered) {
     try {
-      const sig = await registrySignature();
-      if (registrySig !== null && sig !== registrySig) broadcast("workspaces", { reason: "registry" });
-      registrySig = sig;
+      const sig = await worktreeSignature(w.path, null);
+      const prev = diffSigs.get(w.id);
+      if (prev !== undefined && sig !== prev) broadcast("diff", { reason: "worktree", ws: w.id });
+      diffSigs.set(w.id, sig);
+    } catch {
+      /* transient git state */
+    }
+    try {
+      const sig = await commentsSignature(w.id);
+      const prev = commentSigs.get(w.id);
+      if (prev !== undefined && sig !== prev) broadcast("comments", { reason: "file", ws: w.id });
+      commentSigs.set(w.id, sig);
     } catch {
       /* ignore */
     }
+  }
+}
 
-    let registered = [];
-    try {
-      registered = await readRegistry();
-    } catch {
-      return;
-    }
-    const liveIds = new Set(registered.map((w) => w.id));
-    for (const id of diffSigs.keys()) if (!liveIds.has(id)) diffSigs.delete(id);
-    for (const id of commentSigs.keys()) if (!liveIds.has(id)) commentSigs.delete(id);
+/**
+ * Watching a worktree costs a `git status` per tick per workspace. With nobody looking at the
+ * UI that is pure waste, so the loop runs only while an SSE client is attached — which is what
+ * makes a hub that never exits affordable.
+ */
+function startPolling() {
+  if (pollTimer) return;
+  poll();
+  pollTimer = setInterval(poll, POLL_MS);
+}
 
-    for (const w of registered) {
-      try {
-        const sig = await worktreeSignature(w.path, null);
-        const prev = diffSigs.get(w.id);
-        if (prev !== undefined && sig !== prev) broadcast("diff", { reason: "worktree", ws: w.id });
-        diffSigs.set(w.id, sig);
-      } catch {
-        /* transient git state */
-      }
-      try {
-        const sig = await commentsSignature(w.id);
-        const prev = commentSigs.get(w.id);
-        if (prev !== undefined && sig !== prev) broadcast("comments", { reason: "file", ws: w.id });
-        commentSigs.set(w.id, sig);
-      } catch {
-        /* ignore */
-      }
-    }
-  };
+function stopPolling() {
+  if (!pollTimer) return;
+  clearInterval(pollTimer);
+  pollTimer = null;
+}
 
-  await poll();
-  setInterval(poll, POLL_MS);
+async function main() {
+  await migrateRegistry();
 
   const port = await listenWithFallback(server, PREFERRED_PORT);
   if (port === null) {
