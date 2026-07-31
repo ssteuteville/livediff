@@ -1,7 +1,8 @@
 import { createHash } from "node:crypto";
-import { readFile, writeFile, mkdir, stat } from "node:fs/promises";
+import { readFile, stat } from "node:fs/promises";
 import { homedir } from "node:os";
-import { join, resolve, dirname, basename, sep } from "node:path";
+import { join, resolve, basename, sep } from "node:path";
+import { writeJsonAtomic } from "./atomic.js";
 
 /**
  * The registry is the on-disk source of truth for which workspaces the hub shows.
@@ -15,10 +16,8 @@ export function configDir() {
   return join(base, "livediff");
 }
 
-const REGISTRY = join(configDir(), "workspaces.json");
-
 export function registryPath() {
-  return REGISTRY;
+  return join(configDir(), "workspaces.json");
 }
 
 /** Stable, idempotent id derived from the absolute path. */
@@ -30,7 +29,7 @@ const isId = (s) => /^[0-9a-f]{8}$/.test(s);
 
 export async function readRegistry() {
   try {
-    const raw = await readFile(REGISTRY, "utf8");
+    const raw = await readFile(registryPath(), "utf8");
     const data = JSON.parse(raw);
     return Array.isArray(data.workspaces) ? data.workspaces : [];
   } catch (err) {
@@ -40,8 +39,7 @@ export async function readRegistry() {
 }
 
 async function writeRegistry(workspaces) {
-  await mkdir(dirname(REGISTRY), { recursive: true });
-  await writeFile(REGISTRY, JSON.stringify({ workspaces }, null, 2) + "\n", "utf8");
+  await writeJsonAtomic(registryPath(), { workspaces });
 }
 
 /** Add (or update the label of) a workspace. Idempotent by path. */
@@ -99,7 +97,7 @@ export async function resolveWorkspace({ ws, path } = {}) {
 /** mtime signature used by the hub to detect external edits to the registry. */
 export async function registrySignature() {
   try {
-    const info = await stat(REGISTRY);
+    const info = await stat(registryPath());
     return `${info.mtimeMs}:${info.size}`;
   } catch {
     return "absent";

@@ -1,0 +1,20 @@
+import { writeFile, rename, mkdir, rm } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import { dirname, join, basename } from "node:path";
+
+/**
+ * rename(2) is atomic on POSIX, so a reader sees either the previous file or the complete new
+ * one — never a truncated write from a crash mid-flush.
+ */
+export async function writeJsonAtomic(file, data) {
+  const dir = dirname(file);
+  await mkdir(dir, { recursive: true });
+  const tmp = join(dir, `.${basename(file)}.${randomUUID().slice(0, 8)}.tmp`);
+  try {
+    await writeFile(tmp, JSON.stringify(data, null, 2) + "\n", "utf8");
+    await rename(tmp, file);
+  } catch (err) {
+    await rm(tmp, { force: true });
+    throw err;
+  }
+}

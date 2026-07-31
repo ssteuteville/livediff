@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { readFile, writeFile, rm, rmdir, mkdir, stat } from "node:fs/promises";
 import { join, dirname } from "node:path";
 import { configDir } from "./registry.js";
+import { writeJsonAtomic } from "./atomic.js";
 
 /**
  * Comments are stored centrally — keyed by workspace id, not inside the worktree — so livediff
@@ -59,9 +60,7 @@ export async function readComments(wsId, repoPath) {
 }
 
 async function writeComments(wsId, comments) {
-  const file = storePath(wsId);
-  await mkdir(dirname(file), { recursive: true });
-  await writeFile(file, JSON.stringify({ comments }, null, 2) + "\n", "utf8");
+  await writeJsonAtomic(storePath(wsId), { comments });
 }
 
 export async function addComment(wsId, repoPath, input) {

@@ -14,7 +14,8 @@
     "dev": "concurrently -k -n web,api -c cyan,magenta \"vite\" \"node --watch server/index.js\"",
     "build": "vite build",
     "start": "vite build && node server/index.js",
-    "serve": "node server/index.js"
+    "serve": "node server/index.js",
+    "test": "node --test test/*.test.js"
   },
   "dependencies": {
     "@git-diff-view/core": "^0.1.7",
