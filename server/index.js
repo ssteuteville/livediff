@@ -1,17 +1,19 @@
 import { createServer } from "node:http";
 import { readFile, stat } from "node:fs/promises";
+import { mkdirSync, watch } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join, extname, resolve as resolvePath } from "node:path";
 import { execFile } from "node:child_process";
 
 import { getDiff, summary, worktreeSignature, isGitRepo } from "./git.js";
-import { readComments, addComment, updateComment, deleteComment, commentsSignature } from "./comments.js";
+import { readComments, addComment, updateComment, deleteComment } from "./comments.js";
 import {
   readRegistry,
   addWorkspace,
   removeWorkspace,
   registrySignature,
   resolveWorkspace,
+  configDir,
 } from "./registry.js";
 import { writeState, clearState, probeMeta, isBlockedPort } from "./hub-state.js";
 import { migrateRegistry } from "./migrations.js";
@@ -259,7 +261,6 @@ async function listenWithFallback(srv, preferred, tries = 20) {
 }
 
 const diffSigs = new Map();
-const commentSigs = new Map();
 let registrySig = null;
 let pollTimer = null;
 
@@ -297,7 +298,6 @@ async function poll() {
   }
   const liveIds = new Set(registered.map((w) => w.id));
   for (const id of diffSigs.keys()) if (!liveIds.has(id)) diffSigs.delete(id);
-  for (const id of commentSigs.keys()) if (!liveIds.has(id)) commentSigs.delete(id);
 
   for (const w of registered) {
     try {
@@ -307,14 +307,6 @@ async function poll() {
       diffSigs.set(w.id, sig);
     } catch {
       /* transient git state */
-    }
-    try {
-      const sig = await commentsSignature(w.id);
-      const prev = commentSigs.get(w.id);
-      if (prev !== undefined && sig !== prev) broadcast("comments", { reason: "file", ws: w.id });
-      commentSigs.set(w.id, sig);
-    } catch {
-      /* ignore */
     }
   }
 }
@@ -336,8 +328,52 @@ function stopPolling() {
   pollTimer = null;
 }
 
+/**
+ * The hub is the only writer to the registry and comment stores, so every mutation it performs
+ * already broadcasts in-process — no watching required for the normal path. This exists purely
+ * so a hand-edited JSON file still shows up live. Degrades to nothing if fs.watch is unsupported.
+ */
+function watchConfigDir() {
+  const dir = configDir();
+  const fire = debounce((file) => {
+    if (file === "workspaces.json") return broadcast("workspaces", { reason: "file" });
+    const match = /^([0-9a-f]{8})\.json$/.exec(file ?? "");
+    if (match) broadcast("comments", { reason: "file", ws: match[1] });
+  }, 50);
+
+  const attach = (target, mapName) => {
+    try {
+      const watcher = watch(target, (_event, name) => fire(mapName(name)));
+      watcher.on("error", () => {});
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  mkdirSync(join(dir, "comments"), { recursive: true });
+  attach(dir, (name) => name);
+  attach(join(dir, "comments"), (name) => name);
+}
+
+function debounce(fn, ms) {
+  const pending = new Map();
+  return (key) => {
+    if (key === null || key === undefined) return;
+    clearTimeout(pending.get(key));
+    pending.set(
+      key,
+      setTimeout(() => {
+        pending.delete(key);
+        fn(key);
+      }, ms)
+    );
+  };
+}
+
 async function main() {
   await migrateRegistry();
+  watchConfigDir();
 
   const port = await listenWithFallback(server, PREFERRED_PORT);
   if (port === null) {

@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { rm } from "node:fs/promises";
 import { join } from "node:path";
 import { withTempXdg, makeRepo, startHub } from "./helpers.js";
+import { writeJsonAtomic } from "../server/atomic.js";
 
 const PORT = 4198;
 const base = `http://127.0.0.1:${PORT}`;
@@ -62,6 +63,35 @@ test("polling starts with the first SSE client and stops with the last", async (
       assert.ok(await until(async () => (await meta()).polling === false), "polling did not stop");
       assert.equal((await meta()).clients, 0);
     } finally {
+      hub.stop();
+    }
+  });
+});
+
+test("a hand-edited comments file broadcasts without a client attached", async () => {
+  await withTempXdg(async ({ root, config }) => {
+    const repo = await makeRepo(join(root, "handedit"));
+    const hub = await startHub({ port: PORT });
+    let stream;
+    try {
+      const ws = await fetch(`${base}/api/workspaces`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ path: repo }),
+      }).then((r) => r.json());
+
+      stream = await openStream();
+      // Bypass the API entirely, the way a curious user with an editor would.
+      await writeJsonAtomic(join(config, "livediff", "comments", `${ws.id}.json`), {
+        comments: [
+          { id: "deadbeef", file: "README.md", side: "new", line: 1, body: "hand edited", status: "open", replies: [] },
+        ],
+      });
+
+      const sawComments = await until(() => stream.frames.some((f) => f.includes("event: comments")));
+      assert.ok(sawComments, `no comments frame; saw: ${JSON.stringify(stream.frames)}`);
+    } finally {
+      stream?.close();
       hub.stop();
     }
   });
