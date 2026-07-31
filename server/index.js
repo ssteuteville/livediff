@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import { dirname, join, extname, resolve as resolvePath } from "node:path";
 import { execFile } from "node:child_process";
 
-import { getDiff, summary, worktreeSignature, isGitRepo } from "./git.js";
+import { getDiff, summary, worktreeSignature } from "./git.js";
 import { readComments, addComment, updateComment, deleteComment, commentsSignature } from "./comments.js";
 import {
   readRegistry,
@@ -135,9 +135,12 @@ const server = createServer(async (req, res) => {
     if (pathname === "/api/workspaces" && req.method === "POST") {
       const body = await readBody(req);
       if (!body.path) return send(res, 400, { error: "path required" });
-      const abs = resolvePath(body.path);
-      if (!(await isGitRepo(abs))) return send(res, 400, { error: `not a git repo: ${abs}` });
-      const ws = await addWorkspace(abs, body.label);
+      let ws;
+      try {
+        ws = await addWorkspace(resolvePath(body.path), body.label);
+      } catch (err) {
+        return send(res, 400, { error: String(err.message || err) });
+      }
       broadcast("workspaces", { reason: "added", ws: ws.id });
       return send(res, 201, ws);
     }

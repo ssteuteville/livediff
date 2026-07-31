@@ -1,8 +1,9 @@
 import { createHash } from "node:crypto";
-import { readFile, stat } from "node:fs/promises";
+import { readFile, realpath, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join, resolve, basename, sep } from "node:path";
 import { writeJsonAtomic } from "./atomic.js";
+import { toplevel } from "./git.js";
 
 /**
  * The registry is the on-disk source of truth for which workspaces the hub shows.
@@ -27,6 +28,20 @@ export function idFor(path) {
 
 const isId = (s) => /^[0-9a-f]{8}$/.test(s);
 
+/**
+ * Registered paths come from `git rev-parse --show-toplevel`, which resolves symlinks — on macOS
+ * /var and /tmp are symlinks, so a logical cwd would never match a stored physical path. Compare
+ * canonical forms on both sides.
+ */
+async function canonical(path) {
+  const abs = resolve(path);
+  try {
+    return await realpath(abs);
+  } catch {
+    return abs; // path no longer exists — fall back to the lexical form
+  }
+}
+
 export async function readRegistry() {
   try {
     const raw = await readFile(registryPath(), "utf8");
@@ -42,10 +57,11 @@ async function writeRegistry(workspaces) {
   await writeJsonAtomic(registryPath(), { workspaces });
 }
 
-/** Add (or update the label of) a workspace. Idempotent by path. */
+/** Add (or update the label of) a workspace. Idempotent by worktree root. */
 export async function addWorkspace(path, label) {
-  const abs = resolve(path);
-  const id = idFor(abs);
+  const root = await toplevel(resolve(path));
+  if (!root) throw new Error(`not a git worktree: ${resolve(path)}`);
+  const id = idFor(root);
   const workspaces = await readRegistry();
   const existing = workspaces.find((w) => w.id === id);
   if (existing) {
@@ -55,7 +71,7 @@ export async function addWorkspace(path, label) {
     }
     return existing;
   }
-  const ws = { id, path: abs, label: label || basename(abs), addedAt: new Date().toISOString() };
+  const ws = { id, path: root, label: label || basename(root), addedAt: new Date().toISOString() };
   workspaces.push(ws);
   await writeRegistry(workspaces);
   return ws;
@@ -64,7 +80,7 @@ export async function addWorkspace(path, label) {
 /** Remove by id or by path. Returns true if something was removed. */
 export async function removeWorkspace(idOrPath) {
   const workspaces = await readRegistry();
-  const targetId = isId(idOrPath) ? idOrPath : idFor(idOrPath);
+  const targetId = isId(idOrPath) ? idOrPath : idFor(await canonical(idOrPath));
   const next = workspaces.filter((w) => w.id !== targetId);
   if (next.length !== workspaces.length) {
     await writeRegistry(next);
@@ -82,7 +98,7 @@ export async function resolveWorkspace({ ws, path } = {}) {
   const workspaces = await readRegistry();
   if (ws) return workspaces.find((w) => w.id === ws) || null;
   if (path) {
-    const abs = resolve(path);
+    const abs = await canonical(path);
     const exact = workspaces.find((w) => w.id === idFor(abs));
     if (exact) return exact;
     return (

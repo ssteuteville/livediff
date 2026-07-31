@@ -52,6 +52,19 @@ export async function isGitRepo(cwd) {
   }
 }
 
+/**
+ * Absolute path of the worktree root containing `cwd`. Returns null when `cwd` is not inside a
+ * work tree. Correct for linked worktrees, where it resolves to the worktree — not the main repo.
+ */
+export async function toplevel(cwd) {
+  try {
+    const out = await exec("git", ["rev-parse", "--show-toplevel"], { cwd });
+    return out.stdout.trim() || null;
+  } catch {
+    return null;
+  }
+}
+
 async function currentBranch(cwd) {
   const out = (await git(cwd, ["rev-parse", "--abbrev-ref", "HEAD"])).trim();
   return out === "HEAD" ? "(detached)" : out;
