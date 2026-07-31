@@ -1,10 +1,12 @@
-import { execFile } from "node:child_process";
-import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
+import { execFile, spawn } from "node:child_process";
+import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 
 const exec = promisify(execFile);
+const SERVER = fileURLToPath(new URL("../server/index.js", import.meta.url));
 
 /**
  * Point XDG_CONFIG_HOME and XDG_STATE_HOME at fresh temp dirs for the duration of `fn`.
@@ -44,4 +46,36 @@ export async function makeRepo(root, subdirs = []) {
   await exec("git", ["commit", "-qm", "init"], { cwd: real });
   for (const sub of subdirs) await mkdir(join(real, sub), { recursive: true });
   return real;
+}
+
+/**
+ * Spawn a real hub inheriting the current temp XDG env. Resolves once *this* child writes
+ * hub.json — matching on pid, because an already-running hub's state file would otherwise make
+ * this return instantly and leak the child. Returns a `stop()` that kills the process.
+ */
+export async function startHub({ port = 0, timeoutMs = 10_000 } = {}) {
+  const child = spawn(process.execPath, [SERVER], {
+    env: { ...process.env, LIVEDIFF_PORT: String(port || 4181) },
+    stdio: "ignore",
+    detached: false,
+  });
+  const state = join(process.env.XDG_STATE_HOME, "livediff", "hub.json");
+  const deadline = Date.now() + timeoutMs;
+  let exited = false;
+  child.once("exit", () => {
+    exited = true;
+  });
+  while (Date.now() < deadline && !exited) {
+    try {
+      const parsed = JSON.parse(await readFile(state, "utf8"));
+      if (parsed.pid === child.pid && parsed.port) {
+        return { ...parsed, stop: () => child.kill("SIGKILL") };
+      }
+    } catch {
+      /* not written yet */
+    }
+    await new Promise((r) => setTimeout(r, 50));
+  }
+  child.kill("SIGKILL");
+  throw new Error(`hub did not start within ${timeoutMs}ms`);
 }

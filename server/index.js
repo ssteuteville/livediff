@@ -13,14 +13,17 @@ import {
   registrySignature,
   resolveWorkspace,
 } from "./registry.js";
+import { writeState, clearState, probeMeta, isBlockedPort } from "./hub-state.js";
+import { migrateRegistry } from "./migrations.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DIST = join(__dirname, "..", "dist");
 
-const PORT = Number(process.env.LIVEDIFF_PORT || 4180);
+const PREFERRED_PORT = Number(process.env.LIVEDIFF_PORT || 4180);
+let BOUND_PORT = PREFERRED_PORT;
 const POLL_MS = Number(process.env.LIVEDIFF_POLL_MS || 1000);
 
-let VERSION = "0.2.0";
+let VERSION = "0.0.0";
 try {
   VERSION = JSON.parse(await readFile(join(__dirname, "..", "package.json"), "utf8")).version;
 } catch {
@@ -119,7 +122,15 @@ const server = createServer(async (req, res) => {
 
   try {
     if (pathname === "/api/meta") {
-      return send(res, 200, { port: PORT, version: VERSION });
+      return send(res, 200, { name: "livediff", port: BOUND_PORT, version: VERSION });
+    }
+
+    if (pathname === "/api/shutdown" && req.method === "POST") {
+      send(res, 200, { ok: true });
+      setTimeout(() => {
+        clearState().finally(() => process.exit(0));
+      }, 50);
+      return;
     }
 
     if (pathname === "/api/resolve") {
@@ -209,7 +220,37 @@ const server = createServer(async (req, res) => {
   }
 });
 
+/**
+ * Bind `preferred`, or the next free port after it. An occupied port whose occupant is an
+ * equivalent livediff hub means this process is redundant — signalled by returning null.
+ */
+async function listenWithFallback(srv, preferred, tries = 20) {
+  for (let port = preferred; port < preferred + tries; port++) {
+    if (isBlockedPort(port)) continue;
+    try {
+      await new Promise((res, rej) => {
+        const onError = (err) => rej(err);
+        srv.once("error", onError);
+        srv.listen(port, "127.0.0.1", () => {
+          srv.removeListener("error", onError);
+          res();
+        });
+      });
+      return port;
+    } catch (err) {
+      if (err.code !== "EADDRINUSE") throw err;
+    }
+    // Only now is a probe worth its cost. The timeout is generous because this is the first
+    // fetch in a cold process, which pays undici's one-time initialization.
+    const meta = await probeMeta(port, 2000);
+    if (meta && meta.name === "livediff" && meta.version === VERSION) return null;
+  }
+  throw new Error(`no free port in ${preferred}..${preferred + tries - 1}`);
+}
+
 async function main() {
+  await migrateRegistry();
+
   const diffSigs = new Map();
   const commentSigs = new Map();
   let registrySig = null;
@@ -256,15 +297,32 @@ async function main() {
   await poll();
   setInterval(poll, POLL_MS);
 
-  server.listen(PORT, "127.0.0.1", () => {
-    const link = `http://localhost:${PORT}`;
-    console.log(`livediff hub → ${link}  (v${VERSION})`);
-    if (process.env.LIVEDIFF_OPEN === "1") {
-      const opener =
-        process.platform === "darwin" ? "open" : process.platform === "win32" ? "explorer" : "xdg-open";
-      execFile(opener, [link], () => {});
-    }
+  const port = await listenWithFallback(server, PREFERRED_PORT);
+  if (port === null) {
+    console.log(`livediff hub already running on ${PREFERRED_PORT} — exiting`);
+    process.exit(0);
+  }
+  BOUND_PORT = port;
+  await writeState({
+    pid: process.pid,
+    port,
+    version: VERSION,
+    startedAt: new Date().toISOString(),
   });
+
+  for (const signal of ["SIGINT", "SIGTERM"]) {
+    process.on(signal, () => {
+      clearState().finally(() => process.exit(0));
+    });
+  }
+
+  const link = `http://localhost:${port}`;
+  console.log(`livediff hub → ${link}  (v${VERSION})`);
+  if (process.env.LIVEDIFF_OPEN === "1") {
+    const opener =
+      process.platform === "darwin" ? "open" : process.platform === "win32" ? "explorer" : "xdg-open";
+    execFile(opener, [link], () => {});
+  }
 }
 
 main();
