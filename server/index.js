@@ -17,6 +17,7 @@ import {
 } from "./registry.js";
 import { writeState, clearState, probeMeta, isBlockedPort } from "./hub-state.js";
 import { migrateRegistry } from "./migrations.js";
+import { openReview, reviewFor, completeReview, cancelReview } from "./reviews.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DIST = join(__dirname, "..", "dist");
@@ -208,6 +209,37 @@ const server = createServer(async (req, res) => {
         broadcast("comments", { reason: "deleted", ws: ws.id });
         return send(res, ok ? 200 : 404, { ok });
       }
+    }
+
+    if (pathname === "/api/reviews" && req.method === "GET") {
+      const ws = await resolveWs(url);
+      if (!ws) return send(res, 404, { error: "unknown workspace" });
+      return send(res, 200, { review: reviewFor(ws.id) });
+    }
+
+    if (pathname === "/api/reviews" && req.method === "POST") {
+      const body = await readBody(req);
+      const ws = await resolveWorkspace({ ws: body.ws, path: body.path });
+      if (!ws) return send(res, 404, { error: "unknown workspace" });
+      const review = openReview(ws.id);
+      broadcast("review", { ws: ws.id, reviewId: review.reviewId, state: "open" });
+      return send(res, 201, review);
+    }
+
+    const reviewDone = pathname.match(/^\/api\/reviews\/([\w-]+)\/done$/);
+    if (reviewDone && req.method === "POST") {
+      const review = completeReview(reviewDone[1]);
+      if (!review) return send(res, 404, { error: "no such review" });
+      broadcast("review", { ws: review.ws, reviewId: review.reviewId, state: "done" });
+      return send(res, 200, review);
+    }
+
+    const reviewCancel = pathname.match(/^\/api\/reviews\/([\w-]+)$/);
+    if (reviewCancel && req.method === "DELETE") {
+      const review = cancelReview(reviewCancel[1]);
+      if (!review) return send(res, 404, { error: "no such review" });
+      broadcast("review", { ws: review.ws, reviewId: review.reviewId, state: "cancelled" });
+      return send(res, 200, { ok: true });
     }
 
     if (pathname === "/api/events") {
