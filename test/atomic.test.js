@@ -15,11 +15,11 @@ test("writes JSON and creates missing parent directories", async () => {
 
 test("leaves no temp files behind", async () => {
   await withTempXdg(async ({ root }) => {
-    const file = join(root, "data.json");
+    const dir = join(root, "writes");
+    const file = join(dir, "data.json");
     await writeJsonAtomic(file, { a: 1 });
     await writeJsonAtomic(file, { a: 2 });
-    const entries = await readdir(root);
-    assert.deepEqual(entries, ["data.json"]);
+    assert.deepEqual(await readdir(dir), ["data.json"]);
   });
 });
 

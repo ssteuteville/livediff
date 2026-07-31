@@ -112,6 +112,22 @@ export const COMMANDS = [
     examples: [["livediff stop", "shut the hub down"]],
   },
   {
+    id: "doctor",
+    name: "doctor",
+    usage: "livediff doctor",
+    summary: "diagnose install and state problems",
+    details:
+      "Checks that livediff resolves to exactly one binary, that the running hub\n" +
+      "matches this CLI's version, and that no stale state, unmigrated registry\n" +
+      "entries, or outdated Claude skill files are left over from an older install.\n" +
+      "Exits non-zero if anything is actually broken.",
+    flags: [],
+    examples: [
+      ["livediff doctor", "check the install"],
+      ["livediff doctor --json", "machine-readable findings"],
+    ],
+  },
+  {
     id: "help",
     name: "help",
     usage: "livediff help [command]",

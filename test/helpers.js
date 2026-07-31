@@ -9,24 +9,32 @@ const exec = promisify(execFile);
 const SERVER = fileURLToPath(new URL("../server/index.js", import.meta.url));
 
 /**
- * Point XDG_CONFIG_HOME and XDG_STATE_HOME at fresh temp dirs for the duration of `fn`.
- * Tests must never read or write the developer's real livediff state.
+ * Point XDG_CONFIG_HOME, XDG_STATE_HOME and HOME at fresh temp dirs for the duration of `fn`.
+ * Tests must never read or write the developer's real livediff state — HOME is included because
+ * `os.homedir()` honours it, and doctor inspects ~/.claude/skills.
  */
 export async function withTempXdg(fn) {
   const root = await mkdtemp(join(tmpdir(), "livediff-test-"));
   const config = join(root, "config");
   const state = join(root, "state");
-  const prevConfig = process.env.XDG_CONFIG_HOME;
-  const prevState = process.env.XDG_STATE_HOME;
+  const home = join(root, "home");
+  await mkdir(home, { recursive: true });
+
+  const saved = {
+    XDG_CONFIG_HOME: process.env.XDG_CONFIG_HOME,
+    XDG_STATE_HOME: process.env.XDG_STATE_HOME,
+    HOME: process.env.HOME,
+  };
   process.env.XDG_CONFIG_HOME = config;
   process.env.XDG_STATE_HOME = state;
+  process.env.HOME = home;
   try {
-    await fn({ config, state, root });
+    await fn({ config, state, home, root });
   } finally {
-    if (prevConfig === undefined) delete process.env.XDG_CONFIG_HOME;
-    else process.env.XDG_CONFIG_HOME = prevConfig;
-    if (prevState === undefined) delete process.env.XDG_STATE_HOME;
-    else process.env.XDG_STATE_HOME = prevState;
+    for (const [key, value] of Object.entries(saved)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
     await rm(root, { recursive: true, force: true });
   }
 }

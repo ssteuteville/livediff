@@ -4,6 +4,7 @@ import { execFile } from "node:child_process";
 import { ensureHub, hubVersion } from "./ensure-hub.js";
 import { readState, clearState, pidAlive } from "./hub-state.js";
 import { findCommand, renderCommandHelp, renderMainHelp, suggest } from "./cli-help.js";
+import { diagnose } from "./doctor.js";
 
 const EXIT_OK = 0;
 const EXIT_ERROR = 1;
@@ -244,6 +245,28 @@ async function cmdStop() {
   out("hub stopped", { running: false });
 }
 
+const MARK = { ok: "✓", warn: "!", error: "✗" };
+
+async function cmdDoctor() {
+  const findings = await diagnose(hubVersion());
+  if (JSON_OUT) {
+    const worst = findings.some((f) => f.level === "error") ? EXIT_ERROR : EXIT_OK;
+    console.log(JSON.stringify({ version: hubVersion(), findings }, null, 2));
+    await exit(worst);
+  }
+  console.log(`livediff doctor — v${hubVersion()}\n`);
+  for (const f of findings) {
+    console.log(`${MARK[f.level]} ${f.title}`);
+    for (const line of String(f.detail ?? "").split("\n").filter(Boolean)) {
+      console.log(`    ${line}`);
+    }
+    if (f.fix) console.log(`    → ${f.fix}`);
+  }
+  const problems = findings.filter((f) => f.level !== "ok").length;
+  console.log(problems === 0 ? "\nAll good." : `\n${problems} thing(s) to look at.`);
+  if (findings.some((f) => f.level === "error")) await exit(EXIT_ERROR);
+}
+
 function helpFor(token) {
   if (!token) return renderMainHelp(hubVersion());
   const cmd = findCommand(token);
@@ -288,6 +311,8 @@ async function main() {
       return cmdReplyOrResolve(rest, false);
     case "stop":
       return cmdStop();
+    case "doctor":
+      return cmdDoctor();
     default:
       if (looksLikePath(cmd)) return cmdOpen(cmd);
       return cmdHelp(cmd);
