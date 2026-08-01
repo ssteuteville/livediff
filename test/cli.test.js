@@ -107,7 +107,7 @@ test("comments round-trip through the CLI without touching files", async () => {
       const res = await cli(["resolve", created.id, "done", "--json"], { cwd: repo });
       assert.equal(res.code, 0);
 
-      const after = JSON.parse((await cli(["comments", repo, "--json"])).stdout);
+      const after = JSON.parse((await cli(["comments", repo, "--json", "--status", "all"])).stdout);
       assert.equal(after.comments[0].status, "resolved");
       assert.equal(after.comments[0].replies.length, 1);
     } finally {
@@ -263,6 +263,112 @@ test("a wholly unrecognizable command exits 2 without a bogus suggestion", async
     assert.equal(res.code, 2);
     assert.match(res.stderr, /unknown command: frobnicate/);
     assert.doesNotMatch(res.stderr, /Did you mean/);
+  });
+});
+
+test("comments filters by --status and defaults to open", async () => {
+  await withTempXdg(async ({ root }) => {
+    const repo = await makeRepo(join(root, "repo"));
+    try {
+      const ws = JSON.parse((await cli([repo, "--no-open", "--json"])).stdout);
+      const state = await readState();
+      const post = (body) =>
+        fetch(`http://127.0.0.1:${state.port}/api/comments?ws=${ws.id}`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ file: "README.md", side: "new", line: 1, body }),
+        }).then((r) => r.json());
+
+      const kept = await post("still open");
+      const closed = await post("will be resolved");
+      await cli(["resolve", closed.id, "done"], { cwd: repo });
+
+      const dflt = (await cli(["comments", repo])).stdout;
+      assert.match(dflt, /still open/);
+      assert.doesNotMatch(dflt, /will be resolved/);
+
+      const resolved = (await cli(["comments", repo, "--status", "resolved"])).stdout;
+      assert.match(resolved, /will be resolved/);
+      assert.doesNotMatch(resolved, /still open/);
+
+      const all = (await cli(["comments", repo, "--status", "all"])).stdout;
+      assert.match(all, /still open/);
+      assert.match(all, /will be resolved/);
+
+      assert.ok(kept.id);
+    } finally {
+      await stopHub();
+    }
+  });
+});
+
+test("comments prints the quoted source line as an anchor", async () => {
+  await withTempXdg(async ({ root }) => {
+    const repo = await makeRepo(join(root, "repo"));
+    try {
+      const ws = JSON.parse((await cli([repo, "--no-open", "--json"])).stdout);
+      const state = await readState();
+      // The server stores lineContent as given and defaults it to "" (server/comments.js) —
+      // the browser is what supplies it, so a test posting directly must send it too.
+      await fetch(`http://127.0.0.1:${state.port}/api/comments?ws=${ws.id}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          file: "README.md",
+          side: "new",
+          line: 1,
+          lineContent: "# test\n",
+          body: "fix",
+        }),
+      });
+      const text = (await cli(["comments", repo])).stdout;
+      assert.match(text, /\| # test/);
+    } finally {
+      await stopHub();
+    }
+  });
+});
+
+test("an empty filter result names the comments it hid", async () => {
+  await withTempXdg(async ({ root }) => {
+    const repo = await makeRepo(join(root, "repo"));
+    try {
+      const ws = JSON.parse((await cli([repo, "--no-open", "--json"])).stdout);
+      const state = await readState();
+      const made = await fetch(`http://127.0.0.1:${state.port}/api/comments?ws=${ws.id}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ file: "README.md", side: "new", line: 1, body: "fix" }),
+      }).then((r) => r.json());
+      await cli(["resolve", made.id, "done"], { cwd: repo });
+
+      const text = (await cli(["comments", repo])).stdout;
+      assert.match(text, /no open comments \(1 resolved — see --status all\)/);
+    } finally {
+      await stopHub();
+    }
+  });
+});
+
+test("a worktree with no comments at all says so without a count", async () => {
+  await withTempXdg(async ({ root }) => {
+    const repo = await makeRepo(join(root, "repo"));
+    try {
+      await cli([repo, "--no-open", "--json"]);
+      const text = (await cli(["comments", repo])).stdout;
+      assert.match(text, /^no comments$/m);
+    } finally {
+      await stopHub();
+    }
+  });
+});
+
+test("an invalid --status exits 2 without starting a hub", async () => {
+  await withTempXdg(async () => {
+    const res = await cli(["comments", "--status", "pending"]);
+    assert.equal(res.code, 2);
+    assert.match(res.stderr, /--status must be one of: open, resolved, all/);
+    assert.equal(await readState(), null);
   });
 });
 

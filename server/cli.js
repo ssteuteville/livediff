@@ -7,6 +7,7 @@ import { findCommand, renderCommandHelp, renderMainHelp, suggest, VALUE_FLAGS } 
 import { openBrowser } from "./open-browser.js";
 import { sseEvents } from "./sse.js";
 import { diagnose } from "./doctor.js";
+import { COMMENT_STATUSES, filterByStatus, formatComments, emptyMessage } from "./comment-format.js";
 
 const EXIT_OK = 0;
 const EXIT_ERROR = 1;
@@ -177,16 +178,17 @@ async function cmdRemove(target) {
 }
 
 async function cmdComments(pathArg) {
+  const status = values.get("--status") ?? "open";
+  if (!COMMENT_STATUSES.includes(status)) {
+    await die(`--status must be one of: ${COMMENT_STATUSES.join(", ")}`, EXIT_USAGE);
+  }
   const base = await ensureHub();
   const ws = await resolveWs(base, pathArg);
   const { comments } = await api(base, `/api/comments?ws=${ws.id}`);
-  if (JSON_OUT) return out("", { workspace: ws.id, comments });
-  if (!comments.length) return console.log("no comments");
-  for (const c of comments) {
-    const replies = c.replies?.length ?? 0;
-    const thread = replies === 0 ? "" : `  (${replies} ${replies === 1 ? "reply" : "replies"})`;
-    console.log(`${c.id}  ${c.status.padEnd(8)}  ${c.file}:${c.line}  ${c.body}${thread}`);
-  }
+  const selected = filterByStatus(comments, status);
+  if (JSON_OUT) return out("", { workspace: ws.id, comments: selected });
+  if (!selected.length) return console.log(emptyMessage(comments, status));
+  console.log(formatComments(selected));
 }
 
 async function cmdReplyOrResolve(rest, resolveIt) {

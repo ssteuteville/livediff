@@ -14,7 +14,7 @@ export const GLOBAL_FLAGS = [
 ];
 
 /** Flags that consume the next token as their value. The parser needs this to keep it out of args. */
-export const VALUE_FLAGS = new Set(["--timeout"]);
+export const VALUE_FLAGS = new Set(["--timeout", "--status"]);
 
 /**
  * Commands that used to exist. `doctor` looks for these in installed skill files, which would
@@ -89,11 +89,18 @@ export const COMMANDS = [
   {
     id: "comments",
     name: "comments",
-    usage: "livediff comments [path]",
+    usage: "livediff comments [path] [--status open|resolved|all]",
     summary: "print review comments for a worktree",
-    details: "Defaults to the worktree containing the current directory.",
-    flags: [],
-    examples: [["livediff comments --json", "read this worktree's comments as JSON"]],
+    details:
+      "Defaults to the worktree containing the current directory, and to the open\n" +
+      "comments only. Each comment prints the quoted source line it was left on —\n" +
+      "trust that text over the line number, which drifts as the file is edited.",
+    flags: [["--status <which>", "open (default), resolved, or all"]],
+    examples: [
+      ["livediff comments", "open comments on this worktree"],
+      ["livediff comments --status all", "every comment, resolved included"],
+      ["livediff comments --json", "machine-readable output"],
+    ],
   },
   {
     id: "resolve",
