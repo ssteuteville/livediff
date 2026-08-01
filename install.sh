@@ -1,11 +1,17 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# livediff installer: build the app, expose the `livediff` CLI globally, and install
-# the Claude skill so any project can ask Claude to "open a diff of my worktree".
+# livediff installer.
+#
+# Default: build a real package and install it globally, exactly as `npm publish` would —
+# so the day this is published, nothing about the install changes.
+# --dev: link the working tree instead, for hacking on livediff itself.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
+
+MODE=install
+[ "${1:-}" = "--dev" ] && MODE=dev
 
 info() { printf '\033[36m›\033[0m %s\n' "$1"; }
 ok()   { printf '\033[32m✓\033[0m %s\n' "$1"; }
@@ -23,7 +29,6 @@ if [ "$NODE_MAJOR" -lt 18 ]; then
 fi
 ok "Node $(node -v)"
 
-# --- Package manager ---
 if command -v pnpm >/dev/null 2>&1; then
   PM=pnpm
 elif command -v npm >/dev/null 2>&1; then
@@ -34,6 +39,18 @@ else
   exit 1
 fi
 
+# --- Stop any running hub, so the new version isn't shadowed by an old process ---
+if command -v livediff >/dev/null 2>&1; then
+  livediff stop >/dev/null 2>&1 || true
+fi
+
+# --- Remove a previous global link ---
+# A `pnpm link --global` symlink and an installed package can both sit on PATH; which one runs
+# then depends on directory order, so an "upgrade" can silently keep running old code.
+info "Removing any previous global install…"
+pnpm uninstall --global livediff >/dev/null 2>&1 || true
+npm  uninstall --global livediff >/dev/null 2>&1 || true
+
 info "Installing dependencies…"
 "$PM" install
 
@@ -42,20 +59,46 @@ info "Building the UI…"
 
 chmod +x server/cli.js
 
-# --- Global CLI ---
-info "Linking the \`livediff\` command globally…"
-if [ "$PM" = pnpm ]; then
-  pnpm link --global || warn "pnpm link failed — you may need to run \`pnpm setup\` once, then re-run."
+if [ "$MODE" = dev ]; then
+  info "Linking the working tree globally (--dev)…"
+  if [ "$PM" = pnpm ]; then
+    pnpm link --global || warn "pnpm link failed — run \`pnpm setup\` once, then re-run."
+  else
+    npm link || warn "npm link failed — try adding npm's global bin dir to PATH."
+  fi
 else
-  npm link || warn "npm link failed — try \`sudo npm link\` or add npm's global bin to PATH."
+  info "Packing and installing globally…"
+  # pnpm records the tarball path as the dependency spec in its global manifest and re-resolves it
+  # on every later global operation — so the tarball must live at a stable path and must NOT be
+  # deleted afterwards, or `pnpm add --global <anything>` breaks for every package.
+  DIST_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/livediff"
+  mkdir -p "$DIST_DIR"
+  rm -f livediff-*.tgz
+  "$PM" pack >/dev/null
+  # Must be absolute: pnpm resolves a relative spec against its own global directory, not $PWD.
+  BUILT="$SCRIPT_DIR/$(ls -t livediff-*.tgz | head -1)"
+  TARBALL="$DIST_DIR/livediff.tgz"
+  mv -f "$BUILT" "$TARBALL"
+  if [ "$PM" = pnpm ]; then
+    pnpm add --global "$TARBALL" || warn "pnpm add --global failed — run \`pnpm setup\` once, then re-run."
+  else
+    npm install --global "$TARBALL" || warn "npm install --global failed."
+  fi
 fi
 
-if command -v livediff >/dev/null 2>&1; then
-  ok "\`livediff\` is on your PATH"
+# --- Verify livediff actually runs ---
+# `command -v` succeeds for a dangling symlink, so check that it executes, not that it exists.
+if livediff --version >/dev/null 2>&1; then
+  ok "\`livediff\` v$(livediff --version) → $(command -v livediff)"
 else
-  warn "\`livediff\` isn't on your PATH yet. Ensure your package manager's global bin dir is on PATH"
-  warn "  (pnpm: run \`pnpm setup\` and open a new shell). You can also run it directly:"
-  warn "  node \"$SCRIPT_DIR/server/cli.js\""
+  warn "\`livediff\` is not runnable yet."
+  if command -v livediff >/dev/null 2>&1; then
+    warn "  $(command -v livediff) exists but does not run — likely a stale symlink."
+    warn "  Remove it, then re-run this installer."
+  else
+    warn "  pnpm: run \`pnpm setup\` and open a new shell. Or run it directly:"
+    warn "  node \"$SCRIPT_DIR/server/cli.js\""
+  fi
 fi
 
 # --- Claude skill (personal scope: available in every project) ---
@@ -67,20 +110,20 @@ rm -rf "$SKILL_DST"
 cp -R "$SKILL_SRC" "$SKILL_DST"
 ok "Skill installed (personal scope — loads in every project)"
 
+echo
+info "Checking the install…"
+if livediff --version >/dev/null 2>&1; then
+  livediff doctor || true
+else
+  node "$SCRIPT_DIR/server/cli.js" doctor || true
+fi
+
 cat <<EOF
 
 $(ok "Done.")
 
-Next:
-  livediff                 # start the hub → http://localhost:4180
-  cd <any repo> && livediff add .   # register a worktree to show it
+  cd <any git worktree> && livediff .
 
-In Claude Code, just say "open a diff of my worktree". The skill will register the
-current worktree and share the URL. Leave comments in the browser, then ask Claude
-to "address my diff comments".
-
-Prefer the plugin system instead of the copied skill? From any machine:
-  /plugin marketplace add <this-repo-git-url>
-  /plugin install livediff@livediff
-(The plugin carries only the skill; the \`livediff\` CLI still comes from this installer.)
+That registers the worktree, starts the hub if it isn't running, and opens the
+diff. In Claude Code, say "open a diff of my worktree".
 EOF
