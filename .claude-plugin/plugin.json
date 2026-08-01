@@ -1,8 +1,8 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
   "name": "livediff",
-  "version": "0.3.0",
-  "description": "Register a git worktree in the livediff hub and read/answer its inline review comments",
+  "version": "0.5.0",
+  "description": "Show a git worktree as a live browser diff and act on the review comments left on it",
   "author": { "name": "Shane" },
   "keywords": ["git", "diff", "review", "worktree", "code-review"]
 }
