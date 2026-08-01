@@ -179,6 +179,120 @@ f800282c  DESIGN.md:44  (archived — purges in 194 days)
     why not both?
 ```
 
+## Maintenance commands
+
+The sweep runs only while a browser is attached, so both operations also need to be
+invocable on demand.
+
+```
+livediff archive [path] [--stale] [--resolved] [--dry-run]
+livediff prune   [path] [--keep-days <n> | --all] [--dry-run] [--yes]
+```
+
+**These two default to every workspace, not the current one.** Every other command resolves
+the cwd's workspace; these are maintenance, like `doctor`, and cleaning a single worktree
+would reclaim little of what `doctor` reports globally. A positional `path` narrows them —
+`livediff prune .` for the current worktree. Both `--help` entries state the global default
+explicitly, because it is the surprising one.
+
+### `archive`
+
+Bare, it applies the normal gates — orphaned for more than 5 days, or resolved for more than
+30 — to every registered workspace. This is the same work the sweep does, forced to run now.
+
+`--stale` archives every orphaned comment regardless of age. `--resolved` archives every
+resolved comment regardless of age. Both override only the age gate; neither invents a new
+notion of what qualifies. They may be combined.
+
+Archiving needs each workspace's changed paths, which is exactly what the poll loop already
+computes for every workspace once per second, so a global run is routine work rather than a
+new cost.
+
+### `prune`
+
+Bare, it applies the normal 200-day rule. `--keep-days <n>` deletes archived records older
+than `n` days; `--all` deletes every archived record. The two are mutually exclusive; passing
+both exits 2.
+
+`--all` and `--keep-days` are separate flags rather than `--keep-days 0` because `--all` says
+what it does at a glance, which matters most on the one command that destroys data.
+
+Prune needs no git — it is timestamp arithmetic over stored `archivedAt` values — so a global
+run costs one file read per workspace.
+
+### Confirmation
+
+Bare `prune` deletes exactly what the automatic sweep would have deleted anyway, so it does
+not prompt. `--all`, or `--keep-days` below `PURGE_DAYS`, destroys records earlier than
+automatic behavior and therefore prompts, unless `--yes` is passed. When stdin is not a TTY
+and `--yes` is absent, it exits 2 with a message naming `--yes` rather than hanging on a
+prompt nobody can answer.
+
+`--dry-run` on both commands reports what would change and exits without writing. **It never
+prompts**, whatever else is passed — there is nothing to confirm when nothing will be deleted,
+and a prompt would make the safe preview annoying enough to skip. It is required on `prune` in
+particular because the affected count is not visible anywhere else.
+
+Both commands report counts on completion, and `--json` returns them structured:
+
+```
+archived 12 comments across 3 workspaces
+pruned 47 archived comments (1.2 MB freed) across 3 workspaces
+```
+
+## `doctor` reports the archive
+
+A `checkArchive` finding reports what is stored and what to do about it:
+
+```
+✓ comment archive
+    3 workspaces, 47 archived comments, 1.2 MB
+    oldest archived 183 days ago
+    → livediff prune --keep-days 30
+```
+
+It is an `ok` finding under 5 MB and a `warn` above it. The suggested command is the point:
+`doctor` already tells you how to fix everything else it reports, and archive growth is the
+one thing it would otherwise only describe.
+
+Byte size comes from `stat`; the archived count and oldest `archivedAt` require reading each
+store, so the check is one stat plus one parse per workspace. That is the same work
+`checkRegistry` already does per workspace, over files measured in kilobytes.
+
+## The `/livediff:prune` skill
+
+A fifth plugin skill, typed-only:
+
+```markdown
+---
+name: prune
+description: Show what livediff would delete from its comment archive, then clean it up.
+disable-model-invocation: true
+allowed-tools: Bash(livediff *)
+---
+
+!`livediff prune --dry-run`
+
+Report exactly what would be deleted. If nothing would be, say so and stop.
+Otherwise ask what to keep before running anything — never prune without an answer.
+```
+
+This is the first skill capable of destroying data, so two properties are deliberate.
+`disable-model-invocation: true` keeps it out of Claude's context entirely, so no path exists
+where the model decides an archive looks large and acts on it. And the only automatic action
+in the body is the dry-run; the real command requires the user to answer first.
+
+Arguments are deliberately not forwarded to `--keep-days`. Argument substitution and
+`` !`…` `` injection are both preprocessing passes over the skill file, and their relative
+ordering is not documented — a destructive command should not depend on an unverified
+ordering. The user states a window in conversation and Claude passes the flag.
+
+There is no `/livediff:archive` counterpart. Archiving is reversible for 200 days, so it does
+not need a preview ritual.
+
+Resting context cost is unchanged at roughly 80 tokens: the three typed-only skills cost
+nothing until invoked.
+
 ## UI
 
 Minimal, consistent with the v0.5 constraint. Orphaned and archived comments are simply not
@@ -194,8 +308,10 @@ from the same filtered payload.
 | `server/comments.js` | Keyed v2 store; `sweep`, `restoreComment`, branch filtering. |
 | `server/git.js` | `changedPaths`, shared with `summaryFor`. |
 | `server/index.js` | Branch filter on the comments route and the SSE payload; calls `sweep` from the poll loop. |
-| `server/cli.js`, `server/cli-help.js` | `--stale`, `--archived`, `--branch`, `restore`. |
+| `server/cli.js`, `server/cli-help.js` | `--stale`, `--archived`, `--branch`, `restore`, `archive`, `prune`, confirmation and `--dry-run`. |
 | `server/comment-format.js` | Archived countdown in rendered output. |
+| `server/doctor.js` | `checkArchive` — size, count, oldest, suggested prune command. |
+| `skills/prune/SKILL.md` (new) | Typed-only dry-run-then-confirm skill. |
 
 Putting the predicates in their own module keeps the decisions — what counts as orphaned, when
 something archives — testable without a hub, a repo, or a fake clock library.
@@ -256,6 +372,22 @@ no pending work is lost.
 | `--archived` prints a purge countdown | output matches `purges in \d+ days` |
 | `--stale --archived` together exit 2 | exit code 2 with a usage message |
 | `restore <id>` returns a comment to live | visible in default output afterwards |
+| `archive` defaults to every workspace | a comment in an unrelated workspace is archived too |
+| `archive .` narrows to the current worktree | the unrelated workspace is untouched |
+| `archive --stale` ignores the age gate | an orphaned comment updated today is archived |
+| `prune` bare applies the 200-day rule | a 201-day-old archived record goes, a 199-day one stays |
+| `prune --keep-days 10 --yes` deletes older | an 11-day-old archived record goes |
+| `prune --all --yes` empties the archive | no archived records remain |
+| `prune --all` without `--yes`, non-TTY | exit 2, message names `--yes` |
+| `prune --keep-days 10 --all` | exit 2, mutually exclusive |
+| `--dry-run` writes nothing | counts reported, store byte-identical afterwards |
+
+### `test/doctor.test.js`
+
+| Test | Asserts |
+| --- | --- |
+| an empty archive reports ok with no suggestion | finding is `ok`, no `fix` |
+| a populated archive suggests a prune command | `fix` matches `livediff prune` |
 
 Time-dependent behavior is tested through `comment-lifecycle` with an explicit `now`, so the
 store and CLI tests never sleep or manipulate clocks.
@@ -265,4 +397,8 @@ store and CLI tests never sleep or manipulate clocks.
 - Persisting a base ref per workspace. `?base=` stays a per-request parameter.
 - Re-anchoring `line` after a rebase. `lineContent` remains the anchor a reader trusts.
 - A UI surface for archived comments. `livediff restore` is the recovery path.
+- A `/livediff:archive` skill. Archiving is reversible, so it needs no preview ritual.
+- Any mention of `archive`, `prune`, or `restore` in the model-invocable skills. Maintenance
+  commands stay out of `open` and `comments`, for the same reason `doctor`, `list`, and `stop`
+  do — naming a command in a skill is an invitation to run it.
 - Migrating v1 stores. The wipe removes the need.
