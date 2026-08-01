@@ -31,11 +31,29 @@ cd livediff
 ```
 
 This builds a real package and installs it globally — the same thing publishing to npm would do —
-then installs the Claude skill into `~/.claude/skills/`. Run `./install.sh --dev` instead to link
+then removes any skill copy left by a pre-0.5 install. Run `./install.sh --dev` instead to link
 the working tree if you are hacking on livediff itself.
 
 Upgrading later is the same command. It removes the previous install first, so you can never end up
 with two `livediff` binaries racing on `PATH`.
+
+## Claude Code
+
+Install the plugin once; it supplies the skills and commands:
+
+```
+/plugin marketplace add /path/to/livediff
+/plugin install livediff
+```
+
+| You say or type | What happens |
+| --- | --- |
+| "show me the diff" | registers this worktree and opens it |
+| "address my comments" | reads your open comments and works through them |
+| `/livediff:link` | prints the URL, opens nothing |
+| `/livediff:review` | opens the diff and waits for you to finish reviewing |
+
+The last two are typed-only on purpose: both have side effects whose timing you should own.
 
 ## Use
 
@@ -46,7 +64,7 @@ livediff <path> --no-open      register only, print the URL
 livediff <path> --wait         open, then block until "Done reviewing" is clicked
 livediff list                  list registered workspaces
 livediff rm [path|id]          unregister
-livediff comments [path]       print review comments
+livediff comments [path]       print open review comments (--status open|resolved|all)
 livediff resolve <id> [text…]  reply and mark resolved
 livediff reply <id> <text…>    reply without resolving
 livediff stop                  shut the hub down

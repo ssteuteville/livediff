@@ -101,14 +101,15 @@ else
   fi
 fi
 
-# --- Claude skill (personal scope: available in every project) ---
-SKILL_SRC="$SCRIPT_DIR/skills/open-worktree-diff"
-SKILL_DST="$HOME/.claude/skills/open-worktree-diff"
-info "Installing the Claude skill → $SKILL_DST"
-mkdir -p "$HOME/.claude/skills"
-rm -rf "$SKILL_DST"
-cp -R "$SKILL_SRC" "$SKILL_DST"
-ok "Skill installed (personal scope — loads in every project)"
+# --- Migrate off the copied skill ---
+# Pre-0.5 installs copied the skill into ~/.claude/skills. The plugin owns it now; leaving the
+# copy behind means two stale-able answers to the same question.
+LEGACY_SKILL="$HOME/.claude/skills/open-worktree-diff"
+if [ -d "$LEGACY_SKILL" ]; then
+  info "Removing the pre-0.5 skill copy → $LEGACY_SKILL"
+  rm -rf "$LEGACY_SKILL"
+  ok "Legacy skill removed"
+fi
 
 echo
 info "Checking the install…"
@@ -125,5 +126,13 @@ $(ok "Done.")
   cd <any git worktree> && livediff .
 
 That registers the worktree, starts the hub if it isn't running, and opens the
-diff. In Claude Code, say "open a diff of my worktree".
+diff.
+
+For Claude Code, install the plugin once — it supplies the skills and the
+/livediff:link and /livediff:review commands:
+
+  /plugin marketplace add $SCRIPT_DIR
+  /plugin install livediff
+
+Then say "show me the diff", or type /livediff:link for just the URL.
 EOF

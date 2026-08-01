@@ -236,3 +236,26 @@ hanging the first file's test.
 
 Coverage concentrates on what fails silently: the `ensureHub` state machine, port selection,
 dormancy transitions, path normalization, the registry migration, and CLI exit codes.
+
+## Agent integration
+
+Four skills, shipped by the plugin, with no MCP server. An MCP tool definition costs
+context in every conversation whether or not it is used; livediff is a local binary on
+`PATH` with no auth, so MCP would charge permanently to wrap a 240ms subprocess — and would
+drop every agent that speaks shell but not MCP.
+
+`open` and `comments` are model-invocable, matching the two things users ask for in prose.
+`link` and `review` set `disable-model-invocation: true`, which removes them from the model's
+context entirely and leaves them typable as `/livediff:link` and `/livediff:review`.
+
+`comments` and `link` use `` !`…` `` injection, so the CLI runs before the model reads the
+skill and the output arrives already rendered. That removes two model turns from the
+address-my-comments loop, which is where the latency actually was — the CLI itself answers
+in 240ms.
+
+No skill mentions `doctor`, `list`, `stop`, ports, or hub state. The v0.4 skill told the model
+not to check whether the hub was running and it checked anyway; a single negative instruction
+loses to a strong prior, so the fix was removing the vocabulary rather than repeating the rule.
+
+The plugin ships skills and no code. The CLI stays a global install, so the agent and the
+human run the same binary; `doctor` reports the two-artifact version skew that buys.
