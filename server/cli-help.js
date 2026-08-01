@@ -16,13 +16,6 @@ export const GLOBAL_FLAGS = [
 /** Flags that consume the next token as their value. The parser needs this to keep it out of args. */
 export const VALUE_FLAGS = new Set(["--timeout", "--status"]);
 
-/**
- * Commands that used to exist. `doctor` looks for these in installed skill files, which would
- * otherwise silently break after an upgrade. Kept beside COMMANDS so removing a command stays a
- * one-file change.
- */
-export const REMOVED_COMMANDS = ["add", "open"];
-
 export const COMMANDS = [
   {
     id: "open",
@@ -138,8 +131,8 @@ export const COMMANDS = [
     summary: "diagnose install and state problems",
     details:
       "Checks that livediff resolves to exactly one binary, that the running hub\n" +
-      "matches this CLI's version, and that no stale state, unmigrated registry\n" +
-      "entries, or outdated Claude skill files are left over from an older install.\n" +
+      "matches this CLI's version, that no stale state or unmigrated registry\n" +
+      "entries remain, and that the Claude plugin is at a matching version.\n" +
       "Exits non-zero if anything is actually broken.",
     flags: [],
     examples: [

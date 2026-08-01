@@ -64,28 +64,55 @@ test("a leftover .diff-review directory is reported", async () => {
   });
 });
 
-test("a Claude skill referencing removed commands is an error", async () => {
+test("a leftover pre-0.5 skill directory is an error", async () => {
   await withTempXdg(async ({ home }) => {
     const dir = join(home, ".claude", "skills", "open-worktree-diff");
     await mkdir(dir, { recursive: true });
-    await writeFile(join(dir, "SKILL.md"), "Run `livediff add \"$REPO\"` then share the URL.\n", "utf8");
+    await writeFile(join(dir, "SKILL.md"), "old\n", "utf8");
 
-    const findings = await diagnose("0.4.0");
-    const skill = find(findings, "removed commands");
-    assert.ok(skill, `expected a stale-skill finding, got ${JSON.stringify(findings)}`);
-    assert.equal(skill.level, "error");
-    assert.match(skill.detail, /livediff add/);
+    const findings = await diagnose("0.5.0");
+    const legacy = find(findings, "legacy skill directory");
+    assert.ok(legacy, `expected a legacy-skill finding, got ${JSON.stringify(findings)}`);
+    assert.equal(legacy.level, "error");
+    assert.match(legacy.fix, /rm -rf/);
   });
 });
 
-test("a Claude skill using only current commands is clean", async () => {
+test("a plugin at a different version is a warning", async () => {
   await withTempXdg(async ({ home }) => {
-    const dir = join(home, ".claude", "skills", "open-worktree-diff");
+    const dir = join(home, ".claude", "plugins", "cache", "local", "livediff", "0.4.0", ".claude-plugin");
     await mkdir(dir, { recursive: true });
-    await writeFile(join(dir, "SKILL.md"), "Run `livediff \"$REPO\"` then `livediff comments`.\n", "utf8");
+    await writeFile(join(dir, "plugin.json"), JSON.stringify({ name: "livediff", version: "0.4.0" }), "utf8");
 
-    const findings = await diagnose("0.4.0");
+    const findings = await diagnose("0.5.0");
+    const skew = find(findings, "plugin version differs");
+    assert.ok(skew, `expected a skew finding, got ${JSON.stringify(findings)}`);
+    assert.equal(skew.level, "warn");
+    assert.match(skew.detail, /CLI 0\.5\.0, plugin 0\.4\.0/);
+  });
+});
+
+test("a matching plugin version is clean", async () => {
+  await withTempXdg(async ({ home }) => {
+    const dir = join(home, ".claude", "plugins", "cache", "local", "livediff", "0.5.0", ".claude-plugin");
+    await mkdir(dir, { recursive: true });
+    await writeFile(join(dir, "plugin.json"), JSON.stringify({ name: "livediff", version: "0.5.0" }), "utf8");
+
+    const findings = await diagnose("0.5.0");
     assert.equal(findings.some((f) => f.level === "error"), false);
+    assert.match(find(findings, "claude plugin").detail, /0\.5\.0/);
+  });
+});
+
+test("the newest cached plugin version wins", async () => {
+  await withTempXdg(async ({ home }) => {
+    for (const v of ["0.4.0", "0.10.0"]) {
+      const dir = join(home, ".claude", "plugins", "cache", "local", "livediff", v, ".claude-plugin");
+      await mkdir(dir, { recursive: true });
+      await writeFile(join(dir, "plugin.json"), JSON.stringify({ name: "livediff", version: v }), "utf8");
+    }
+    const findings = await diagnose("0.10.0");
+    assert.match(find(findings, "claude plugin").detail, /0\.10\.0/);
   });
 });
 

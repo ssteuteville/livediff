@@ -6,7 +6,6 @@ import { promisify } from "node:util";
 import { configDir, readRegistry, idFor } from "./registry.js";
 import { toplevel } from "./git.js";
 import { readState, statePath, lockPath, pidAlive, probeMeta } from "./hub-state.js";
-import { REMOVED_COMMANDS } from "./cli-help.js";
 
 const exec = promisify(execFile);
 
@@ -145,30 +144,75 @@ async function checkLegacyDirs() {
   );
 }
 
-const removedCommandPattern = () =>
-  new RegExp(`\\blivediff\\s+(${REMOVED_COMMANDS.join("|")})\\b`, "g");
+/** Numeric per-segment comparison: "0.10.0" is newer than "0.4.0", which string order gets wrong. */
+function compareVersions(a, b) {
+  const pa = a.split(".").map(Number);
+  const pb = b.split(".").map(Number);
+  for (let i = 0; i < 3; i++) {
+    if ((pa[i] || 0) !== (pb[i] || 0)) return (pa[i] || 0) - (pb[i] || 0);
+  }
+  return 0;
+}
 
-async function checkSkill() {
-  const dir = join(homedir(), ".claude", "skills", "open-worktree-diff");
-  let files;
+/** Highest livediff version present in the plugin cache, or null when it is not installed. */
+async function installedPluginVersion() {
+  const cache = join(homedir(), ".claude", "plugins", "cache");
+  let marketplaces = [];
   try {
-    files = await readdir(dir);
+    marketplaces = await readdir(cache);
   } catch {
-    return ok("claude skill", "not installed to ~/.claude/skills");
+    return null;
   }
-  const stale = [];
-  for (const file of files) {
-    if (!file.endsWith(".md")) continue;
-    const text = await readFile(join(dir, file), "utf8");
-    const hits = [...text.matchAll(removedCommandPattern())].map((m) => m[0]);
-    if (hits.length) stale.push(`${join(dir, file)} — references ${[...new Set(hits)].join(", ")}`);
+  const found = [];
+  for (const marketplace of marketplaces) {
+    const dir = join(cache, marketplace, "livediff");
+    let versions = [];
+    try {
+      versions = await readdir(dir);
+    } catch {
+      continue;
+    }
+    for (const version of versions) {
+      try {
+        const raw = await readFile(join(dir, version, ".claude-plugin", "plugin.json"), "utf8");
+        const parsed = JSON.parse(raw);
+        if (parsed.version) found.push(parsed.version);
+      } catch {
+        /* not a plugin directory */
+      }
+    }
   }
-  if (!stale.length) return ok("claude skill", `installed at ${dir}`);
-  return bad(
-    "installed Claude skill uses removed commands",
-    stale.join("\n"),
-    "Re-run ./install.sh to refresh it. If it came from the plugin system, run `/plugin update livediff`."
-  );
+  return found.sort(compareVersions).pop() ?? null;
+}
+
+/**
+ * Pre-0.5 installers copied the skill into ~/.claude/skills. The plugin now owns it, so that
+ * copy is a second, stale answer to the same question — it never updates and its instructions
+ * compete with the plugin's for the model's attention.
+ */
+async function checkPlugin(version) {
+  const legacy = join(homedir(), ".claude", "skills", "open-worktree-diff");
+  try {
+    await access(legacy);
+    return bad(
+      "legacy skill directory left by a pre-0.5 install",
+      `${legacy} is a stale copy of the skill; the plugin supplies it now.`,
+      `rm -rf ${legacy}`
+    );
+  } catch {
+    /* nothing to clean up */
+  }
+
+  const installed = await installedPluginVersion();
+  if (!installed) return ok("claude plugin", "not installed (the CLI works without it)");
+  if (installed !== version) {
+    return warn(
+      "plugin version differs from the CLI",
+      `CLI ${version}, plugin ${installed}`,
+      "Run `/plugin update livediff` in Claude Code."
+    );
+  }
+  return ok("claude plugin", `v${installed}`);
 }
 
 /** Every check, in report order. Never throws — a failed check becomes a finding. */
@@ -179,7 +223,7 @@ export async function diagnose(version) {
     checkLock(),
     checkRegistry(),
     checkLegacyDirs(),
-    checkSkill(),
+    checkPlugin(version),
   ];
   const settled = await Promise.allSettled(checks);
   return settled.map((r) =>
