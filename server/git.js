@@ -65,7 +65,7 @@ export async function toplevel(cwd) {
   }
 }
 
-async function currentBranch(cwd) {
+export async function currentBranch(cwd) {
   const out = (await git(cwd, ["rev-parse", "--abbrev-ref", "HEAD"])).trim();
   return out === "HEAD" ? "(detached)" : out;
 }
@@ -195,6 +195,25 @@ export async function worktreeSignature(cwd, base) {
   return status;
 }
 
+/**
+ * Paths that differ from HEAD, plus untracked files. Shared by the rail's summary and by the
+ * lifecycle sweep, so a poll never runs the same git twice for the same information.
+ */
+export async function changedPaths(cwd) {
+  const paths = [];
+  if (await hasHead(cwd)) {
+    const tracked = (await git(cwd, ["diff", "--name-only", "HEAD", ...EXCLUDE]))
+      .split("\n")
+      .filter(Boolean);
+    paths.push(...tracked);
+  }
+  const untracked = (await git(cwd, ["ls-files", "--others", "--exclude-standard", "-z", ...EXCLUDE]))
+    .split("\0")
+    .filter(Boolean);
+  paths.push(...untracked);
+  return paths;
+}
+
 /** Cheap per-workspace summary for the rail: branch, head, changed-file count. */
 export async function summary(cwd) {
   if (!(await isGitRepo(cwd))) {
@@ -202,16 +221,5 @@ export async function summary(cwd) {
   }
   const branch = await currentBranch(cwd);
   const head = (await git(cwd, ["rev-parse", "--short", "HEAD"])).trim() || null;
-  let changedFiles = 0;
-  if (await hasHead(cwd)) {
-    const tracked = (await git(cwd, ["diff", "--name-only", "HEAD", ...EXCLUDE]))
-      .split("\n")
-      .filter(Boolean);
-    changedFiles += tracked.length;
-  }
-  const untracked = (await git(cwd, ["ls-files", "--others", "--exclude-standard", "-z", ...EXCLUDE]))
-    .split("\0")
-    .filter(Boolean);
-  changedFiles += untracked.length;
-  return { valid: true, branch, head, changedFiles };
+  return { valid: true, branch, head, changedFiles: (await changedPaths(cwd)).length };
 }
