@@ -128,8 +128,13 @@ async function cmdOpen(pathArg) {
   });
   const url = `http://localhost:${new URL(base).port}/?ws=${ws.id}&focus=1`;
   const quiet = flags.has("--no-open");
-  if (!quiet) openBrowser(url);
-  out(`${quiet ? "registered" : "opened"} ${ws.label} → ${url}`, { ...ws, url });
+  const opened = quiet ? false : await openBrowser(url);
+  const human = quiet
+    ? `registered ${ws.label} → ${url}`
+    : opened
+      ? `opened ${ws.label} → ${url}`
+      : `registered ${ws.label} → ${url} (could not open a browser)`;
+  out(human, { ...ws, url, opened });
 
   if (!flags.has("--wait")) return;
 
@@ -141,6 +146,7 @@ async function cmdOpen(pathArg) {
   out(`review complete ✓ — ${comments.length} ${plural} (${open} open)`, {
     ...ws,
     url,
+    opened,
     review: "done",
     comments: comments.length,
     openComments: open,
@@ -151,8 +157,9 @@ async function cmdHubUi() {
   const base = await ensureHub();
   const url = `http://localhost:${new URL(base).port}/`;
   const quiet = flags.has("--no-open");
-  if (!quiet) openBrowser(url);
-  out(`livediff → ${url}`, { url });
+  const opened = quiet ? false : await openBrowser(url);
+  const note = !quiet && !opened ? " (could not open a browser)" : "";
+  out(`livediff → ${url}${note}`, { url, opened });
 }
 
 async function cmdList() {

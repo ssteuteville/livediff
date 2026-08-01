@@ -198,6 +198,7 @@ export function renderMainHelp(version) {
     pad([
       ["LIVEDIFF_PORT", "preferred hub port (default 4180)"],
       ["LIVEDIFF_POLL_MS", "live-update poll interval in ms (default 1000)"],
+      ["LIVEDIFF_BROWSER", "command used to open URLs (default: the OS opener)"],
       ["NO_COLOR", "disable colored output"],
     ]),
     "",

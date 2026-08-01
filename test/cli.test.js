@@ -266,6 +266,51 @@ test("a wholly unrecognizable command exits 2 without a bogus suggestion", async
   });
 });
 
+test("a failed browser launch is reported instead of claimed as success", async () => {
+  await withTempXdg(async ({ root }) => {
+    const repo = await makeRepo(join(root, "repo"));
+    try {
+      const res = await cli([repo], { env: { LIVEDIFF_BROWSER: "false" } });
+      assert.equal(res.code, 0);
+      assert.match(res.stdout, /could not open a browser/);
+      assert.match(res.stdout, /http:\/\/localhost:\d+/);
+    } finally {
+      await stopHub();
+    }
+  });
+});
+
+test("a successful browser launch reports opened, and JSON carries the flag", async () => {
+  await withTempXdg(async ({ root }) => {
+    const repo = await makeRepo(join(root, "repo"));
+    try {
+      const res = await cli([repo, "--json"], { env: { LIVEDIFF_BROWSER: "true" } });
+      assert.equal(res.code, 0);
+      assert.equal(JSON.parse(res.stdout).opened, true);
+
+      const failed = await cli([repo, "--json"], { env: { LIVEDIFF_BROWSER: "false" } });
+      assert.equal(JSON.parse(failed.stdout).opened, false);
+    } finally {
+      await stopHub();
+    }
+  });
+});
+
+test("--no-open never claims a browser was opened", async () => {
+  await withTempXdg(async ({ root }) => {
+    const repo = await makeRepo(join(root, "repo"));
+    try {
+      const res = await cli([repo, "--no-open", "--json"]);
+      assert.equal(JSON.parse(res.stdout).opened, false);
+      const text = await cli([repo, "--no-open"]);
+      assert.match(text.stdout, /^registered /);
+      assert.doesNotMatch(text.stdout, /could not open/);
+    } finally {
+      await stopHub();
+    }
+  });
+});
+
 test("comments filters by --status and defaults to open", async () => {
   await withTempXdg(async ({ root }) => {
     const repo = await makeRepo(join(root, "repo"));
