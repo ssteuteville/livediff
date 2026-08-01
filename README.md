@@ -1,28 +1,28 @@
 # livediff
 
-A local, browser-based git diff **hub** that live-updates with your working tree and lets you leave
-inline review comments that AI agents (Claude et al.) can read and answer. Built to sit in front of
-a swarm of agents, each working in its own git worktree.
+A local git diff viewer that live-updates with your working tree and lets you leave inline review
+comments that AI agents can read and answer.
+
+```bash
+cd any-git-worktree
+livediff .
+```
+
+That registers the worktree, starts the hub if it isn't already running, and opens the diff in your
+browser. There is no server to remember to start.
 
 Runs entirely on `localhost` — no network, no telemetry. The only thing that touches your code is
-`git`; comments are plain JSON inside each worktree.
+`git`.
 
-## What it does
+## Why
 
-- **Live diff** of any registered worktree (worktree vs `HEAD`, plus staged and untracked; or diff
-  against a base ref you type).
-- **Multiple worktrees / repos at once.** A left rail lists every registered workspace with its
-  branch, change count, and open-comment count. Click to switch.
-- **Agent-driven registration.** Nothing shows up until you register it — `livediff add <path>` or
-  ask Claude. Perfect for parallel agents: each registers its own worktree.
-- **Inline review comments.** Click a line, leave a comment. Comments are scoped per workspace and
-  stored centrally, outside your repos — never touched directly by agents, only through the
-  `livediff` CLI or HTTP API — so the agent working in a worktree reads exactly the comments on
-  *its* diff, no cross-talk, and no stray files in your repo. Threads update live in the browser.
+It is built for working alongside a swarm of agents, each in its own worktree. Every worktree you
+register shows up in one hub at `http://localhost:4180`, with its branch, change count, and open
+comment count. You review in the browser; the agent reads your comments through the CLI and replies.
 
 ## Install
 
-Requires Node ≥ 18 and pnpm (or npm).
+Requires Node ≥ 18.
 
 ```bash
 git clone <this-repo-url> livediff
@@ -30,80 +30,102 @@ cd livediff
 ./install.sh
 ```
 
-`install.sh` installs deps, builds the UI, links the global `livediff` command, and copies the
-Claude skill into `~/.claude/skills/` (loads in every project).
+This builds a real package and installs it globally — the same thing publishing to npm would do —
+then installs the Claude skill into `~/.claude/skills/`. Run `./install.sh --dev` instead to link
+the working tree if you are hacking on livediff itself.
+
+Upgrading later is the same command. It removes the previous install first, so you can never end up
+with two `livediff` binaries racing on `PATH`.
 
 ## Use
 
-```bash
-livediff                       # start the hub → http://localhost:4180
-livediff add [path]            # register a worktree/repo (default: current dir)
-livediff open [path]           # register (if needed) and open a focused single-workspace view
-livediff rm  [path|id]         # unregister (does not touch the repo or its comments)
-livediff list                  # list registered workspaces
-livediff comments [path]       # print review comments for a worktree as JSON
-livediff resolve <id> [text…]  # reply (optional) and mark a comment resolved
-livediff reply <id> <text…>    # reply to a comment without resolving
+```
+livediff                       open the hub UI (all workspaces)
+livediff <path>                register a worktree and open its focused view
+livediff <path> --no-open      register only, print the URL
+livediff <path> --wait         open, then block until "Done reviewing" is clicked
+livediff list                  list registered workspaces
+livediff rm [path|id]          unregister
+livediff comments [path]       print review comments
+livediff resolve <id> [text…]  reply and mark resolved
+livediff reply <id> <text…>    reply without resolving
+livediff stop                  shut the hub down
+livediff doctor                diagnose install and state problems
 ```
 
-Then open <http://localhost:4180>, or set `LIVEDIFF_OPEN=1 livediff` to open the browser for you.
+Every command takes `--json` for machine-readable output. Exit codes are `0` success, `1` error,
+`2` usage mistake. `livediff help <command>` documents any of them.
 
-**Focused mode.** Open straight to one workspace with the rail hidden via URL params:
-`?ws=<id>&focus=1`, or `?path=<dir>&focus=1` (any directory inside the worktree resolves).
-`livediff open [path]` builds that URL and opens it for you.
+Any subdirectory works — `livediff .` from `src/components` registers the worktree root, so a
+worktree never registers twice.
 
 ### With Claude
 
-Say **"open a diff of my worktree"**. Claude registers the current worktree and shares the URL.
-Leave inline comments in the browser, then say **"address my diff comments"** — Claude runs
-`livediff comments` to read them, makes the edits, and replies/resolves each thread with
-`livediff resolve`/`livediff reply`. Claude never reads or edits the comments file directly; it
-only talks to livediff through the CLI/API.
+Say **"open a diff of my worktree"**. Claude runs `livediff .` and shares the URL. Leave inline
+comments in the browser, then say **"address my diff comments"** — Claude reads them with
+`livediff comments`, makes the edits, and closes each thread with `livediff resolve`.
 
-Prefer the plugin system to the copied skill? From any machine:
+Claude never reads or writes livediff's storage directly; it only talks to the CLI.
 
-```
-/plugin marketplace add <this-repo-git-url>
-/plugin install livediff@livediff
-```
+### Reviewing on demand
 
-The plugin carries only the skill; the `livediff` CLI comes from `install.sh`.
+`livediff <path> --wait` blocks until you click **Done reviewing** in the browser. The button only
+appears while something is actually waiting on you. Leaving comments open is expected — they are
+the output of the review, so the command still exits `0` and reports the count.
 
 ## How it works
 
-- **Hub** (`server/`): a tiny Node HTTP server (no framework) that shells out to `git`, serves the
-  built UI, exposes a small JSON API, and pushes live updates over Server-Sent Events. A ~1s poll
-  loop watches each workspace's `git status` and its comments file, plus the global registry.
-- **Registry**: `~/.config/livediff/workspaces.json` — the list of registered workspaces, shared
-  across every repo you launch the hub from. Written by the CLI and the API; watched by the hub.
-- **Comments**: `~/.config/livediff/comments/<workspace-id>.json` — one file per workspace, outside
-  any repo. Nothing is ever written into a registered worktree.
-- **UI** (`src/`): Vite + React + Tailwind, rendering diffs with
-  [`@git-diff-view/react`](https://github.com/MrWangJustToDo/git-diff-view) (side-by-side/unified,
-  syntax highlighting, per-line comment widgets).
+**The hub** is a small Node HTTP server with no framework. It shells out to `git`, serves the built
+UI, exposes a JSON API, and pushes updates over Server-Sent Events. The first CLI command starts it
+automatically and records its port in `~/.local/state/livediff/hub.json`; later commands read the
+port from there. It replaces itself when the CLI is a different version, and it never exits on its
+own — `livediff stop` is the off switch.
 
-Toolchain is deliberately boring for portability and trust: **Vite 6 / esbuild, Tailwind 3 / PostCSS,
-React 19** — no native-binding fragility, works on Node 18+.
+**It costs nothing while idle.** Watching a worktree means running `git status` on a timer, so that
+loop runs only while a browser is attached. With nobody looking, the hub is a resident process at
+roughly zero CPU. That is what makes "never exits" affordable, and it avoids the trap an idle
+timeout would create: a browser tab can't restart a hub that shut itself down.
 
-See [DESIGN.md](DESIGN.md) for the full architecture, API surface, and data models.
+**The CLI is a pure HTTP client.** It never writes livediff's files — the hub is the single writer,
+so concurrent commands can't lose each other's updates, and every change broadcasts to the browser
+for free.
+
+**State lives outside your repos.** The registry is `~/.config/livediff/workspaces.json` and
+comments are `~/.config/livediff/comments/<workspace-id>.json`. Nothing is ever written into a
+registered worktree — nothing to gitignore. Comments are keyed per worktree, so parallel agents
+never see each other's.
+
+**Comments anchor to content, not line numbers.** Each stores the exact text of the line it was
+left on. Line numbers drift as the worktree changes underneath; the quoted content is what an agent
+should trust.
+
+**The UI** is Vite + React + Tailwind, rendering diffs with
+[`@git-diff-view/react`](https://github.com/MrWangJustToDo/git-diff-view) — side-by-side or unified,
+syntax highlighted, with per-line comment widgets.
+
+The toolchain is deliberately boring for portability: Vite 6 / esbuild, Tailwind 3 / PostCSS,
+React 19, zero runtime dependencies in the server, and no native modules.
+
+See [DESIGN.md](DESIGN.md) for architecture and the API surface.
 
 ## Config
 
 | Env | Default | Meaning |
 |---|---|---|
-| `LIVEDIFF_PORT` | `4180` | hub port |
-| `LIVEDIFF_OPEN` | – | `1` opens the browser on start |
+| `LIVEDIFF_PORT` | `4180` | preferred hub port; the hub takes the next free one if it's busy |
 | `LIVEDIFF_POLL_MS` | `1000` | live-update poll interval |
-| `XDG_CONFIG_HOME` | `~/.config` | where the registry lives |
+| `LIVEDIFF_OPEN` | – | `1` opens the browser when the hub starts |
+| `NO_COLOR` | – | disable colored CLI output |
+| `XDG_CONFIG_HOME` | `~/.config` | where the registry and comments live |
+| `XDG_STATE_HOME` | `~/.local/state` | where hub runtime state lives |
 
 ## Development
 
 ```bash
 pnpm dev     # Vite dev server (5173) + auto-reloading hub (4180), proxied
 pnpm build   # build the UI into dist/
+pnpm test    # run the test suite
 pnpm serve   # run the hub against the current build
 ```
 
-Comments are stored centrally (`~/.config/livediff/comments/`), not inside your repos — nothing to
-gitignore. (Pre-0.3 versions wrote `<worktree>/.diff-review/comments.json`; that legacy file is
-migrated in automatically and removed the first time the workspace's comments are read.)
+`./install.sh --dev` links the working tree globally so `livediff` reflects your edits.

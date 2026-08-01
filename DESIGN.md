@@ -1,273 +1,238 @@
-# livediff — architecture & design
+# livediff — architecture
 
-A local, browser-based git diff viewer that live-updates with the working tree and lets
-you leave inline review comments that AI agents (Claude et al.) can read and answer.
-Runs entirely on `localhost`, no network, no telemetry. Built to sit in front of a swarm
-of agents each working in its own worktree.
+A local, browser-based git diff viewer that live-updates with the working tree and lets you leave
+inline review comments that AI agents can read and answer. Runs entirely on `localhost`. Built to
+sit in front of a swarm of agents, each in its own worktree.
 
-Status: **v0.3.** v0.2 shipped the multi-workspace hub (registry, hub API, CLI, workspaces rail,
-install script, Claude plugin/skill, focused single-workspace URLs). v0.3 moved comment storage out
-of the worktree into a central store (§4, §12) with automatic legacy migration, and added
-`livediff open`/`comments`/`resolve`/`reply` so agents never touch storage directly. This doc is the
-architecture reference; see README.md for install/usage.
+This document is the architecture reference. See [README.md](README.md) for install and usage.
 
 ---
 
-## 1. Goals
+## 1. What it optimizes for
 
-- Ask Claude to "open a diff of my worktree" → a browser view appears and stays live.
-- Leave GitHub-style inline comments on any line; agents read them and reply/resolve; the
-  threads update live in the browser (two-way loop).
-- Work well with **many parallel agents**, each in its own git worktree.
-- **Agent-driven registration**: a worktree only shows up in the UI once Claude (or the user)
-  explicitly registers it. Nothing auto-appears.
-- Trustworthy: small, readable, boring dependencies; nothing phones home.
-- Easy to install on another machine (e.g. work) from the repo.
+- **Nothing to start.** `livediff .` works in any worktree, with no prior setup and no daemon to
+  remember. The lifecycle is the tool's problem, not the user's.
+- **Many worktrees, one place to look.** Every registered worktree appears in one hub on one URL.
+- **A two-way loop with agents.** The user comments in the browser; the agent reads, edits, and
+  replies; threads update live.
+- **Boring and inspectable.** Zero runtime dependencies in the server, no native modules, plain
+  JSON on disk, nothing leaves the machine.
 
-## 2. Chosen model (decisions locked)
-
-- **Single hub server** on one stable URL (`http://localhost:4180`). Not one-process-per-worktree.
-- A **workspace** = `{ id, path, label? }` where `path` is any git working directory (a repo
-  or an individual worktree). Branch/head are derived live, not stored.
-- Workspaces are **registered explicitly** — via `livediff add <path>` (CLI) or `POST /api/workspaces`
-  (so a running agent can register its own cwd with one curl). No auto-discovery of worktrees.
-- **Comments are stored per-workspace**, centrally at `~/.config/livediff/comments/<workspace-id>.json`
-  — never inside the worktree. This is the key property that makes the multi-agent case clean: the
-  agent working in a worktree reads/writes exactly the comments left on *its* diff, with zero
-  cross-talk, and livediff never leaves files in a registered repo. (v0.1 stored this
-  `<worktree>/.diff-review/comments.json`; v0.3 moved it out and migrates any legacy file in
-  automatically — see §4.)
-
-## 3. Component map
+## 2. Shape of the system
 
 ```
-livediff/
-├── server/
-│   ├── index.js      # hub: HTTP + SSE + poll loop + routing   (REWORK for multi-ws)
-│   ├── registry.js   # persisted workspace list                (NEW)
-│   ├── git.js        # git plumbing → structured diff           (REUSE, small additions)
-│   ├── comments.js   # read/write ~/.config/livediff/comments/<ws-id>.json (REWORK: centralized)
-│   └── cli.js        # `livediff` / `add` / `rm` / `list`       (REWORK into dispatcher)
-├── src/              # Vite + React + Tailwind frontend
-│   ├── App.jsx       # layout + data + SSE                      (REWORK: add ws selection)
-│   ├── api.js        # fetch/SSE helpers                        (REWORK: ws-aware)
-│   └── components/
-│       ├── WorkspaceRail.jsx  # far-left rail of workspaces     (NEW)
-│       ├── FileDiff.jsx       # one file's DiffView + comments  (REUSE as-is)
-│       ├── CommentThread.jsx  # persistent thread               (REUSE as-is)
-│       └── CommentComposer.jsx# add-comment input              (REUSE as-is)
-├── skills/open-worktree-diff/SKILL.md   # REWORK for register flow
-├── .claude-plugin/                       # NEW: plugin + marketplace manifests
-├── install.sh                            # NEW
-└── DESIGN.md
+livediff <path>          the CLI: argument parsing + an HTTP client, nothing more
+      │
+      │ ensureHub()      starts / replaces / reuses the hub, returns its URL
+      ▼
+  the hub                one process, one port, the single writer to all state
+      │
+      ├── git            shelled out to, per request and on a gated timer
+      ├── ~/.config/livediff/       registry + comments  (durable)
+      ├── ~/.local/state/livediff/  hub.json, hub.lock, hub.log  (runtime)
+      └── SSE ──────────► browser
 ```
 
-What already works in v0.1 and carries over unchanged: `git.js` (diff building, `.diff-review`
-exclusion via `:(exclude)` pathspec — kept as a defensive no-op for any pre-migration legacy dirs,
-untracked-via-`--no-index`, numstat counts, lang detection, worktree signature), and all three
-comment UI components wired to `@git-diff-view/react` (`extendData` + `renderExtendLine` for
-threads, `diffViewAddWidget` + `renderWidgetLine` for the composer, `SplitSide` old=1/new=2).
-`comments.js` was reworked in v0.3 to store centrally instead of in the worktree (see §4).
+Three decisions carry most of the weight:
 
-## 4. Data models
+**The hub auto-starts and never exits on its own.** Every command begins with `ensureHub()`, so
+there is no state in which the CLI works but the hub is missing. It shuts down only via
+`livediff stop`, which means an open browser tab is never orphaned.
 
-**Registry** — `~/.config/livediff/workspaces.json` (respect `$XDG_CONFIG_HOME`; fall back to
-`~/.config`). Global so it's shared across every repo you launch the hub from.
+**The CLI is a pure HTTP client.** It has no filesystem fallback. That makes the hub the single
+writer to the registry and comment stores, so lost updates between concurrent commands are
+impossible by construction rather than merely unlikely.
+
+**Idle costs nothing.** Change detection needs `git status` on a timer, which is real CPU. That
+loop runs only while an SSE client is attached, so a hub nobody is watching is a resident process
+doing nothing.
+
+## 3. Files
+
+```
+server/
+├── cli.js         argument parsing, command implementations, output   (HTTP client only)
+├── cli-help.js    one command table driving dispatch, help, suggestions
+├── ensure-hub.js  the auto-start state machine
+├── hub-state.js   hub.json, spawn lock, liveness, port blocklist
+├── index.js       HTTP + SSE + routing + the gated poll loop
+├── registry.js    workspaces.json
+├── comments.js    comments/<ws-id>.json
+├── reviews.js     in-memory review requests
+├── migrations.js  one-time data migrations, run at hub startup
+├── doctor.js      install and state diagnostics
+├── git.js         git plumbing → structured diff
+└── atomic.js      write-temp-then-rename
+src/               Vite + React + Tailwind frontend
+test/              node:test suite
+```
+
+## 4. Hub lifecycle
+
+### 4.1 State
+
+`$XDG_STATE_HOME/livediff/hub.json` — runtime state, deliberately not beside the config:
+
 ```json
-{ "workspaces": [
-  { "id": "a1b2c3d4", "path": "/abs/path/to/worktree", "label": "feature-x", "addedAt": "ISO" }
-] }
+{ "pid": 48213, "port": 4180, "version": "0.4.0", "startedAt": "…" }
 ```
-- `id` = first 8 hex of a hash of the absolute `path` → stable and idempotent (re-adding the same
-  path is a no-op / update, never a duplicate).
-- Source of truth on disk. Both the CLI and the API write here; the running hub watches the file
-  (poll mtime) so an `add` from any process shows up live.
 
-**Comment** — `~/.config/livediff/comments/<workspace-id>.json` (moved out of the worktree in v0.3;
-same schema as v0.1):
-```json
-{ "comments": [ {
-  "id": "8hex", "file": "src/auth.ts", "side": "new", "line": 42,
-  "lineContent": "  const token = signJwt(user)",   // anchor: trust over line number
-  "body": "use the refresh token here",
-  "author": "user" | "claude", "status": "open" | "resolved",
-  "replies": [ { "author", "body", "ts" } ], "createdAt": "ISO", "updatedAt": "ISO"
-} ] }
-```
-**Migration**: on first read/write for a workspace whose central file doesn't exist yet, check
-`<workspace-path>/.diff-review/comments.json` (the pre-v0.3 location); if present, copy its content
-into the central file, delete the legacy file, and remove the `.diff-review/` dir if now empty. This
-runs lazily (inside `readComments`/`addComment`/etc, given the workspace's `path`) rather than as a
-separate migration step, so it self-heals the first time any registered workspace's comments are
-touched — including just loading the workspaces rail, which reads every workspace's open-comment
-count. No action needed for workspaces that never had a legacy file.
+### 4.2 `ensureHub()`
 
-**Workspace (API view)** — computed live per request, never stored:
-`{ id, path, label, branch, head, valid, changedFiles, openComments }`.
+1. No state file → **spawn**.
+2. Probe `GET /api/meta` on the recorded port. Refused → stale file, clean up, **spawn**.
+3. `meta.version` differs from the CLI's → shut the old hub down, **spawn**.
+4. Otherwise use it.
 
-## 5. HTTP + SSE API (hub)
+Memoized per process, so only the first command in a CLI run pays the cost. The spawn is detached
+with output appended to `hub.log`, so a hub that dies on startup is diagnosable rather than a hang;
+failures surface the log's tail.
 
-All state-changing calls broadcast an SSE event tagged with the workspace id.
+**Single-flight.** Concurrent agents would otherwise all spawn. The spawner takes
+`hub.lock` with `O_EXCL`; losers wait for `hub.json`. A lock older than 30s is treated as
+abandoned.
+
+### 4.3 Port discovery
+
+`LIVEDIFF_PORT || 4180` is a preference, not a contract. The hub tries to bind, and only on
+`EADDRINUSE` probes the occupant — binding first keeps the happy path free of a probe, and the
+probe gets a generous timeout because it is the first `fetch` in a cold process and pays undici's
+one-time initialization.
+
+An occupant that is an equivalent livediff hub means this process is redundant, and it exits.
+Anything else and it moves to the next port.
+
+**Ports on the WHATWG Fetch blocklist are skipped.** This is not theoretical: 4190 (ManageSieve)
+sits inside the default scan range, is perfectly bindable via `net`, and is permanently unreachable
+via `fetch`. Without the skip the hub could listen on a port its own CLI could never talk to.
+
+## 5. Change detection
+
+| Source | Mechanism | Why |
+|---|---|---|
+| Comments, registry (hub's own writes) | in-process `broadcast()` | The hub performed the write; watching for it would be redundant and up to a second late. |
+| Comments, registry (hand edits) | `fs.watch` on the config dir, 50ms debounce | Flat directories, exact semantics, no ignore rules. Degrades to nothing if unsupported. |
+| Worktree contents | `git status --porcelain` every `LIVEDIFF_POLL_MS`, **only while clients > 0** | A filesystem event is not a git-status change: `node_modules` writes, build output, and `.git` lock churn would all fire spuriously, and a hot build loop would trigger a `git status` storm worse than polling. |
+
+Workspaces whose worktree no longer exists are dropped during a poll tick and broadcast as
+`workspaces` with `reason: "pruned"`, so deleted agent worktrees clean themselves up.
+
+## 6. HTTP + SSE API
 
 | Method | Path | Purpose |
 |---|---|---|
-| GET | `/api/workspaces` | list workspaces with live `{branch, head, changedFiles, openComments, valid}` |
-| POST | `/api/workspaces` | `{path, label?}` → resolve abs path, verify git repo, add to registry |
-| DELETE | `/api/workspaces/:id` | unregister (does not touch the repo or its comments) |
-| GET | `/api/diff?ws=<id>&base=<ref?>` | structured diff for one workspace |
-| GET | `/api/comments?ws=<id>` | comments for one workspace |
-| POST | `/api/comments?ws=<id>` | add comment |
-| PATCH | `/api/comments/:id?ws=<id>` | edit / reply / resolve |
-| DELETE | `/api/comments/:id?ws=<id>` | delete |
-| GET | `/api/events` | SSE stream; frames: `diff`/`comments`/`workspaces`, each `{ws, reason}` |
-| GET | `/api/meta` | `{port, version}` — also used by CLI to detect a running hub |
+| GET | `/api/meta` | `{name, port, version, clients, polling}` — identity, version handshake, liveness |
+| POST | `/api/shutdown` | graceful exit |
+| GET | `/api/workspaces` | list with live `{branch, head, changedFiles, openComments, valid}` |
+| POST | `/api/workspaces` | `{path}` → normalize to worktree root, register |
+| DELETE | `/api/workspaces/:id` | unregister; touches neither repo nor comments |
+| GET | `/api/resolve?path=` | the workspace containing a path |
+| GET | `/api/diff?ws=&base=` | structured diff |
+| GET/POST | `/api/comments?ws=` | read / add |
+| PATCH/DELETE | `/api/comments/:id?ws=` | edit, reply, resolve / delete |
+| GET | `/api/reviews?ws=` | the open review request, or `null` |
+| POST | `/api/reviews` | `{ws}` → open (idempotent per workspace) |
+| POST | `/api/reviews/:id/done` | the Done button |
+| DELETE | `/api/reviews/:id` | cancel (CLI `Ctrl-C`) |
+| GET | `/api/events` | SSE: `diff`, `comments`, `workspaces`, `review` |
 
-Static: serve `dist/` with SPA fallback (as v0.1).
+Static `dist/` with SPA fallback. Binds `127.0.0.1` only; no auth, because there is no remote
+surface.
 
-## 6. Live-update mechanism
+## 7. Data
 
-Single poll loop, default 1 s. For **each registered workspace**:
-- worktree signature = `git status --porcelain=v1 -uall -z -- . :(exclude).diff-review`; on change → `diff` event for that ws.
-- central comments file mtime+size (`~/.config/livediff/comments/<ws-id>.json`); on change →
-  `comments` event for that ws. This also covers migration: the first read of a workspace's
-  comments creates the central file (see §4), which the next poll tick reports as a normal update.
-- Also watch the registry file mtime → `workspaces` event (new/removed workspaces appear live).
+**Registry** — `$XDG_CONFIG_HOME/livediff/workspaces.json`:
 
-Frontend: on any SSE event, refetch `/api/workspaces` (cheap, refreshes all rail badges); if the
-event's `ws` is the selected one, refetch its diff/comments. Flash the "updated" badge.
-
-Scale note: polling is O(workspaces) git calls/sec — fine for a handful to a couple dozen. If it
-ever needs to scale, switch to a per-workspace `fs.watch`/chokidar. Keep polling for v0.2 (zero deps).
-
-## 7. Frontend layout
-
+```json
+{ "workspaces": [{ "id": "a1b2c3d4", "path": "/abs/worktree", "label": "feature-x", "addedAt": "…" }] }
 ```
-Header:  livediff | <selected ws> branch@head | ●live | [base ref input] | [Split|Unified] | [All|Open|Resolved]
-Body:    [ Workspaces rail ] [ Files sidebar ] [ Diff main (scroll) ]
+
+`id` is the first 8 hex of a hash of the path — stable and idempotent. Paths are normalized through
+`git rev-parse --show-toplevel` before hashing, so any subdirectory maps to one workspace. Because
+that command resolves symlinks, lookups canonicalize both sides: on macOS `/var` and `/tmp` are
+symlinks, so a logical `cwd` would otherwise never match a stored physical path.
+
+**Comments** — `$XDG_CONFIG_HOME/livediff/comments/<workspace-id>.json`:
+
+```json
+{ "comments": [{
+  "id": "8hex", "file": "src/auth.ts", "side": "new", "line": 42,
+  "lineContent": "  const token = signJwt(user)",
+  "body": "use the refresh token here",
+  "author": "user" | "claude", "status": "open" | "resolved",
+  "replies": [{ "author", "body", "ts" }], "createdAt": "…", "updatedAt": "…"
+}] }
 ```
-- **Workspaces rail** (far left, ~200px, collapsible): one row per workspace — label/branch, a change
-  count, an open-comment badge, a remove (×). Click to select. Small "＋ add path" input (POST) and an
-  empty state: *"No workspaces yet. Ask Claude to register a worktree, or run `livediff add <path>`."*
-- Files sidebar + Diff main are exactly v0.1, now scoped to the selected workspace.
 
-Theme follows `prefers-color-scheme`. `@git-diff-view/react` handles split/unified + syntax highlight.
+`lineContent` is the anchor. Line numbers drift as the worktree changes under a comment; agents are
+told to trust the quoted content. Same idea GitHub uses, scaled down.
 
-## 8. CLI (`livediff`)
+**Reviews** are in-memory only. The hub no longer exits on its own, so there is nothing to survive
+— and a request outliving the CLI waiting on it would render a button that does nothing.
 
-`server/cli.js` becomes a small dispatcher. If a hub is already running (probe `GET /api/meta` on the
-port) mutating commands hit the API so the UI updates instantly; otherwise they write the registry
-directly (the hub reads it on next start / via file watch).
+**Writes are atomic.** Every JSON write goes through write-temp-then-`rename`, which is atomic on
+POSIX, so a crash mid-write cannot truncate the registry.
 
-| Command | Behavior |
-|---|---|
-| `livediff` | start the hub (serve `dist/` + API) on `LIVEDIFF_PORT` (default 4180). Opens browser if `LIVEDIFF_OPEN=1`. |
-| `livediff add [path]` | register `path` (default `$PWD`) |
-| `livediff rm [path]` | unregister |
-| `livediff list` | print registered workspaces |
+### Why not SQLite
 
-Env: `LIVEDIFF_PORT`, `LIVEDIFF_OPEN`, `LIVEDIFF_POLL_MS`, `XDG_CONFIG_HOME`.
+The strongest argument was concurrent writers, and the pure-HTTP CLI eliminated that. What remains
+argues against it: `node:sqlite` needs Node 22.5+ against a Node ≥18 target, `better-sqlite3` is a
+native module — exactly what makes a global install fail on an unfamiliar machine — and the data is
+dozens of comments. Plain JSON is also greppable and diffable, which matters for a tool whose pitch
+is that you can read everything it does.
 
-## 9. Agent workflow (the point of it all)
+Revisit if cross-workspace queries become routine, volumes reach thousands, or full-text search over
+comment history is wanted. The migration stays cheap because the hub is the sole writer: the storage
+layer sits behind an unchanged HTTP surface.
 
-1. User: "show me your diff" → Claude runs `livediff open "$PWD"` (registers the worktree if needed,
-   ensures the hub is running, opens a focused single-workspace view — rail hidden); shares the URL.
-2. User leaves inline comments in the browser on that workspace.
-3. User: "address my diff comments" → Claude runs `livediff comments` (cwd-resolved, no ids or file
-   access), uses each comment's `file` + `lineContent` (anchor) + `body`, makes the edits.
-4. Claude runs `livediff resolve <id> <reply text>` for each — posts a threaded reply and marks it
-   resolved in one call. User watches threads resolve and the diff refresh live. Because comments
-   are keyed per workspace and stored centrally, parallel agents never see each other's comments,
-   and none of this ever reads or writes a file inside the worktree.
+## 8. Review requests
 
-This is the existing `skills/open-worktree-diff/SKILL.md`, to be updated so the "open" step becomes
-"register this worktree" and it references `livediff` on `PATH` rather than a hardcoded install path.
+`livediff <path> --wait` opens a review request, which is the only thing that makes the **Done
+reviewing** button appear — so it is never a mystery control during ordinary browsing. The CLI holds
+the SSE stream and exits when the matching `review-done` frame arrives; `Ctrl-C` cancels the request
+so the button disappears. A second `--wait` on the same workspace attaches to the existing request
+rather than duplicating it.
 
-## 10. Comment anchoring
+Clicking Done with comments still open is the expected case: open comments are the deliverable for
+the agent, so the command still exits `0` and reports both counts.
 
-Store `lineContent` (and the hunk it sat in) with every comment. Line numbers drift as the worktree
-changes under the comment; the agent trusts the quoted content over the number. Same approach GitHub
-uses (anchor to content + blob), scaled down. No re-anchoring logic needed for v0.2.
+## 9. CLI
 
-## 11. Distribution / install
+`cli.js` is argument parsing plus a `fetch` wrapper. `registry.js` and `comments.js` are
+server-internal; the CLI does not import them.
 
-Target: clone the repo on a work machine and be running + skill-installed in one step. Node ≥ 18
-(toolchain is deliberately boring: **Vite 6 / esbuild, Tailwind v3 / PostCSS, React 19** — no Vite 8
-rolldown native-binding fragility, no Node 20.12 requirement).
+Help, dispatch, and did-you-mean suggestions all read one command table in `cli-help.js`, so a
+command cannot appear in help without being runnable, or vice versa.
 
-**Global CLI**: `package.json` already declares `bin.livediff → server/cli.js`. `install.sh` runs
-`pnpm install && pnpm build && pnpm link --global`, so `livediff` works from any repo.
+Exit codes: `0` success, `1` error, `2` usage. `--json` on every command. The CLI drains stdout and
+exits explicitly, because undici's connection pool otherwise holds the process open for seconds
+after a request.
 
-**Skill / plugin** — two supported paths (schemas below verified against current docs):
+## 10. Migration and diagnostics
 
-1. *Simplest — personal skill.* `install.sh` copies `skills/open-worktree-diff/` into
-   `~/.claude/skills/open-worktree-diff/`. A `~/.claude/skills/<name>/SKILL.md` with no manifest is a
-   personal skill loaded in **every** project. Zero Claude-Code config.
+`migrateRegistry()` runs at hub startup, idempotently: it normalizes paths to worktree roots,
+merges the comment stores of entries that collapse together, and drops entries whose path is gone.
+Pre-0.3 `<worktree>/.diff-review/comments.json` files are migrated lazily on first read and removed.
 
-2. *Plugin via marketplace* (nicer updates, shareable with teammates). Add `.claude-plugin/plugin.json`
-   at the repo root and a `.claude-plugin/marketplace.json`. Then on any machine:
-   ```
-   /plugin marketplace add <git-url-or-owner/repo>
-   /plugin install livediff@<marketplace-name>
-   ```
+`livediff doctor` reports what the user cannot easily see: whether `livediff` resolves to more than
+one binary (a stale global link shadowing an install is silent and nasty), CLI vs running hub
+version, stale `hub.json` or `hub.lock`, unmigrated registry entries, leftover `.diff-review`
+directories, and a Claude skill still referencing removed commands.
 
-   `.claude-plugin/plugin.json` (manifest schema confirmed):
-   ```json
-   {
-     "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
-     "name": "livediff",
-     "description": "Live worktree diff viewer with agent-readable review comments",
-     "version": "0.2.0",
-     "author": { "name": "Shane" },
-     "keywords": ["git", "diff", "review", "worktree"]
-   }
-   ```
-   Skills auto-discover from the plugin's `skills/` dir — no `skills` field needed. (Omit `version`
-   while iterating so every commit is treated as an update; set it once releasing.)
+## 11. Security posture
 
-   `.claude-plugin/marketplace.json` (confirm exact shape with `claude plugin validate` at build time):
-   ```json
-   {
-     "name": "livediff",
-     "owner": { "name": "Shane" },
-     "plugins": [
-       { "name": "livediff", "source": "./",
-         "description": "Live worktree diff viewer with agent-readable review comments" }
-     ]
-   }
-   ```
+Binds `127.0.0.1`. No auth — localhost, single user, no remote surface. Only `git` touches repo
+contents. Comments are plain JSON under `~/.config/livediff/`, never inside a registered repo.
+Server dependencies: none.
 
-   Note: the plugin only carries the **skill**; the actual `livediff` server/CLI is installed by
-   `install.sh` (global bin). The skill calls `livediff` on `PATH`. Keep those two concerns separate.
+## 12. Testing
 
-`install.sh` outline: check `node -v` ≥ 18 → `pnpm install` → `pnpm build` → `pnpm link --global`
-→ copy skill to `~/.claude/skills/` (or print the `/plugin` commands) → print the hub URL and a
-one-line "you're set" with `livediff add .`.
+`node:test`, no framework. Tests set `XDG_CONFIG_HOME`, `XDG_STATE_HOME`, and `HOME` to temp
+directories — `HOME` included because `os.homedir()` honours it and `doctor` reads `~/.claude`.
 
-## 12. Security posture
+`node --test` runs files in parallel, so any file that spawns a hub pins its own `LIVEDIFF_PORT`
+band; two files racing for one port would make the second hub detect its twin and exit by design,
+hanging the first file's test.
 
-- Server binds `127.0.0.1` only. No auth needed (localhost, single user).
-- Only `git` (already trusted) touches repo contents; comments are plain JSON stored centrally
-  under `~/.config/livediff/`, never written into a registered repo — nothing to gitignore.
-- `.diff-review/` exclusion in `git.js` is kept only as a defensive no-op for any pre-v0.3 legacy
-  dir that hasn't been migrated/removed yet.
-- Dependencies are all mainstream, widely-audited packages, installed and read by the user.
-
-## 13. Open questions to settle at implementation time
-
-- **Rail vs tabs** for workspaces when there are many (>~15): vertical rail scrolls; revisit if it
-  gets cramped alongside the files sidebar (could make the files sidebar collapsible).
-- **Removing a workspace**: confirm it only unregisters and never deletes the central comments file
-  or repo files (comments for a removed-then-re-added workspace persist, since the id is stable).
-- **Port contention** across multiple hubs: single hub is the design; if a second `livediff` starts
-  and 4180 is busy, either attach to the existing hub (preferred: just `add` to it) or pick the next port.
-- **marketplace.json** exact field names — validate with `claude plugin validate --strict` before publishing.
-- **Stale workspaces** (worktree deleted on disk): mark `valid:false` in the rail with a quick "remove".
-
-## 14. Implementation order (backlog)
-
-1. `server/registry.js` — persisted workspace list (add/rm/list, path-hash ids, file-watch friendly).
-2. `server/index.js` — multi-workspace routing, registry watch, per-ws poll + tagged SSE.
-3. `server/cli.js` — dispatcher (`add`/`rm`/`list`/serve) with running-hub detection.
-4. Frontend — `WorkspaceRail.jsx` + `App.jsx`/`api.js` ws-awareness; empty state.
-5. Packaging — `install.sh`, `.claude-plugin/*`, SKILL.md register-flow rewrite, README.
-```
+Coverage concentrates on what fails silently: the `ensureHub` state machine, port selection,
+dormancy transitions, path normalization, the registry migration, and CLI exit codes.
