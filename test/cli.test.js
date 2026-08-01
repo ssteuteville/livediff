@@ -160,6 +160,59 @@ test("--wait blocks until the review is marked done, then summarizes", async () 
   });
 });
 
+test("bare livediff --no-open starts the hub and prints its URL", async () => {
+  await withTempXdg(async () => {
+    try {
+      const res = await cli(["--no-open", "--json"]);
+      assert.equal(res.code, 0);
+      assert.match(JSON.parse(res.stdout).url, /^http:\/\/localhost:\d+\/$/);
+      assert.ok((await readState()).pid);
+    } finally {
+      await stopHub();
+    }
+  });
+});
+
+test("reply text starting with a dash survives argument parsing", async () => {
+  await withTempXdg(async ({ root }) => {
+    const repo = await makeRepo(join(root, "repo"));
+    try {
+      const ws = JSON.parse((await cli([repo, "--no-open", "--json"])).stdout);
+      const state = await readState();
+      const created = await fetch(`http://127.0.0.1:${state.port}/api/comments?ws=${ws.id}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ file: "README.md", side: "new", line: 1, body: "check offset" }),
+      }).then((r) => r.json());
+
+      const res = await cli(["reply", created.id, "-1", "is", "the", "right", "offset"], { cwd: repo });
+      assert.equal(res.code, 0);
+
+      const after = JSON.parse((await cli(["comments", repo, "--json"])).stdout);
+      assert.equal(after.comments[0].replies[0].body, "-1 is the right offset");
+    } finally {
+      await stopHub();
+    }
+  });
+});
+
+test("a bare directory name is treated as a path, an unknown word is not", async () => {
+  await withTempXdg(async ({ root }) => {
+    await makeRepo(join(root, "bare"));
+    try {
+      const good = await cli(["bare", "--no-open", "--json"], { cwd: root });
+      assert.equal(good.code, 0);
+      assert.equal(JSON.parse(good.stdout).label, "bare");
+
+      const bad = await cli(["frobnicate", "--no-open"], { cwd: root });
+      assert.equal(bad.code, 2);
+      assert.match(bad.stderr, /unknown command: frobnicate/);
+    } finally {
+      await stopHub();
+    }
+  });
+});
+
 test("--help prints usage to stdout and exits 0 without starting a hub", async () => {
   await withTempXdg(async () => {
     const res = await cli(["--help"]);

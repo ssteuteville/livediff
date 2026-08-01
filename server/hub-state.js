@@ -99,3 +99,33 @@ export async function probeMeta(port, timeoutMs = 500) {
     return null;
   }
 }
+
+/** Resolve true once `predicate` holds, false at the deadline. */
+export async function waitUntil(predicate, timeoutMs, intervalMs = 50) {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    if (await predicate()) return true;
+    if (Date.now() >= deadline) return false;
+    await new Promise((r) => setTimeout(r, intervalMs));
+  }
+}
+
+/**
+ * Ask a hub to exit, falling back to SIGTERM, and wait until its port stops answering. Shared by
+ * `livediff stop` and by ensureHub replacing a mismatched version — they had drifted apart.
+ */
+export async function shutdownHub(state) {
+  await fetch(`http://127.0.0.1:${state.port}/api/shutdown`, {
+    method: "POST",
+    signal: AbortSignal.timeout(2000),
+  }).catch(() => {
+    try {
+      process.kill(state.pid, "SIGTERM");
+    } catch {
+      /* already gone */
+    }
+  });
+  const stopped = await waitUntil(async () => !(await probeMeta(state.port, 200)), 5000);
+  await clearState();
+  return stopped;
+}

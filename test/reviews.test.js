@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { join } from "node:path";
 import { withTempXdg, makeRepo, startHub } from "./helpers.js";
-import { openReview, reviewFor, completeReview, resetReviews } from "../server/reviews.js";
+import { openReview, reviewFor, closeReview, resetReviews } from "../server/reviews.js";
 
 const PORT = 4199;
 const base = `http://127.0.0.1:${PORT}`;
@@ -20,8 +20,8 @@ test("a second open for the same workspace attaches to the existing request", ()
 test("completing a request clears it, and completing twice returns null", () => {
   resetReviews();
   const request = openReview("bbbbbbbb");
-  assert.equal(completeReview(request.reviewId).reviewId, request.reviewId);
-  assert.equal(completeReview(request.reviewId), null);
+  assert.equal(closeReview(request.reviewId).reviewId, request.reviewId);
+  assert.equal(closeReview(request.reviewId), null);
   assert.equal(reviewFor("bbbbbbbb"), null);
 });
 

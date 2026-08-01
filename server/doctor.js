@@ -6,6 +6,7 @@ import { promisify } from "node:util";
 import { configDir, readRegistry, idFor } from "./registry.js";
 import { toplevel } from "./git.js";
 import { readState, statePath, lockPath, pidAlive, probeMeta } from "./hub-state.js";
+import { REMOVED_COMMANDS } from "./cli-help.js";
 
 const exec = promisify(execFile);
 
@@ -85,16 +86,25 @@ async function checkRegistry() {
   const workspaces = await readRegistry();
   if (!workspaces.length) return ok("registry", "no workspaces registered");
 
+  const roots = await Promise.all(
+    workspaces.map(async (w) => {
+      try {
+        await access(w.path);
+      } catch {
+        return undefined; // distinct from null: the path itself is gone
+      }
+      return toplevel(w.path);
+    })
+  );
+
   const problems = [];
   const seen = new Map();
-  for (const w of workspaces) {
-    try {
-      await access(w.path);
-    } catch {
+  for (const [index, w] of workspaces.entries()) {
+    const root = roots[index];
+    if (root === undefined) {
       problems.push(`${w.id}  ${w.path} — path no longer exists`);
       continue;
     }
-    const root = await toplevel(w.path);
     if (root && root !== w.path) problems.push(`${w.id}  ${w.path} — not a worktree root (${root})`);
     const key = root ?? w.path;
     if (seen.has(key)) problems.push(`${w.id}  duplicates ${seen.get(key)} (same worktree)`);
@@ -102,7 +112,10 @@ async function checkRegistry() {
     if (root && idFor(root) !== w.id) problems.push(`${w.id}  id does not match its path`);
   }
 
-  if (!problems.length) return ok("registry", `${workspaces.length} workspace(s), all normalized`);
+  if (!problems.length) {
+    const noun = workspaces.length === 1 ? "workspace" : "workspaces";
+    return ok("registry", `${workspaces.length} ${noun}, all normalized`);
+  }
   return warn(
     "registry needs migration",
     problems.join("\n"),
@@ -111,15 +124,19 @@ async function checkRegistry() {
 }
 
 async function checkLegacyDirs() {
-  const found = [];
-  for (const w of await readRegistry()) {
-    try {
-      await access(join(w.path, ".diff-review"));
-      found.push(join(w.path, ".diff-review"));
-    } catch {
-      /* clean */
-    }
-  }
+  const workspaces = await readRegistry();
+  const dirs = await Promise.all(
+    workspaces.map(async (w) => {
+      const dir = join(w.path, ".diff-review");
+      try {
+        await access(dir);
+        return dir;
+      } catch {
+        return null;
+      }
+    })
+  );
+  const found = dirs.filter(Boolean);
   if (!found.length) return ok("legacy comment dirs", "none");
   return warn(
     "pre-0.3 .diff-review directories present",
@@ -128,7 +145,8 @@ async function checkLegacyDirs() {
   );
 }
 
-const REMOVED_COMMANDS = /\blivediff\s+(add|open)\b/g;
+const removedCommandPattern = () =>
+  new RegExp(`\\blivediff\\s+(${REMOVED_COMMANDS.join("|")})\\b`, "g");
 
 async function checkSkill() {
   const dir = join(homedir(), ".claude", "skills", "open-worktree-diff");
@@ -142,7 +160,7 @@ async function checkSkill() {
   for (const file of files) {
     if (!file.endsWith(".md")) continue;
     const text = await readFile(join(dir, file), "utf8");
-    const hits = [...text.matchAll(REMOVED_COMMANDS)].map((m) => m[0]);
+    const hits = [...text.matchAll(removedCommandPattern())].map((m) => m[0]);
     if (hits.length) stale.push(`${join(dir, file)} — references ${[...new Set(hits)].join(", ")}`);
   }
   if (!stale.length) return ok("claude skill", `installed at ${dir}`);

@@ -3,7 +3,7 @@ import { mkdir, open, readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import {
-  readState, clearState, pidAlive, probeMeta,
+  readState, clearState, pidAlive, probeMeta, waitUntil, shutdownHub,
   acquireLock, releaseLock, logPath, stateDir,
 } from "./hub-state.js";
 
@@ -29,18 +29,18 @@ export function resetEnsuredHub() {
 }
 
 const url = (port) => `http://127.0.0.1:${port}`;
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-async function waitForHub(deadline) {
-  while (Date.now() < deadline) {
+async function waitForHub(timeoutMs) {
+  let found = null;
+  await waitUntil(async () => {
     const state = await readState();
-    if (state) {
-      const meta = await probeMeta(state.port, 1000);
-      if (meta && meta.version === VERSION) return url(state.port);
-    }
-    await sleep(50);
-  }
-  return null;
+    if (!state) return false;
+    const meta = await probeMeta(state.port, 1000);
+    if (!meta || meta.version !== VERSION) return false;
+    found = url(state.port);
+    return true;
+  }, timeoutMs);
+  return found;
 }
 
 async function spawnHub() {
@@ -52,22 +52,6 @@ async function spawnHub() {
   });
   child.unref();
   await log.close();
-}
-
-async function shutdown(state) {
-  await fetch(`${url(state.port)}/api/shutdown`, {
-    method: "POST",
-    signal: AbortSignal.timeout(2000),
-  }).catch(() => {
-    try {
-      process.kill(state.pid, "SIGTERM");
-    } catch {
-      /* already gone */
-    }
-  });
-  const deadline = Date.now() + 5000;
-  while (Date.now() < deadline && (await probeMeta(state.port, 200))) await sleep(50);
-  await clearState();
 }
 
 async function failure() {
@@ -90,29 +74,20 @@ export async function ensureHub() {
   const state = await readState();
   if (state) {
     const meta = await probeMeta(state.port, 1000);
-    if (meta && meta.name === "livediff") {
-      if (meta.version === VERSION) return (ensured = url(state.port));
-      await shutdown(state);
-    } else if (!pidAlive(state.pid)) {
-      await clearState();
-    } else {
-      await shutdown(state);
-    }
+    const isOurs = meta?.name === "livediff";
+    if (isOurs && meta.version === VERSION) return (ensured = url(state.port));
+    if (isOurs || pidAlive(state.pid)) await shutdownHub(state);
+    else await clearState();
   }
 
-  const deadline = Date.now() + 10_000;
-  if (await acquireLock()) {
-    try {
-      await spawnHub();
-      const found = await waitForHub(deadline);
-      if (!found) throw await failure();
-      return (ensured = found);
-    } finally {
-      await releaseLock();
-    }
+  // Whoever takes the lock spawns; everyone else waits for the same hub to appear.
+  const spawner = await acquireLock();
+  try {
+    if (spawner) await spawnHub();
+    const found = await waitForHub(10_000);
+    if (!found) throw await failure();
+    return (ensured = found);
+  } finally {
+    if (spawner) await releaseLock();
   }
-
-  const found = await waitForHub(deadline);
-  if (!found) throw await failure();
-  return (ensured = found);
 }

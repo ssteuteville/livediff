@@ -25,20 +25,17 @@ export function reviewFor(ws) {
   return byWorkspace.get(ws) ?? null;
 }
 
-export function getReview(reviewId) {
-  return byId.get(reviewId) ?? null;
-}
-
-function close(reviewId) {
+/**
+ * Close a request, returning it so the caller can broadcast the outcome. Done and cancelled are
+ * the same state transition here — the difference is only what the caller reports.
+ */
+export function closeReview(reviewId) {
   const request = byId.get(reviewId);
   if (!request) return null;
   byId.delete(reviewId);
   byWorkspace.delete(request.ws);
   return request;
 }
-
-export const completeReview = close;
-export const cancelReview = close;
 
 /** Test seam: drop all state between cases. */
 export function resetReviews() {

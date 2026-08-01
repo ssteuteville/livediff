@@ -3,7 +3,7 @@ import { readFile, stat } from "node:fs/promises";
 import { mkdirSync, watch } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join, extname, resolve as resolvePath } from "node:path";
-import { execFile } from "node:child_process";
+import { openBrowser } from "./open-browser.js";
 
 import { getDiff, summary, worktreeSignature, isGitRepo } from "./git.js";
 import { readComments, addComment, updateComment, deleteComment } from "./comments.js";
@@ -17,7 +17,7 @@ import {
 } from "./registry.js";
 import { writeState, clearState, probeMeta, isBlockedPort } from "./hub-state.js";
 import { migrateRegistry } from "./migrations.js";
-import { openReview, reviewFor, completeReview, cancelReview } from "./reviews.js";
+import { openReview, reviewFor, closeReview } from "./reviews.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DIST = join(__dirname, "..", "dist");
@@ -200,7 +200,7 @@ const server = createServer(async (req, res) => {
       const id = commentMatch[1];
       if (req.method === "PATCH") {
         const updated = await updateComment(ws.id, ws.path, id, await readBody(req));
-        if (!updated) return send(res, 404, { error: "not found" });
+        if (!updated) return send(res, 404, { error: `no comment with id ${id} in ${ws.label}` });
         broadcast("comments", { reason: "updated", ws: ws.id });
         return send(res, 200, updated);
       }
@@ -228,7 +228,7 @@ const server = createServer(async (req, res) => {
 
     const reviewDone = pathname.match(/^\/api\/reviews\/([\w-]+)\/done$/);
     if (reviewDone && req.method === "POST") {
-      const review = completeReview(reviewDone[1]);
+      const review = closeReview(reviewDone[1]);
       if (!review) return send(res, 404, { error: "no such review" });
       broadcast("review", { ws: review.ws, reviewId: review.reviewId, state: "done" });
       return send(res, 200, review);
@@ -236,7 +236,7 @@ const server = createServer(async (req, res) => {
 
     const reviewCancel = pathname.match(/^\/api\/reviews\/([\w-]+)$/);
     if (reviewCancel && req.method === "DELETE") {
-      const review = cancelReview(reviewCancel[1]);
+      const review = closeReview(reviewCancel[1]);
       if (!review) return send(res, 404, { error: "no such review" });
       broadcast("review", { ws: review.ws, reviewId: review.reviewId, state: "cancelled" });
       return send(res, 200, { ok: true });
@@ -301,12 +301,10 @@ let pollTimer = null;
  * `livediff rm` every deleted agent worktree.
  */
 async function prune(registered) {
-  const kept = [];
-  for (const w of registered) {
-    if (await isGitRepo(w.path)) {
-      kept.push(w);
-      continue;
-    }
+  const alive = await Promise.all(registered.map((w) => isGitRepo(w.path)));
+  const kept = registered.filter((_, i) => alive[i]);
+  for (const [i, w] of registered.entries()) {
+    if (alive[i]) continue;
     await removeWorkspace(w.id);
     broadcast("workspaces", { reason: "pruned", ws: w.id });
   }
@@ -331,16 +329,18 @@ async function poll() {
   const liveIds = new Set(registered.map((w) => w.id));
   for (const id of diffSigs.keys()) if (!liveIds.has(id)) diffSigs.delete(id);
 
-  for (const w of registered) {
-    try {
-      const sig = await worktreeSignature(w.path, null);
-      const prev = diffSigs.get(w.id);
-      if (prev !== undefined && sig !== prev) broadcast("diff", { reason: "worktree", ws: w.id });
-      diffSigs.set(w.id, sig);
-    } catch {
-      /* transient git state */
-    }
-  }
+  // One git spawn per workspace, run concurrently: sequential awaits made a tick cost
+  // N × spawn-latency, every second, for as long as a browser was attached.
+  const signatures = await Promise.all(
+    registered.map((w) => worktreeSignature(w.path, null).catch(() => null))
+  );
+  registered.forEach((w, i) => {
+    const sig = signatures[i];
+    if (sig === null) return; // transient git state
+    const prev = diffSigs.get(w.id);
+    if (prev !== undefined && sig !== prev) broadcast("diff", { reason: "worktree", ws: w.id });
+    diffSigs.set(w.id, sig);
+  });
 }
 
 /**
@@ -428,11 +428,7 @@ async function main() {
 
   const link = `http://localhost:${port}`;
   console.log(`livediff hub → ${link}  (v${VERSION})`);
-  if (process.env.LIVEDIFF_OPEN === "1") {
-    const opener =
-      process.platform === "darwin" ? "open" : process.platform === "win32" ? "explorer" : "xdg-open";
-    execFile(opener, [link], () => {});
-  }
+  if (process.env.LIVEDIFF_OPEN === "1") openBrowser(link);
 }
 
 main();

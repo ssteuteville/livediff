@@ -1,18 +1,44 @@
 #!/usr/bin/env node
+import { stat } from "node:fs/promises";
 import { resolve } from "node:path";
-import { execFile } from "node:child_process";
 import { ensureHub, hubVersion } from "./ensure-hub.js";
-import { readState, clearState, pidAlive } from "./hub-state.js";
-import { findCommand, renderCommandHelp, renderMainHelp, suggest } from "./cli-help.js";
+import { readState, shutdownHub } from "./hub-state.js";
+import { findCommand, renderCommandHelp, renderMainHelp, suggest, VALUE_FLAGS } from "./cli-help.js";
+import { openBrowser } from "./open-browser.js";
+import { sseEvents } from "./sse.js";
 import { diagnose } from "./doctor.js";
 
 const EXIT_OK = 0;
 const EXIT_ERROR = 1;
 const EXIT_USAGE = 2;
 
-const argv = process.argv.slice(2);
-const flags = new Set(argv.filter((a) => a.startsWith("-")));
-const args = argv.filter((a) => !a.startsWith("-"));
+/**
+ * One pass over argv, so "is this flag set" and "what is its value" can't disagree. A flag that
+ * takes a value consumes the next token, keeping it out of positionals; everything else — including
+ * comment text starting with `-`, like a diff line or a negative number — stays an argument.
+ */
+function parseArgv(tokens) {
+  const flags = new Set();
+  const values = new Map();
+  const args = [];
+  for (let i = 0; i < tokens.length; i++) {
+    const token = tokens[i];
+    if (token === "--") {
+      args.push(...tokens.slice(i + 1));
+      break;
+    }
+    const isFlag = token.startsWith("--") || /^-[a-zA-Z]$/.test(token);
+    if (!isFlag) {
+      args.push(token);
+      continue;
+    }
+    flags.add(token);
+    if (VALUE_FLAGS.has(token)) values.set(token, tokens[++i] ?? null);
+  }
+  return { flags, values, args };
+}
+
+const { flags, values, args } = parseArgv(process.argv.slice(2));
 const JSON_OUT = flags.has("--json");
 const WANTS_HELP = flags.has("-h") || flags.has("--help");
 const WANTS_VERSION = flags.has("-v") || flags.has("--version");
@@ -42,56 +68,17 @@ async function api(base, path, init) {
 const isId = (s) => /^[0-9a-f]{8}$/.test(s);
 
 /**
- * Only unambiguous path shapes are treated as paths, so a mistyped subcommand reports itself
- * instead of silently trying to register a directory that does not exist.
+ * A bare token is a path if it is written like one, or if it actually names a directory — so
+ * `livediff feat-a` works while `livediff frobnicate` still reports an unknown command rather
+ * than a confusing "not a git worktree".
  */
-const looksLikePath = (s) =>
-  s === "." ||
-  s === ".." ||
-  s.startsWith("/") ||
-  s.startsWith("./") ||
-  s.startsWith("../") ||
-  s.startsWith("~");
-
-function openBrowser(url) {
-  const opener =
-    process.platform === "darwin" ? "open" : process.platform === "win32" ? "explorer" : "xdg-open";
-  execFile(opener, [url], () => {});
-}
-
-/**
- * Consume an SSE stream, yielding `{event, data}`. Node has no EventSource, and pulling in a
- * polyfill for one long-lived connection is not worth a dependency.
- */
-async function* sseEvents(base, signal) {
-  const res = await fetch(`${base}/api/events`, { signal });
-  const reader = res.body.getReader();
-  const decoder = new TextDecoder();
-  let buf = "";
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) return;
-    buf += decoder.decode(value, { stream: true });
-    let i;
-    while ((i = buf.indexOf("\n\n")) !== -1) {
-      const frame = buf.slice(0, i);
-      buf = buf.slice(i + 2);
-      const event = /^event: (.+)$/m.exec(frame)?.[1];
-      const raw = /^data: (.+)$/m.exec(frame)?.[1];
-      if (!event || !raw) continue;
-      try {
-        yield { event, data: JSON.parse(raw) };
-      } catch {
-        /* keepalive or malformed frame */
-      }
-    }
+async function isPathArg(token) {
+  if (/^(\/|~|\.\.?(\/|$))/.test(token)) return true;
+  try {
+    return (await stat(resolve(token))).isDirectory();
+  } catch {
+    return false;
   }
-}
-
-function flagValue(name) {
-  const i = argv.indexOf(name);
-  if (i === -1) return null;
-  return argv[i + 1] ?? null;
 }
 
 async function waitForReview(base, ws) {
@@ -110,13 +97,13 @@ async function waitForReview(base, ws) {
   };
   process.once("SIGINT", cancel);
 
-  const seconds = Number(flagValue("--timeout") || 0);
+  const seconds = Number(values.get("--timeout") || 0);
   const timer = seconds > 0 ? setTimeout(() => ac.abort(), seconds * 1000) : null;
 
   if (!JSON_OUT) console.log('waiting for review… (click "Done reviewing" in the browser)');
 
   try {
-    for await (const { event, data } of sseEvents(base, ac.signal)) {
+    for await (const { event, data } of sseEvents(`${base}/api/events`, ac.signal)) {
       if (event !== "review") continue;
       if (data.reviewId !== review.reviewId) continue;
       if (data.state === "done") return true;
@@ -162,7 +149,8 @@ async function cmdOpen(pathArg) {
 async function cmdHubUi() {
   const base = await ensureHub();
   const url = `http://localhost:${new URL(base).port}/`;
-  openBrowser(url);
+  const quiet = flags.has("--no-open");
+  if (!quiet) openBrowser(url);
   out(`livediff → ${url}`, { url });
 }
 
@@ -195,7 +183,9 @@ async function cmdComments(pathArg) {
   if (JSON_OUT) return out("", { workspace: ws.id, comments });
   if (!comments.length) return console.log("no comments");
   for (const c of comments) {
-    console.log(`${c.id}  ${c.status.padEnd(8)}  ${c.file}:${c.line}  ${c.body}`);
+    const replies = c.replies?.length ?? 0;
+    const thread = replies === 0 ? "" : `  (${replies} ${replies === 1 ? "reply" : "replies"})`;
+    console.log(`${c.id}  ${c.status.padEnd(8)}  ${c.file}:${c.line}  ${c.body}${thread}`);
   }
 }
 
@@ -225,23 +215,8 @@ async function cmdReplyOrResolve(rest, resolveIt) {
 async function cmdStop() {
   const state = await readState();
   if (!state) return out("hub is not running", { running: false });
-  await fetch(`http://127.0.0.1:${state.port}/api/shutdown`, {
-    method: "POST",
-    signal: AbortSignal.timeout(2000),
-  }).catch(() => {
-    if (pidAlive(state.pid)) {
-      try {
-        process.kill(state.pid, "SIGTERM");
-      } catch {
-        /* already gone */
-      }
-    }
-  });
-  const deadline = Date.now() + 5000;
-  while (Date.now() < deadline && pidAlive(state.pid)) {
-    await new Promise((r) => setTimeout(r, 50));
-  }
-  await clearState();
+  const stopped = await shutdownHub(state);
+  if (!stopped) await die("hub did not stop; it may be wedged");
   out("hub stopped", { running: false });
 }
 
@@ -249,10 +224,10 @@ const MARK = { ok: "✓", warn: "!", error: "✗" };
 
 async function cmdDoctor() {
   const findings = await diagnose(hubVersion());
+  const failed = findings.some((f) => f.level === "error");
   if (JSON_OUT) {
-    const worst = findings.some((f) => f.level === "error") ? EXIT_ERROR : EXIT_OK;
     console.log(JSON.stringify({ version: hubVersion(), findings }, null, 2));
-    await exit(worst);
+    return exit(failed ? EXIT_ERROR : EXIT_OK);
   }
   console.log(`livediff doctor — v${hubVersion()}\n`);
   for (const f of findings) {
@@ -263,8 +238,9 @@ async function cmdDoctor() {
     if (f.fix) console.log(`    → ${f.fix}`);
   }
   const problems = findings.filter((f) => f.level !== "ok").length;
-  console.log(problems === 0 ? "\nAll good." : `\n${problems} thing(s) to look at.`);
-  if (findings.some((f) => f.level === "error")) await exit(EXIT_ERROR);
+  const noun = problems === 1 ? "thing" : "things";
+  console.log(problems === 0 ? "\nAll good." : `\n${problems} ${noun} to look at.`);
+  if (failed) await exit(EXIT_ERROR);
 }
 
 function helpFor(token) {
@@ -314,7 +290,7 @@ async function main() {
     case "doctor":
       return cmdDoctor();
     default:
-      if (looksLikePath(cmd)) return cmdOpen(cmd);
+      if (await isPathArg(cmd)) return cmdOpen(cmd);
       return cmdHelp(cmd);
   }
 }

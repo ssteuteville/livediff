@@ -13,17 +13,25 @@ export async function migrateRegistry() {
   const workspaces = await readRegistry();
   if (!workspaces.length) return { normalized: 0, merged: 0 };
 
+  // Probe every entry concurrently first — this runs before the hub starts listening, and one
+  // git spawn per workspace in series delays every startup.
+  const roots = await Promise.all(
+    workspaces.map(async (ws) => {
+      try {
+        await access(ws.path);
+      } catch {
+        return null; // path is gone — drop it
+      }
+      return toplevel(ws.path);
+    })
+  );
+
   const byRoot = new Map();
   let normalized = 0;
   let merged = 0;
 
-  for (const ws of workspaces) {
-    try {
-      await access(ws.path);
-    } catch {
-      continue; // path is gone — drop it
-    }
-    const root = await toplevel(ws.path);
+  for (const [index, ws] of workspaces.entries()) {
+    const root = roots[index];
     if (!root) continue;
     if (root !== ws.path) normalized++;
 

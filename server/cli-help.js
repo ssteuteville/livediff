@@ -13,6 +13,16 @@ export const GLOBAL_FLAGS = [
   ["-v, --version", "print the livediff version"],
 ];
 
+/** Flags that consume the next token as their value. The parser needs this to keep it out of args. */
+export const VALUE_FLAGS = new Set(["--timeout"]);
+
+/**
+ * Commands that used to exist. `doctor` looks for these in installed skill files, which would
+ * otherwise silently break after an upgrade. Kept beside COMMANDS so removing a command stays a
+ * one-file change.
+ */
+export const REMOVED_COMMANDS = ["add", "open"];
+
 export const COMMANDS = [
   {
     id: "open",
@@ -42,11 +52,14 @@ export const COMMANDS = [
   {
     id: "hub",
     name: "(no arguments)",
-    usage: "livediff",
+    usage: "livediff [--no-open]",
     summary: "open the hub UI showing every registered workspace",
     details: "Starts the hub if needed, then opens the browser to the workspace rail.",
-    flags: [],
-    examples: [["livediff", "open the hub UI"]],
+    flags: [["--no-open", "start the hub and print its URL without launching a browser"]],
+    examples: [
+      ["livediff", "open the hub UI"],
+      ["livediff --no-open", "start the hub and print its URL"],
+    ],
   },
   {
     id: "list",
