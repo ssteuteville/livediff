@@ -4,6 +4,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
 import { join } from "node:path";
+import { writeFile } from "node:fs/promises";
 import { withTempXdg, makeRepo } from "./helpers.js";
 import { readState, probeMeta } from "../server/hub-state.js";
 
@@ -23,6 +24,16 @@ async function cli(args, opts = {}) {
   }
 }
 
+/**
+ * A repo with an actual working-tree change. A comment is only live while its file is in the
+ * diff, so a test that posts one on an untouched committed file would see it hidden as orphaned.
+ */
+async function dirtyRepo(root, name = "repo") {
+  const repo = await makeRepo(join(root, name));
+  await writeFile(join(repo, "README.md"), "# test\nedited\n", "utf8");
+  return repo;
+}
+
 async function stopHub() {
   const state = await readState();
   if (!state) return;
@@ -35,7 +46,7 @@ async function stopHub() {
 
 test("registering a worktree auto-starts the hub", async () => {
   await withTempXdg(async ({ root }) => {
-    const repo = await makeRepo(join(root, "repo"));
+    const repo = await dirtyRepo(root);
     try {
       assert.equal(await readState(), null);
       const res = await cli([repo, "--no-open", "--json"]);
@@ -79,7 +90,7 @@ test("a path that is not a git worktree exits 1 with a clear message", async () 
 
 test("stop shuts the hub down and clears state", async () => {
   await withTempXdg(async ({ root }) => {
-    const repo = await makeRepo(join(root, "repo"));
+    const repo = await dirtyRepo(root);
     await cli([repo, "--no-open"]);
     assert.ok((await readState()).pid);
     const res = await cli(["stop"]);
@@ -90,7 +101,7 @@ test("stop shuts the hub down and clears state", async () => {
 
 test("comments round-trip through the CLI without touching files", async () => {
   await withTempXdg(async ({ root }) => {
-    const repo = await makeRepo(join(root, "repo"));
+    const repo = await dirtyRepo(root);
     try {
       const ws = JSON.parse((await cli([repo, "--no-open", "--json"])).stdout);
       const state = await readState();
@@ -118,7 +129,7 @@ test("comments round-trip through the CLI without touching files", async () => {
 
 test("--wait blocks until the review is marked done, then summarizes", async () => {
   await withTempXdg(async ({ root }) => {
-    const repo = await makeRepo(join(root, "repo"));
+    const repo = await dirtyRepo(root);
     try {
       const waiting = cli([repo, "--no-open", "--wait"]);
 
@@ -175,7 +186,7 @@ test("bare livediff --no-open starts the hub and prints its URL", async () => {
 
 test("reply text starting with a dash survives argument parsing", async () => {
   await withTempXdg(async ({ root }) => {
-    const repo = await makeRepo(join(root, "repo"));
+    const repo = await dirtyRepo(root);
     try {
       const ws = JSON.parse((await cli([repo, "--no-open", "--json"])).stdout);
       const state = await readState();
@@ -268,7 +279,7 @@ test("a wholly unrecognizable command exits 2 without a bogus suggestion", async
 
 test("a failed browser launch is reported instead of claimed as success", async () => {
   await withTempXdg(async ({ root }) => {
-    const repo = await makeRepo(join(root, "repo"));
+    const repo = await dirtyRepo(root);
     try {
       const res = await cli([repo], { env: { LIVEDIFF_BROWSER: "false" } });
       assert.equal(res.code, 0);
@@ -282,7 +293,7 @@ test("a failed browser launch is reported instead of claimed as success", async 
 
 test("a successful browser launch reports opened, and JSON carries the flag", async () => {
   await withTempXdg(async ({ root }) => {
-    const repo = await makeRepo(join(root, "repo"));
+    const repo = await dirtyRepo(root);
     try {
       const res = await cli([repo, "--json"], { env: { LIVEDIFF_BROWSER: "true" } });
       assert.equal(res.code, 0);
@@ -298,7 +309,7 @@ test("a successful browser launch reports opened, and JSON carries the flag", as
 
 test("--no-open never claims a browser was opened", async () => {
   await withTempXdg(async ({ root }) => {
-    const repo = await makeRepo(join(root, "repo"));
+    const repo = await dirtyRepo(root);
     try {
       const res = await cli([repo, "--no-open", "--json"]);
       assert.equal(JSON.parse(res.stdout).opened, false);
@@ -313,7 +324,7 @@ test("--no-open never claims a browser was opened", async () => {
 
 test("comments filters by --status and defaults to open", async () => {
   await withTempXdg(async ({ root }) => {
-    const repo = await makeRepo(join(root, "repo"));
+    const repo = await dirtyRepo(root);
     try {
       const ws = JSON.parse((await cli([repo, "--no-open", "--json"])).stdout);
       const state = await readState();
@@ -349,7 +360,7 @@ test("comments filters by --status and defaults to open", async () => {
 
 test("comments prints the quoted source line as an anchor", async () => {
   await withTempXdg(async ({ root }) => {
-    const repo = await makeRepo(join(root, "repo"));
+    const repo = await dirtyRepo(root);
     try {
       const ws = JSON.parse((await cli([repo, "--no-open", "--json"])).stdout);
       const state = await readState();
@@ -376,7 +387,7 @@ test("comments prints the quoted source line as an anchor", async () => {
 
 test("an empty filter result names the comments it hid", async () => {
   await withTempXdg(async ({ root }) => {
-    const repo = await makeRepo(join(root, "repo"));
+    const repo = await dirtyRepo(root);
     try {
       const ws = JSON.parse((await cli([repo, "--no-open", "--json"])).stdout);
       const state = await readState();
@@ -397,7 +408,7 @@ test("an empty filter result names the comments it hid", async () => {
 
 test("a worktree with no comments at all says so without a count", async () => {
   await withTempXdg(async ({ root }) => {
-    const repo = await makeRepo(join(root, "repo"));
+    const repo = await dirtyRepo(root);
     try {
       await cli([repo, "--no-open", "--json"]);
       const text = (await cli(["comments", repo])).stdout;
@@ -422,6 +433,159 @@ test("resolve without an id exits 2 with the command usage", async () => {
     const res = await cli(["resolve"]);
     assert.equal(res.code, 2);
     assert.match(res.stderr, /usage: livediff resolve <id>/);
+    assert.equal(await readState(), null);
+  });
+});
+
+/** Post a comment straight to the hub, as the browser would. */
+async function post(port, wsId, body, file = "README.md") {
+  return fetch(`http://127.0.0.1:${port}/api/comments?ws=${wsId}`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ file, side: "new", line: 1, lineContent: "# test\n", body }),
+  }).then((r) => r.json());
+}
+
+test("comments are scoped to the branch they were left on", async () => {
+  await withTempXdg(async ({ root }) => {
+    const repo = await dirtyRepo(root);
+    try {
+      const ws = JSON.parse((await cli([repo, "--no-open", "--json"])).stdout);
+      await post((await readState()).port, ws.id, "on main");
+      assert.match((await cli(["comments", repo])).stdout, /on main/);
+
+      await exec("git", ["checkout", "-qb", "feat"], { cwd: repo });
+      assert.doesNotMatch((await cli(["comments", repo])).stdout, /on main/);
+      assert.match((await cli(["comments", repo, "--branch", "all"])).stdout, /on main/);
+    } finally {
+      await stopHub();
+    }
+  });
+});
+
+test("a comment whose file left the diff is hidden, and --stale shows it", async () => {
+  await withTempXdg(async ({ root }) => {
+    const repo = await dirtyRepo(root);
+    try {
+      const ws = JSON.parse((await cli([repo, "--no-open", "--json"])).stdout);
+      await post((await readState()).port, ws.id, "orphan me", "gone.txt");
+
+      assert.doesNotMatch((await cli(["comments", repo])).stdout, /orphan me/);
+      assert.match((await cli(["comments", repo, "--stale"])).stdout, /orphan me/);
+    } finally {
+      await stopHub();
+    }
+  });
+});
+
+test("archive then restore round-trips a comment through the archive", async () => {
+  await withTempXdg(async ({ root }) => {
+    const repo = await dirtyRepo(root);
+    try {
+      const ws = JSON.parse((await cli([repo, "--no-open", "--json"])).stdout);
+      const made = await post((await readState()).port, ws.id, "keep me", "gone.txt");
+
+      await cli(["archive", repo, "--stale"]);
+      assert.match((await cli(["comments", repo, "--archived"])).stdout, /purges in \d+ days/);
+
+      const res = await cli(["restore", made.id], { cwd: repo });
+      assert.equal(res.code, 0);
+      assert.match((await cli(["comments", repo, "--stale"])).stdout, /keep me/);
+    } finally {
+      await stopHub();
+    }
+  });
+});
+
+test("archive defaults to every workspace and a path narrows it", async () => {
+  await withTempXdg(async ({ root }) => {
+    const a = await makeRepo(join(root, "a"));
+    const b = await makeRepo(join(root, "b"));
+    try {
+      for (const repo of [a, b]) {
+        const ws = JSON.parse((await cli([repo, "--no-open", "--json"])).stdout);
+        await post((await readState()).port, ws.id, "note", "gone.txt");
+      }
+
+      await cli(["archive", a, "--stale"]);
+      assert.match((await cli(["comments", a, "--archived"])).stdout, /note/);
+      assert.doesNotMatch((await cli(["comments", b, "--archived"])).stdout, /note/);
+
+      await cli(["archive", "--stale"]);
+      assert.match((await cli(["comments", b, "--archived"])).stdout, /note/);
+    } finally {
+      await stopHub();
+    }
+  });
+});
+
+test("prune --dry-run reports without deleting and never prompts", async () => {
+  await withTempXdg(async ({ root }) => {
+    const repo = await dirtyRepo(root);
+    try {
+      const ws = JSON.parse((await cli([repo, "--no-open", "--json"])).stdout);
+      await post((await readState()).port, ws.id, "note", "gone.txt");
+      await cli(["archive", repo, "--stale"]);
+
+      const dry = await cli(["prune", repo, "--all", "--dry-run"]);
+      assert.equal(dry.code, 0);
+      assert.match(dry.stdout, /would delete 1 archived comment/);
+      assert.match((await cli(["comments", repo, "--archived"])).stdout, /note/);
+    } finally {
+      await stopHub();
+    }
+  });
+});
+
+test("prune --all refuses to prompt without a terminal", async () => {
+  await withTempXdg(async ({ root }) => {
+    const repo = await dirtyRepo(root);
+    try {
+      const ws = JSON.parse((await cli([repo, "--no-open", "--json"])).stdout);
+      await post((await readState()).port, ws.id, "note", "gone.txt");
+      await cli(["archive", repo, "--stale"]);
+
+      const res = await cli(["prune", repo, "--all"]);
+      assert.equal(res.code, 2);
+      assert.match(res.stderr, /--yes/);
+    } finally {
+      await stopHub();
+    }
+  });
+});
+
+test("prune --all --yes empties the archive", async () => {
+  await withTempXdg(async ({ root }) => {
+    const repo = await dirtyRepo(root);
+    try {
+      const ws = JSON.parse((await cli([repo, "--no-open", "--json"])).stdout);
+      await post((await readState()).port, ws.id, "note", "gone.txt");
+      await cli(["archive", repo, "--stale"]);
+
+      const res = await cli(["prune", repo, "--all", "--yes"]);
+      assert.equal(res.code, 0);
+      assert.match(res.stdout, /pruned 1 archived comment/);
+      assert.doesNotMatch((await cli(["comments", repo, "--archived"])).stdout, /note/);
+    } finally {
+      await stopHub();
+    }
+  });
+});
+
+test("prune rejects --keep-days together with --all", async () => {
+  await withTempXdg(async () => {
+    const res = await cli(["prune", "--keep-days", "10", "--all"]);
+    assert.equal(res.code, 2);
+    assert.match(res.stderr, /--keep-days and --all/);
+    assert.equal(await readState(), null);
+  });
+});
+
+test("--stale and --archived together exit 2 without starting a hub", async () => {
+  await withTempXdg(async () => {
+    const res = await cli(["comments", "--stale", "--archived"]);
+    assert.equal(res.code, 2);
+    assert.match(res.stderr, /--stale and --archived/);
     assert.equal(await readState(), null);
   });
 });

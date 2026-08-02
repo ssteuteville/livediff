@@ -14,7 +14,7 @@ export const GLOBAL_FLAGS = [
 ];
 
 /** Flags that consume the next token as their value. The parser needs this to keep it out of args. */
-export const VALUE_FLAGS = new Set(["--timeout", "--status"]);
+export const VALUE_FLAGS = new Set(["--timeout", "--status", "--branch", "--keep-days"]);
 
 export const COMMANDS = [
   {
@@ -82,17 +82,79 @@ export const COMMANDS = [
   {
     id: "comments",
     name: "comments",
-    usage: "livediff comments [path] [--status open|resolved|all]",
+    usage: "livediff comments [path] [--status open|resolved|all] [--branch <name>] [--stale|--archived]",
     summary: "print review comments for a worktree",
     details:
-      "Defaults to the worktree containing the current directory, and to the open\n" +
-      "comments only. Each comment prints the quoted source line it was left on —\n" +
-      "trust that text over the line number, which drifts as the file is edited.",
-    flags: [["--status <which>", "open (default), resolved, or all"]],
+      "Defaults to the worktree containing the current directory, to the branch that is\n" +
+      "checked out, and to open comments only. Each comment prints the quoted source line\n" +
+      "it was left on — trust that text over the line number, which drifts as you edit.\n" +
+      "\n" +
+      "Comments whose file has left the diff are hidden; --stale shows them.",
+    flags: [
+      ["--status <which>", "open (default), resolved, or all"],
+      ["--branch <name>", "a branch name, or all (default: the current branch)"],
+      ["--stale", "only comments whose file has left the diff"],
+      ["--archived", "only archived comments, with days until they are purged"],
+    ],
     examples: [
-      ["livediff comments", "open comments on this worktree"],
-      ["livediff comments --status all", "every comment, resolved included"],
-      ["livediff comments --json", "machine-readable output"],
+      ["livediff comments", "open comments on this worktree's current branch"],
+      ["livediff comments --stale", "comments whose file is no longer in the diff"],
+      ["livediff comments --archived", "what is archived and when it will be deleted"],
+    ],
+  },
+  {
+    id: "restore",
+    name: "restore",
+    usage: "livediff restore <id>",
+    summary: "return an archived comment to the live view",
+    details:
+      "Clears the archive flag and resets the comment's age, so the next sweep does not\n" +
+      "immediately archive it again. Resolves the workspace from the current directory.",
+    flags: [],
+    examples: [["livediff restore a1b2c3d4", "un-archive a comment"]],
+  },
+  {
+    id: "archive",
+    name: "archive",
+    usage: "livediff archive [path] [--stale] [--resolved]",
+    summary: "archive comments that are no longer live",
+    details:
+      "Archives comments whose file has left the diff for more than 5 days, and resolved\n" +
+      "comments untouched for more than 30. Archived comments are hidden but restorable\n" +
+      "for 200 days.\n" +
+      "\n" +
+      "Defaults to EVERY registered workspace, unlike the review commands — pass a path\n" +
+      "to narrow it. --stale and --resolved override only the age gates.",
+    flags: [
+      ["--stale", "archive every orphaned comment, whatever its age"],
+      ["--resolved", "archive every resolved comment, whatever its age"],
+    ],
+    examples: [
+      ["livediff archive", "archive what qualifies, everywhere"],
+      ["livediff archive . --stale", "archive this worktree's orphaned comments now"],
+    ],
+  },
+  {
+    id: "prune",
+    name: "prune",
+    usage: "livediff prune [path] [--keep-days <n> | --all] [--dry-run] [--yes]",
+    summary: "delete archived comments",
+    details:
+      "Deletes archived comments older than 200 days by default. Deleting sooner than that\n" +
+      "asks for confirmation first, unless --yes is passed.\n" +
+      "\n" +
+      "Defaults to EVERY registered workspace, unlike the review commands — pass a path\n" +
+      "to narrow it. This is the only command that destroys data; --dry-run shows what it\n" +
+      "would remove.",
+    flags: [
+      ["--keep-days <n>", "delete archived comments older than n days"],
+      ["--all", "delete every archived comment"],
+      ["--dry-run", "report what would be deleted without deleting it"],
+      ["--yes", "skip the confirmation prompt"],
+    ],
+    examples: [
+      ["livediff prune --dry-run", "see what would be deleted"],
+      ["livediff prune --keep-days 30 --yes", "keep only the last 30 days of archive"],
     ],
   },
   {

@@ -1,5 +1,7 @@
 /** Filtering and rendering for review comments. Pure — no I/O, no hub, no process state. */
 
+import { daysUntilPurge } from "./comment-lifecycle.js";
+
 export const COMMENT_STATUSES = ["open", "resolved", "all"];
 
 const MAX_ANCHOR = 120;
@@ -18,10 +20,12 @@ function anchor(lineContent) {
   return text.length > MAX_ANCHOR ? `${text.slice(0, MAX_ANCHOR - 1)}…` : text;
 }
 
-export function formatComments(comments) {
+export function formatComments(comments, { now = Date.now() } = {}) {
   return comments
     .flatMap((c) => {
-      const lines = [`${c.id}  ${c.file}:${c.line}`];
+      const left = daysUntilPurge(c, now);
+      const tag = left === null ? "" : `  (archived — purges in ${left} days)`;
+      const lines = [`${c.id}  ${c.file}:${c.line}${tag}`];
       const quoted = anchor(c.lineContent);
       if (quoted) lines.push(`    | ${quoted}`);
       lines.push(`    ${c.body}`);

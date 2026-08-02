@@ -8,6 +8,7 @@ import { openBrowser } from "./open-browser.js";
 import { sseEvents } from "./sse.js";
 import { diagnose } from "./doctor.js";
 import { COMMENT_STATUSES, filterByStatus, formatComments, emptyMessage } from "./comment-format.js";
+import { PURGE_DAYS } from "./comment-lifecycle.js";
 
 const EXIT_OK = 0;
 const EXIT_ERROR = 1;
@@ -142,8 +143,7 @@ async function cmdOpen(pathArg) {
   const { comments } = await api(base, `/api/comments?ws=${ws.id}`);
   const open = comments.filter((c) => c.status === "open").length;
   if (!completed) await die("review cancelled");
-  const plural = comments.length === 1 ? "comment" : "comments";
-  out(`review complete ✓ — ${comments.length} ${plural} (${open} open)`, {
+  out(`review complete ✓ — ${plural(comments.length, "comment")} (${open} open)`, {
     ...ws,
     url,
     opened,
@@ -189,13 +189,105 @@ async function cmdComments(pathArg) {
   if (!COMMENT_STATUSES.includes(status)) {
     await die(`--status must be one of: ${COMMENT_STATUSES.join(", ")}`, EXIT_USAGE);
   }
+  const wantStale = flags.has("--stale");
+  const wantArchived = flags.has("--archived");
+  if (wantStale && wantArchived) {
+    await die("--stale and --archived cannot be combined", EXIT_USAGE);
+  }
+
   const base = await ensureHub();
   const ws = await resolveWs(base, pathArg);
-  const { comments } = await api(base, `/api/comments?ws=${ws.id}`);
-  const selected = filterByStatus(comments, status);
+  const branch = values.get("--branch");
+  const query = branch ? `&branch=${encodeURIComponent(branch)}` : "";
+  const { comments } = await api(base, `/api/comments?ws=${ws.id}${query}`);
+  const { stale } = await api(base, `/api/stale?ws=${ws.id}`);
+  const staleIds = new Set(stale);
+
+  const view = comments.filter((c) => {
+    if (wantArchived) return Boolean(c.archivedAt);
+    if (c.archivedAt) return false;
+    return wantStale ? staleIds.has(c.id) : !staleIds.has(c.id);
+  });
+
+  const selected = filterByStatus(view, status);
   if (JSON_OUT) return out("", { workspace: ws.id, comments: selected });
-  if (!selected.length) return console.log(emptyMessage(comments, status));
+  if (!selected.length) return console.log(emptyMessage(view, status));
   console.log(formatComments(selected));
+}
+
+async function cmdRestore(id) {
+  if (!id) await die(`usage: ${findCommand("restore").usage}`, EXIT_USAGE);
+  const base = await ensureHub();
+  const ws = await resolveWs(base);
+  const body = await api(base, `/api/comments/${id}/restore?ws=${ws.id}`, { method: "POST" });
+  out(`restored ${body.id}`, body);
+}
+
+const plural = (n, word) => `${n} ${n === 1 ? word : `${word}s`}`;
+
+async function cmdArchive(pathArg) {
+  const force = { stale: flags.has("--stale"), resolved: flags.has("--resolved") };
+  const base = await ensureHub();
+  const body = await api(base, "/api/sweep", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ path: pathArg ? resolve(pathArg) : null, force }),
+  });
+  out(
+    `archived ${plural(body.archived, "comment")} across ${plural(body.workspaces, "workspace")}`,
+    body
+  );
+}
+
+/** stdin is not a TTY under an agent or a pipe, so a prompt there would hang forever. */
+async function confirm(question) {
+  if (!process.stdin.isTTY) {
+    await die(`${question}\nRefusing to prompt without a terminal — pass --yes.`, EXIT_USAGE);
+  }
+  process.stdout.write(`${question} [y/N] `);
+  const answer = await new Promise((r) => {
+    process.stdin.setEncoding("utf8");
+    process.stdin.once("data", (d) => r(String(d).trim().toLowerCase()));
+  });
+  return answer === "y" || answer === "yes";
+}
+
+async function cmdPrune(pathArg) {
+  const all = flags.has("--all");
+  const keepRaw = values.get("--keep-days");
+  if (all && keepRaw !== undefined) {
+    await die("--keep-days and --all cannot be combined", EXIT_USAGE);
+  }
+  const keepDays = all ? 0 : keepRaw === undefined ? PURGE_DAYS : Number(keepRaw);
+  if (!Number.isFinite(keepDays) || keepDays < 0) {
+    await die("--keep-days must be a non-negative number", EXIT_USAGE);
+  }
+
+  const dryRun = flags.has("--dry-run");
+  const base = await ensureHub();
+  const path = pathArg ? resolve(pathArg) : null;
+  const post = (body) =>
+    api(base, "/api/purge", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+
+  if (!dryRun && keepDays < PURGE_DAYS && !flags.has("--yes")) {
+    const preview = await post({ path, keepDays, dryRun: true });
+    if (!preview.count) return out("nothing to prune", { count: 0 });
+    const ok = await confirm(
+      `Delete ${plural(preview.count, "archived comment")}? This cannot be undone.`
+    );
+    if (!ok) return out("cancelled", { count: 0, cancelled: true });
+  }
+
+  const body = await post({ path, keepDays, dryRun });
+  const verb = dryRun ? "would delete" : "pruned";
+  out(
+    `${verb} ${plural(body.count, "archived comment")} across ${plural(body.workspaces, "workspace")}`,
+    body
+  );
 }
 
 async function cmdReplyOrResolve(rest, resolveIt) {
@@ -294,6 +386,12 @@ async function main() {
       return cmdReplyOrResolve(rest, true);
     case "reply":
       return cmdReplyOrResolve(rest, false);
+    case "restore":
+      return cmdRestore(rest[0]);
+    case "archive":
+      return cmdArchive(rest[0]);
+    case "prune":
+      return cmdPrune(rest[0]);
     case "stop":
       return cmdStop();
     case "doctor":
