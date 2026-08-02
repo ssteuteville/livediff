@@ -2,7 +2,7 @@
   "name": "livediff",
   "private": true,
   "type": "module",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "Local, live-updating git worktree diff hub with agent-readable review comments",
   "license": "MIT",
   "bin": {

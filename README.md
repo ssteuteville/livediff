@@ -52,8 +52,28 @@ Install the plugin once; it supplies the skills and commands:
 | "address my comments" | reads your open comments and works through them |
 | `/livediff:link` | prints the URL, opens nothing |
 | `/livediff:review` | opens the diff and waits for you to finish reviewing |
+| `/livediff:prune` | previews what would be deleted from the archive, then asks |
 
-The last two are typed-only on purpose: both have side effects whose timing you should own.
+The typed-only ones are deliberate: each has side effects whose timing you should own.
+
+## Comment lifecycle
+
+A comment records the branch it was left on and is only shown on that branch.
+
+Once its file leaves the diff it is *orphaned* — hidden from the browser and from
+`livediff comments`, but visible with `--stale`. After 5 days orphaned, or 30 days
+resolved, it is archived: still restorable, no longer in the way. Archived comments are
+deleted after 200 days.
+
+```
+livediff comments --stale       what is hidden and heading for the archive
+livediff comments --archived    what is archived, and when it will be deleted
+livediff restore <id>           pull one back
+livediff prune --dry-run        what would be deleted right now
+```
+
+Nothing is destroyed less than 205 days after a comment's last activity, and
+`/livediff:prune` always previews before it deletes.
 
 ## Use
 
@@ -64,7 +84,11 @@ livediff <path> --no-open      register only, print the URL
 livediff <path> --wait         open, then block until "Done reviewing" is clicked
 livediff list                  list registered workspaces
 livediff rm [path|id]          unregister
-livediff comments [path]       print open review comments (--status open|resolved|all)
+livediff comments [path]       open comments on the current branch
+                               (--status open|resolved|all, --branch, --stale, --archived)
+livediff restore <id>          return an archived comment to the live view
+livediff archive [path]        archive comments that are no longer live (all workspaces)
+livediff prune [path]          delete archived comments (all workspaces)
 livediff resolve <id> [text…]  reply and mark resolved
 livediff reply <id> <text…>    reply without resolving
 livediff stop                  shut the hub down

@@ -4,6 +4,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { configDir, readRegistry, idFor } from "./registry.js";
+import { listComments } from "./comments.js";
 import { toplevel } from "./git.js";
 import { readState, statePath, lockPath, pidAlive, probeMeta } from "./hub-state.js";
 
@@ -215,6 +216,45 @@ async function checkPlugin(version) {
   return ok("claude plugin", `v${installed}`);
 }
 
+const WARN_BYTES = 5 * 1024 * 1024;
+
+/**
+ * Archive growth is the one thing doctor would otherwise only describe. Every other finding
+ * carries a fix, so this one does too.
+ */
+async function checkArchive() {
+  const workspaces = await readRegistry();
+  let bytes = 0;
+  let archived = 0;
+  let oldest = null;
+
+  for (const w of workspaces) {
+    try {
+      bytes += (await stat(join(configDir(), "comments", `${w.id}.json`))).size;
+    } catch {
+      continue; // no store for this workspace yet
+    }
+    for (const c of await listComments(w.id, null, { branch: "all" })) {
+      if (!c.archivedAt) continue;
+      archived++;
+      if (!oldest || c.archivedAt < oldest) oldest = c.archivedAt;
+    }
+  }
+
+  const size = `${(bytes / 1024).toFixed(1)} KB`;
+  if (!archived) return ok("comment archive", `${size}, nothing archived`);
+
+  const days = Math.floor((Date.now() - Date.parse(oldest)) / 86_400_000);
+  const noun = archived === 1 ? "archived comment" : "archived comments";
+  const detail =
+    `${workspaces.length} workspaces, ${archived} ${noun}, ${size}\n` +
+    `oldest archived ${days} days ago`;
+  const fix = "livediff prune --dry-run";
+  return bytes > WARN_BYTES
+    ? warn("comment archive is large", detail, fix)
+    : { level: "ok", title: "comment archive", detail, fix };
+}
+
 /** Every check, in report order. Never throws — a failed check becomes a finding. */
 export async function diagnose(version) {
   const checks = [
@@ -223,6 +263,7 @@ export async function diagnose(version) {
     checkLock(),
     checkRegistry(),
     checkLegacyDirs(),
+    checkArchive(),
     checkPlugin(version),
   ];
   const settled = await Promise.allSettled(checks);

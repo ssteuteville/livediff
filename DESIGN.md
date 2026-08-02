@@ -259,3 +259,27 @@ loses to a strong prior, so the fix was removing the vocabulary rather than repe
 
 The plugin ships skills and no code. The CLI stays a global install, so the agent and the
 human run the same binary; `doctor` reports the two-artifact version skew that buys.
+
+## Comment lifecycle
+
+A comment used to store nothing tying it to the change it was about — no branch, no commit,
+no base ref — while the diff it was left on is entirely ephemeral. Two failures followed:
+comments rendered on branches they were never left on, and comments outlived the diff, so an
+`open` comment on committed work was handed to an agent as live work forever.
+
+Comments now record their branch and are only shown on it. Orphaning — the file no longer
+being in the diff — is computed, never stored, so it heals itself the moment a file comes
+back. Archiving is stored, because it is a decision rather than an observation.
+
+Nothing is deleted for 205 days: 5 days orphaned (or 30 resolved) to archive, then 200 more
+before purge, with `livediff restore` available throughout. An orphaned comment that is still
+`open` is an unaddressed loose end, so it is archived rather than deleted.
+
+The sweep runs in the poll loop, throttled to once every 12 hours. It needs one `changedPaths`
+spawn per workspace and the loop ticks every second, so sweeping every tick would double git
+spawns per second to enforce thresholds measured in days. `livediff archive` and `livediff
+prune` do the same work on demand, since the loop only runs while a browser is attached.
+
+The store is keyed by comment id. Secondary indexes were rejected: the file is rewritten
+wholesale on every write, so an index is state that can desync, and the failure mode is
+comments silently disappearing — a poor trade against a scan over dozens of records.

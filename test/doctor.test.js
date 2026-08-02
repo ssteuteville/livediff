@@ -124,3 +124,39 @@ test("every finding carries a level and a title", async () => {
     }
   });
 });
+
+test("an empty archive reports ok without a suggestion", async () => {
+  await withTempXdg(async () => {
+    const finding = find(await diagnose("0.6.0"), "comment archive");
+    assert.ok(finding, "expected a comment archive finding");
+    assert.equal(finding.level, "ok");
+    assert.equal(finding.fix, undefined);
+  });
+});
+
+test("a populated archive suggests a prune command", async () => {
+  await withTempXdg(async ({ root }) => {
+    const repo = await makeRepo(join(root, "repo"));
+    await writeJsonAtomic(registryPath(), {
+      workspaces: [{ id: idFor(repo), path: repo, label: "repo", addedAt: "2026-01-01T00:00:00.000Z" }],
+    });
+    const { __writeForTest } = await import("../server/comments.js");
+    await __writeForTest(idFor(repo), {
+      aaaaaaaa: {
+        id: "aaaaaaaa",
+        file: "a.js",
+        line: 1,
+        body: "x",
+        status: "resolved",
+        replies: [],
+        branch: "main",
+        archivedAt: new Date(Date.now() - 10 * 86_400_000).toISOString(),
+        updatedAt: new Date().toISOString(),
+      },
+    });
+
+    const finding = find(await diagnose("0.6.0"), "comment archive");
+    assert.match(finding.detail, /1 archived comment/);
+    assert.match(finding.fix, /livediff prune/);
+  });
+});
