@@ -589,3 +589,35 @@ test("--stale and --archived together exit 2 without starting a hub", async () =
     assert.equal(await readState(), null);
   });
 });
+
+test("a subdirectory registers the worktree root and scopes the view with dir", async () => {
+  await withTempXdg(async ({ root }) => {
+    const repo = await makeRepo(join(root, "repo"), ["apps/expo"]);
+    try {
+      const res = JSON.parse(
+        (await cli([join(repo, "apps/expo"), "--no-open", "--json"])).stdout
+      );
+      assert.equal(res.path, repo, "should register the worktree root, not the subdirectory");
+      assert.equal(res.dir, "apps/expo");
+      assert.match(res.url, /&dir=apps%2Fexpo$/);
+
+      const list = JSON.parse((await cli(["list", "--json"])).stdout);
+      assert.equal(list.workspaces.length, 1, "a subdirectory must not create a second workspace");
+    } finally {
+      await stopHub();
+    }
+  });
+});
+
+test("the worktree root itself carries no dir scope", async () => {
+  await withTempXdg(async ({ root }) => {
+    const repo = await makeRepo(join(root, "repo"));
+    try {
+      const res = JSON.parse((await cli([repo, "--no-open", "--json"])).stdout);
+      assert.equal(res.dir, null);
+      assert.doesNotMatch(res.url, /dir=/);
+    } finally {
+      await stopHub();
+    }
+  });
+});

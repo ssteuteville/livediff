@@ -25,7 +25,8 @@ export const COMMANDS = [
     details:
       "Registers the git worktree containing <path> and opens it in the browser.\n" +
       "Any subdirectory resolves to its worktree root, so the same worktree never\n" +
-      "registers twice. The hub is started automatically if it is not running.\n" +
+      "registers twice — the subdirectory becomes a view filter instead, showing\n" +
+      "only files under it. The hub is started automatically if it is not running.\n" +
       "\n" +
       "With --wait, the command blocks until you click \"Done reviewing\" in the\n" +
       "browser, then prints a summary. Open comments are expected at that point —\n" +
@@ -38,6 +39,7 @@ export const COMMANDS = [
     examples: [
       ["livediff .", "register the current worktree and open it"],
       ["livediff ~/work/feat-a", "register a worktree by path"],
+      ["livediff apps/expo", "open the worktree, scoped to one directory"],
       ["livediff . --no-open --json", "register quietly and print JSON"],
       ["livediff . --wait", "open, then wait for the review to be marked done"],
     ],

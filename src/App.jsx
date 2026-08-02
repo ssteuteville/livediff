@@ -49,6 +49,9 @@ export default function App() {
   const urlParams = useMemo(() => new URLSearchParams(window.location.search), []);
   const focusParam = urlParams.get("focus");
   const focused = focusParam !== null && focusParam !== "0";
+  // ?dir=<subpath> narrows the view to one directory. It is a filter, not a workspace: comments
+  // stay keyed to the worktree, so nothing is hidden from the CLI by scoping the browser.
+  const dir = (urlParams.get("dir") || "").replace(/\/+$/, "");
 
   // Mirrors for use inside the once-only SSE subscription.
   const selectedRef = useRef(null);
@@ -167,6 +170,12 @@ export default function App() {
     return comments.filter((c) => c.status === filter);
   }, [comments, filter]);
 
+  const visibleFiles = useMemo(() => {
+    const files = diff?.files ?? [];
+    if (!dir) return files;
+    return files.filter((f) => f.path === dir || f.path.startsWith(`${dir}/`));
+  }, [diff, dir]);
+
   const commentsByFile = useMemo(() => {
     const map = new Map();
     for (const c of visibleComments) {
@@ -187,6 +196,7 @@ export default function App() {
         {focused && selectedWs && (
           <span className="font-mono text-sm font-medium text-neutral-700 dark:text-neutral-200">
             {selectedWs.label}
+            {dir && <span className="text-neutral-400">/{dir}</span>}
           </span>
         )}
         {selectedWs && (
@@ -268,9 +278,9 @@ export default function App() {
         {selectedWs && (
           <aside className="w-60 shrink-0 overflow-y-auto border-r border-neutral-200 bg-white p-2 dark:border-neutral-800 dark:bg-neutral-900">
             <div className="px-2 py-1 text-[11px] font-semibold uppercase tracking-wide text-neutral-400">
-              {diff?.files.length ?? 0} files · {openTotal} open
+              {visibleFiles.length} files · {openTotal} open
             </div>
-            {diff?.files.map((f, i) => {
+            {visibleFiles.map((f, i) => {
               const fc = commentsByFile.get(f.path)?.filter((c) => c.status === "open").length ?? 0;
               return (
                 <button
@@ -314,11 +324,13 @@ export default function App() {
               <code className="rounded bg-neutral-200 px-1 dark:bg-neutral-800">livediff .</code> in it, or ask Claude.
             </div>
           )}
-          {selectedWs && diff && diff.files.length === 0 && (
-            <div className="mt-24 text-center text-sm text-neutral-400">No changes in this worktree.</div>
+          {selectedWs && diff && visibleFiles.length === 0 && (
+            <div className="mt-24 text-center text-sm text-neutral-400">
+              {dir ? `No changes under ${dir}.` : "No changes in this worktree."}
+            </div>
           )}
           {selectedWs &&
-            diff?.files.map((f, i) => (
+            visibleFiles.map((f, i) => (
               <div key={f.path} ref={(el) => (fileRefs.current[i] = el)}>
                 <FileDiff
                   file={f}

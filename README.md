@@ -80,6 +80,7 @@ Nothing is destroyed less than 205 days after a comment's last activity, and
 ```
 livediff                       open the hub UI (all workspaces)
 livediff <path>                register a worktree and open its focused view
+                               (a subdirectory scopes the view to it)
 livediff <path> --no-open      register only, print the URL
 livediff <path> --wait         open, then block until "Done reviewing" is clicked
 livediff list                  list registered workspaces

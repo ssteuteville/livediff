@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { stat } from "node:fs/promises";
-import { resolve } from "node:path";
+import { relative, resolve } from "node:path";
 import { ensureHub, hubVersion } from "./ensure-hub.js";
 import { readState, shutdownHub } from "./hub-state.js";
 import { findCommand, renderCommandHelp, renderMainHelp, suggest, VALUE_FLAGS } from "./cli-help.js";
@@ -127,15 +127,20 @@ async function cmdOpen(pathArg) {
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ path }),
   });
-  const url = `http://localhost:${new URL(base).port}/?ws=${ws.id}&focus=1`;
+  // Registering resolves to the worktree root, so a subdirectory argument would otherwise be
+  // silently widened to the whole repo. Carry it as a view filter instead of a second workspace.
+  const dir = relative(ws.path, path);
+  const scope = dir && !dir.startsWith("..") ? `&dir=${encodeURIComponent(dir)}` : "";
+  const url = `http://localhost:${new URL(base).port}/?ws=${ws.id}&focus=1${scope}`;
   const quiet = flags.has("--no-open");
   const opened = quiet ? false : await openBrowser(url);
+  const name = scope ? `${ws.label}/${dir}` : ws.label;
   const human = quiet
-    ? `registered ${ws.label} → ${url}`
+    ? `registered ${name} → ${url}`
     : opened
-      ? `opened ${ws.label} → ${url}`
-      : `registered ${ws.label} → ${url} (could not open a browser)`;
-  out(human, { ...ws, url, opened });
+      ? `opened ${name} → ${url}`
+      : `registered ${name} → ${url} (could not open a browser)`;
+  out(human, { ...ws, url, opened, dir: scope ? dir : null });
 
   if (!flags.has("--wait")) return;
 
