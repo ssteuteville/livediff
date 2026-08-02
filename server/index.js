@@ -5,8 +5,24 @@ import { fileURLToPath } from "node:url";
 import { dirname, join, extname, resolve as resolvePath } from "node:path";
 import { openBrowser } from "./open-browser.js";
 
-import { getDiff, summary, worktreeSignature, isGitRepo } from "./git.js";
-import { readComments, addComment, updateComment, deleteComment } from "./comments.js";
+import {
+  getDiff,
+  summary,
+  worktreeSignature,
+  isGitRepo,
+  currentBranch,
+  changedPaths,
+  toplevel,
+} from "./git.js";
+import {
+  listComments,
+  addComment,
+  updateComment,
+  deleteComment,
+  sweep,
+  restoreComment,
+  purgeArchived,
+} from "./comments.js";
 import {
   readRegistry,
   addWorkspace,
@@ -75,6 +91,14 @@ function resolveWs(url) {
   });
 }
 
+/** No path means every registered workspace — these are maintenance routes, not review routes. */
+async function targetWorkspaces(path) {
+  const all = await readRegistry();
+  if (!path) return all;
+  const root = (await toplevel(path)) ?? path;
+  return all.filter((w) => w.path === root);
+}
+
 /** Registered workspaces enriched with live git + comment info for the rail. */
 async function workspacesView() {
   const registered = await readRegistry();
@@ -88,7 +112,10 @@ async function workspacesView() {
       }
       let openComments = 0;
       try {
-        openComments = (await readComments(w.id, w.path)).filter((c) => c.status === "open").length;
+        // Scoped to the branch summary() already reported, so the rail count can never
+        // contradict what the diff view shows.
+        const scoped = await listComments(w.id, w.path, { branch: info.branch ?? "all" });
+        openComments = scoped.filter((c) => c.status === "open" && !c.archivedAt).length;
       } catch {
         /* none */
       }
@@ -182,7 +209,59 @@ const server = createServer(async (req, res) => {
     if (pathname === "/api/comments" && req.method === "GET") {
       const ws = await resolveWs(url);
       if (!ws) return send(res, 404, { error: "unknown workspace" });
-      return send(res, 200, { comments: await readComments(ws.id, ws.path) });
+      const requested = url.searchParams.get("branch");
+      const branch = requested || (await currentBranch(ws.path).catch(() => "all"));
+      return send(res, 200, { comments: await listComments(ws.id, ws.path, { branch }) });
+    }
+
+    if (pathname === "/api/stale" && req.method === "GET") {
+      const ws = await resolveWs(url);
+      if (!ws) return send(res, 404, { error: "unknown workspace" });
+      const changed = new Set(await changedPaths(ws.path).catch(() => []));
+      const all = await listComments(ws.id, ws.path, { branch: "all" });
+      return send(res, 200, { stale: all.filter((c) => !changed.has(c.file)).map((c) => c.id) });
+    }
+
+    const restoreMatch = pathname.match(/^\/api\/comments\/([\w-]+)\/restore$/);
+    if (restoreMatch && req.method === "POST") {
+      const ws = await resolveWs(url);
+      if (!ws) return send(res, 404, { error: "unknown workspace" });
+      const comment = await restoreComment(ws.id, restoreMatch[1]);
+      if (!comment) return send(res, 404, { error: "unknown comment" });
+      broadcast("comments", { reason: "restored", ws: ws.id });
+      return send(res, 200, comment);
+    }
+
+    if (pathname === "/api/sweep" && req.method === "POST") {
+      const { path, force } = await readBody(req);
+      const targets = await targetWorkspaces(path);
+      let archived = 0;
+      let purged = 0;
+      for (const w of targets) {
+        const changed = await changedPaths(w.path).catch(() => []);
+        const result = await sweep(w.id, w.path, changed, { force: force ?? {} });
+        archived += result.archived;
+        purged += result.purged;
+      }
+      if (archived || purged) broadcast("comments", { reason: "swept" });
+      return send(res, 200, { archived, purged, workspaces: targets.length });
+    }
+
+    if (pathname === "/api/purge" && req.method === "POST") {
+      const { path, keepDays, dryRun } = await readBody(req);
+      const targets = await targetWorkspaces(path);
+      const cutoff = Date.now() - keepDays * 86_400_000;
+      let count = 0;
+      for (const w of targets) {
+        if (dryRun) {
+          const all = await listComments(w.id, w.path, { branch: "all" });
+          count += all.filter((c) => c.archivedAt && Date.parse(c.archivedAt) <= cutoff).length;
+        } else {
+          count += await purgeArchived(w.id, { olderThanDays: keepDays });
+        }
+      }
+      if (count && !dryRun) broadcast("comments", { reason: "pruned" });
+      return send(res, 200, { count, workspaces: targets.length, dryRun: Boolean(dryRun) });
     }
 
     if (pathname === "/api/comments" && req.method === "POST") {
@@ -297,10 +376,18 @@ let registrySig = null;
 let pollTimer = null;
 
 /**
+ * Sweeping needs one `changedPaths` spawn per workspace. The poll loop runs every second, and
+ * the lifecycle thresholds are measured in days, so sweeping every tick would double git spawns
+ * per second to enforce a five-day rule. Twice a day is ample; `livediff archive` forces it.
+ */
+const SWEEP_INTERVAL_MS = 12 * 60 * 60_000;
+let lastSweep = 0;
+
+/**
  * Drop workspaces whose worktree is gone. Keeps the rail honest without the user having to
  * `livediff rm` every deleted agent worktree.
  */
-async function prune(registered) {
+async function pruneWorkspaces(registered) {
   const alive = await Promise.all(registered.map((w) => isGitRepo(w.path)));
   const kept = registered.filter((_, i) => alive[i]);
   for (const [i, w] of registered.entries()) {
@@ -322,7 +409,7 @@ async function poll() {
 
   let registered = [];
   try {
-    registered = await prune(await readRegistry());
+    registered = await pruneWorkspaces(await readRegistry());
   } catch {
     return;
   }
@@ -341,6 +428,17 @@ async function poll() {
     if (prev !== undefined && sig !== prev) broadcast("diff", { reason: "worktree", ws: w.id });
     diffSigs.set(w.id, sig);
   });
+
+  if (Date.now() - lastSweep < SWEEP_INTERVAL_MS) return;
+  lastSweep = Date.now();
+  const changed = await Promise.all(registered.map((w) => changedPaths(w.path).catch(() => null)));
+  await Promise.all(
+    registered.map(async (w, i) => {
+      if (changed[i] === null) return; // transient git state
+      const { archived, purged } = await sweep(w.id, w.path, changed[i], {});
+      if (archived || purged) broadcast("comments", { reason: "swept", ws: w.id });
+    })
+  );
 }
 
 /**

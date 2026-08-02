@@ -6,7 +6,7 @@ import { withTempXdg, makeRepo } from "./helpers.js";
 import { writeJsonAtomic } from "../server/atomic.js";
 import { registryPath, readRegistry, idFor, configDir } from "../server/registry.js";
 import { migrateRegistry } from "../server/migrations.js";
-import { readComments } from "../server/comments.js";
+import { listComments } from "../server/comments.js";
 
 /** Seed a pre-0.4 registry that recorded literal (un-normalized) paths. */
 async function seedLegacy(entries) {
@@ -49,7 +49,7 @@ test("moves comments from the collapsed entry onto the surviving one", async () 
 
     await migrateRegistry();
 
-    const comments = await readComments(rootId, repo);
+    const comments = await listComments(rootId, repo, { branch: "all" });
     assert.deepEqual(comments.map((c) => c.id).sort(), ["aaaaaaaa", "bbbbbbbb"]);
     await assert.rejects(() => readFile(join(configDir(), "comments", `${subId}.json`), "utf8"));
   });
