@@ -157,5 +157,8 @@ export const COMMENT_ROW_CHROME_PX = 150;
 /** Horizontal padding and borders between the surface edge and the comment body's text. */
 export const COMMENT_CARD_INSET_PX = 50;
 
+/** The one-line summary of the latest reply, shown only when a thread has one. */
+export const COMMENT_REPLY_STRIP_PX = 34;
+
 /** How tall an expanded thread may grow before it scrolls internally. */
 export const COMMENT_EXPANDED_MAX_PX = 460;

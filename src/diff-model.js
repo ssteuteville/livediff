@@ -218,12 +218,20 @@ function widestText(row, mode) {
  * what expanding would reveal, so expanding can overlay instead of reflow.
  */
 function collapsedCommentHeight(row, metrics) {
-  const { lineHeight, commentCharsPerLine = 80, commentLines = 7, commentChrome = 150 } = metrics;
-  const body = row.comments[0]?.body ?? "";
-  const wrapped = body
+  const {
+    lineHeight,
+    commentCharsPerLine = 80,
+    commentLines = 7,
+    commentChrome = 150,
+    commentReplyStrip = 34,
+  } = metrics;
+  const first = row.comments[0];
+  const wrapped = (first?.body ?? "")
     .split("\n")
     .reduce((n, para) => n + Math.max(1, Math.ceil(para.length / commentCharsPerLine)), 0);
-  return lineHeight * Math.min(commentLines, Math.max(1, wrapped)) + commentChrome;
+  // Whether there are replies changes the slot; how many do not — the strip shows only the last.
+  const strip = first?.replies?.length ? commentReplyStrip : 0;
+  return lineHeight * Math.min(commentLines, Math.max(1, wrapped)) + commentChrome + strip;
 }
 
 /**

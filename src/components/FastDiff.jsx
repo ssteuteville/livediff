@@ -6,6 +6,7 @@ import {
   COMMENT_ROW_LINES,
   COMMENT_ROW_CHROME_PX,
   COMMENT_CARD_INSET_PX,
+  COMMENT_REPLY_STRIP_PX,
   COMMENT_EXPANDED_MAX_PX,
 } from "../../server/constants.js";
 import DiffSearch from "./DiffSearch.jsx";
@@ -180,7 +181,7 @@ function FileHeader({ file }) {
  * monospace character width rather than measured. Find is in-app for the same reason the DOM is
  * small: the browser's own find cannot see rows that are not there.
  */
-export default function FastDiff({ diff, comments, mode, onAddComment, onCommentAction }) {
+export default function FastDiff({ diff, comments, mode, jump, onAddComment, onCommentAction }) {
   const scrollRef = useRef(null);
   const surfaceRef = useRef(null);
   const [composing, setComposing] = useState(null);
@@ -218,6 +219,7 @@ export default function FastDiff({ diff, comments, mode, onAddComment, onComment
       commentCharsPerLine,
       commentLines: COMMENT_ROW_LINES,
       commentChrome: COMMENT_ROW_CHROME_PX,
+      commentReplyStrip: COMMENT_REPLY_STRIP_PX,
       wrap: true,
       mode,
       measured,
@@ -255,6 +257,14 @@ export default function FastDiff({ diff, comments, mode, onAddComment, onComment
       live = false;
     };
   }, [visibleLangs]);
+
+  // Selecting a file in the rail scrolls to its header. Keyed on the nonce, not the path, so
+  // picking the same file twice scrolls again rather than doing nothing.
+  useEffect(() => {
+    if (!jump?.path) return;
+    const index = rows.findIndex((r) => r.kind === ROW.FILE && r.file.path === jump.path);
+    if (index !== -1) scrollToRow(index, { align: "start" });
+  }, [jump?.nonce]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const hits = useMemo(() => searchRows(rows, query, options), [rows, query, options]);
   const fileCount = useMemo(() => countByFile(hits).size, [hits]);

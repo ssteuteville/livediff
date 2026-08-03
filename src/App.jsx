@@ -46,6 +46,7 @@ export default function App() {
   const [flash, setFlash] = useState(false);
   const [review, setReview] = useState(null);
   const [error, setError] = useState(null);
+  const [jump, setJump] = useState(null);
   const theme = useTheme();
   const fileRefs = useRef({});
 
@@ -197,7 +198,12 @@ export default function App() {
 
   const selectedWs = workspaces.find((w) => w.id === selected);
   const openTotal = comments.filter((c) => c.status === "open").length;
-  const scrollToFile = (i) => fileRefs.current[i]?.scrollIntoView({ behavior: "smooth", block: "start" });
+  // The two renderers scroll differently: classic has a DOM node per file, the fast one has to be
+  // told which row to jump to. The nonce makes clicking the same file twice scroll again.
+  const scrollToFile = (i, path) => {
+    if (fast) setJump({ path, nonce: Date.now() });
+    else fileRefs.current[i]?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
 
   return (
     <div className="flex h-full flex-col bg-neutral-100 text-neutral-900 dark:bg-neutral-950 dark:text-neutral-100">
@@ -295,7 +301,7 @@ export default function App() {
               return (
                 <button
                   key={f.path}
-                  onClick={() => scrollToFile(i)}
+                  onClick={() => scrollToFile(i, f.path)}
                   className="flex w-full items-center gap-1.5 rounded px-2 py-1 text-left text-xs hover:bg-neutral-100 dark:hover:bg-neutral-800"
                 >
                   <span className="truncate font-mono text-neutral-700 dark:text-neutral-200" title={f.path}>
@@ -348,6 +354,7 @@ export default function App() {
               diff={{ ...diff, files: visibleFiles }}
               comments={visibleComments}
               mode={mode}
+              jump={jump}
               onAddComment={onAddComment}
               onCommentAction={onCommentAction}
             />

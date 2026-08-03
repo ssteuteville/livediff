@@ -278,16 +278,28 @@ test("a collapsed slot stops growing at the cap", () => {
   assert.equal(slot({ body: "y\n".repeat(500) }), capped);
 });
 
-test("a slot's height ignores everything expanding would reveal", () => {
+const reply = (body) => ({ author: "claude", body, ts: "" });
+
+test("a replied-to thread gets one strip, however much was said", () => {
   const body = "one line";
   const bare = slot({ body });
-  assert.equal(slot({ body, replies: Array.from({ length: 40 }, () => ({ author: "claude", body: "sure", ts: "" })) }), bare);
+  const one = slot({ body, replies: [reply("sure")] });
+  assert.equal(one, bare + 34, "the strip is what makes a reply visible while collapsed");
+  assert.equal(slot({ body, replies: Array.from({ length: 40 }, () => reply("sure")) }), one);
+  assert.equal(slot({ body, replies: [reply("x".repeat(9000))] }), one);
+});
 
+test("a slot's height ignores everything expanding would reveal", () => {
+  const body = "one line";
   const many = buildRows([file()], "split", [
     comment({ body }),
-    comment({ id: "c2", body: "x".repeat(9000) }),
+    comment({ id: "c2", body: "x".repeat(9000), replies: [reply("and again")] }),
   ]).find((r) => r.kind === ROW.COMMENT);
-  assert.equal(rowHeight(many, slotMetrics), bare, "a second comment must not resize the slot either");
+  assert.equal(
+    rowHeight(many, slotMetrics),
+    slot({ body }),
+    "only the first comment is previewed, so the rest cannot resize the slot"
+  );
 });
 
 test("adding a comment does not change the height of any other row", () => {

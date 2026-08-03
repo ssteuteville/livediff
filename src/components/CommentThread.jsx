@@ -46,8 +46,28 @@ function Action({ children }) {
   return <span className="rounded px-1.5 py-0.5 text-[11px] text-neutral-500">{children}</span>;
 }
 
+/**
+ * The last thing said in the thread, on one line.
+ *
+ * Without it a collapsed thread shows only the opening comment, so an answered question and an
+ * ignored one look identical until you open them.
+ */
+function ReplyStrip({ replies }) {
+  const last = replies[replies.length - 1];
+  return (
+    <div className="flex items-center gap-2 border-t border-neutral-100 bg-neutral-50 px-3 py-1.5 dark:border-neutral-800 dark:bg-neutral-800/50">
+      <AuthorBadge author={last.author} />
+      {replies.length > 1 && (
+        <span className="shrink-0 text-[11px] text-neutral-400">+{replies.length - 1}</span>
+      )}
+      <span className="truncate text-[13px] text-neutral-700 dark:text-neutral-200">{last.body}</span>
+    </div>
+  );
+}
+
 function CommentPreview({ comment, lines }) {
   const resolved = comment.status === "resolved";
+  const replies = comment.replies ?? [];
   return (
     <div className="rounded-md border border-neutral-200 bg-white text-sm shadow-sm dark:border-neutral-700 dark:bg-neutral-900">
       <div className="flex items-center gap-2 border-b border-neutral-100 px-3 py-1.5 dark:border-neutral-800">
@@ -70,6 +90,8 @@ function CommentPreview({ comment, lines }) {
       >
         {comment.body}
       </div>
+
+      {replies.length > 0 && <ReplyStrip replies={replies} />}
 
       <div className="border-t border-neutral-100 px-3 py-1.5 dark:border-neutral-800">
         <ReplyPlaceholder />
