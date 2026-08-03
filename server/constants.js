@@ -137,3 +137,25 @@ export const ENV = {
 export const RENDERER = "classic";
 
 export const RENDERERS = ["classic", "fast"];
+
+// ─── Virtualized renderer layout ─────────────────────────────────────────────
+
+/**
+ * The most lines of comment body a collapsed thread shows before it truncates.
+ *
+ * A collapsed thread is a still image of the expanded one — same card, same controls, body clipped
+ * with an ellipsis and the reply box only painted to look like one. Its height comes from the text
+ * and is then capped here, so it never depends on what expanding would reveal. That is what lets
+ * expanding draw over the rows below instead of pushing them down: the document height never
+ * changes, and nothing under the reader's cursor moves.
+ */
+export const COMMENT_ROW_LINES = 7;
+
+/** The card around those lines: thread header, comment header, reply box, borders, padding. */
+export const COMMENT_ROW_CHROME_PX = 150;
+
+/** Horizontal padding and borders between the surface edge and the comment body's text. */
+export const COMMENT_CARD_INSET_PX = 50;
+
+/** How tall an expanded thread may grow before it scrolls internally. */
+export const COMMENT_EXPANDED_MAX_PX = 460;

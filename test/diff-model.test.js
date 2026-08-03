@@ -219,3 +219,100 @@ test("navigation moves forward and backward, wrapping at both ends", () => {
   assert.equal(nextHit(hits, 5, -1), 2, "backward from the first hit wraps to the last");
   assert.equal(nextHit([], 0, 1), null);
 });
+
+const comment = (over = {}) => ({
+  id: "c1",
+  file: "a.ts",
+  side: "new",
+  line: 2,
+  body: "this rename reads worse than the original",
+  author: "user",
+  status: "open",
+  replies: [],
+  ...over,
+});
+
+test("a comment becomes its own row, directly under the line it annotates", () => {
+  const rows = buildRows([file()], "split", [comment()]);
+  const at = rows.findIndex((r) => r.kind === ROW.COMMENT);
+  assert.ok(at > 0);
+  assert.equal(rows[at].line, 2);
+  assert.equal(rows[at].side, "new");
+  assert.equal(rows[at - 1].kind, ROW.LINE);
+  assert.equal(rows[at - 1].right.newNo, 2, "it sits under the added line, not the deleted one");
+});
+
+test("comments on the deleted side anchor to old line numbers", () => {
+  const rows = buildRows([file()], "split", [comment({ side: "old", line: 2 })]);
+  const at = rows.findIndex((r) => r.kind === ROW.COMMENT);
+  assert.equal(rows[at - 1].left.oldNo, 2);
+});
+
+test("several comments on one line share a single row", () => {
+  const rows = buildRows([file()], "split", [comment(), comment({ id: "c2", body: "agreed" })]);
+  const threads = rows.filter((r) => r.kind === ROW.COMMENT);
+  assert.equal(threads.length, 1);
+  assert.equal(threads[0].comments.length, 2);
+});
+
+test("a comment on a line the diff no longer contains emits no row", () => {
+  const rows = buildRows([file()], "split", [comment({ line: 900 })]);
+  assert.equal(rows.filter((r) => r.kind === ROW.COMMENT).length, 0);
+});
+
+const slotMetrics = metrics({ commentLines: 7, commentChrome: 96 });
+const slot = (over) =>
+  rowHeight(
+    buildRows([file()], "split", [comment(over)]).find((r) => r.kind === ROW.COMMENT),
+    slotMetrics
+  );
+
+test("a collapsed slot is sized from its text, one line at a time", () => {
+  assert.equal(slot({ body: "short" }), 20 + 96);
+  assert.equal(slot({ body: "line one\nline two\nline three" }), 60 + 96);
+});
+
+test("a collapsed slot stops growing at the cap", () => {
+  const capped = 7 * 20 + 96;
+  assert.equal(slot({ body: "x".repeat(50_000) }), capped);
+  assert.equal(slot({ body: "y\n".repeat(500) }), capped);
+});
+
+test("a slot's height ignores everything expanding would reveal", () => {
+  const body = "one line";
+  const bare = slot({ body });
+  assert.equal(slot({ body, replies: Array.from({ length: 40 }, () => ({ author: "claude", body: "sure", ts: "" })) }), bare);
+
+  const many = buildRows([file()], "split", [
+    comment({ body }),
+    comment({ id: "c2", body: "x".repeat(9000) }),
+  ]).find((r) => r.kind === ROW.COMMENT);
+  assert.equal(rowHeight(many, slotMetrics), bare, "a second comment must not resize the slot either");
+});
+
+test("adding a comment does not change the height of any other row", () => {
+  const bare = buildRows([file()], "split");
+  const withComment = buildRows([file()], "split", [comment({ body: "short" })]);
+  const heights = (rows) =>
+    rows.filter((r) => r.kind !== ROW.COMMENT).map((r) => rowHeight(r, slotMetrics));
+  assert.deepEqual(heights(withComment), heights(bare));
+  assert.equal(
+    buildOffsets(withComment, slotMetrics)[withComment.length] -
+      buildOffsets(bare, slotMetrics)[bare.length],
+    20 + 96
+  );
+});
+
+test("a narrowed search still finds the comments hanging off those lines", () => {
+  const rows = buildRows([file()], "split", [comment({ side: "new", line: 2 })]);
+  assert.equal(searchRows(rows, "reads worse", { scope: "added" }).length, 1);
+  assert.equal(searchRows(rows, "reads worse", { scope: "removed" }).length, 0);
+});
+
+test("search reaches comment bodies and their replies", () => {
+  const rows = buildRows([file()], "split", [
+    comment({ replies: [{ author: "claude", body: "renamed it back", ts: "" }] }),
+  ]);
+  assert.equal(searchRows(rows, "reads worse").length, 1);
+  assert.equal(searchRows(rows, "renamed it back").length, 1);
+});

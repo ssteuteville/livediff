@@ -16,6 +16,7 @@ export const ROW = {
   HUNK: "hunk",
   LINE: "line",
   SPACER: "spacer",
+  COMMENT: "comment",
 };
 
 const LINE_TYPE = { "+": "add", "-": "del", " ": "ctx" };
@@ -89,14 +90,70 @@ function pairLines(lines) {
   return rows;
 }
 
+function pairType(pair) {
+  if (pair.left && pair.right) return pair.left === pair.right ? "ctx" : "mod";
+  return pair.left ? "del" : "add";
+}
+
+const anchorKey = (path, side, line) => `${path}:${side}:${line}`;
+
+/** Group comments by the line they hang off, so emitting them costs one lookup per row. */
+export function commentAnchors(comments) {
+  const byAnchor = new Map();
+  for (const c of comments ?? []) {
+    const key = anchorKey(c.file, c.side, c.line);
+    if (!byAnchor.has(key)) byAnchor.set(key, []);
+    byAnchor.get(key).push(c);
+  }
+  return byAnchor;
+}
+
+/** The comment threads anchored to a row, in the order their sides appear on screen. */
+function commentsForRow(row, byAnchor) {
+  if (byAnchor.size === 0) return [];
+  const sides = [];
+  if (row.text !== undefined) {
+    const side = row.newNo == null ? "old" : "new";
+    sides.push([side, row.newNo ?? row.oldNo]);
+  } else {
+    if (row.left?.oldNo != null) sides.push(["old", row.left.oldNo]);
+    if (row.right?.newNo != null) sides.push(["new", row.right.newNo]);
+  }
+
+  const found = [];
+  for (const [side, line] of sides) {
+    const hit = byAnchor.get(anchorKey(row.file.path, side, line));
+    if (hit) found.push({ side, line, comments: hit });
+  }
+  return found;
+}
+
 /**
  * Flatten a diff into rows. `mode` is "unified" or "split".
  *
  * Every row carries the file it belongs to so search results, comment anchoring, and sticky
  * headers can all be answered from a row alone, without walking back up a tree.
+ *
+ * Comment threads become rows of their own, immediately under the line they annotate. They take a
+ * fixed slot whatever they contain — see COMMENT_ROW_LINES — because a row whose height depends on
+ * its content would have to be measured, and measurement is the thing this model exists to avoid.
  */
-export function buildRows(files, mode = "split") {
+export function buildRows(files, mode = "split", comments = []) {
   const rows = [];
+  const byAnchor = commentAnchors(comments);
+
+  const pushComments = (row) => {
+    for (const thread of commentsForRow(row, byAnchor)) {
+      rows.push({
+        kind: ROW.COMMENT,
+        file: row.file,
+        side: thread.side,
+        line: thread.line,
+        comments: thread.comments,
+        key: `c:${row.file.path}:${thread.side}:${thread.line}`,
+      });
+    }
+  };
 
   for (const file of files) {
     rows.push({ kind: ROW.FILE, file, key: `f:${file.path}` });
@@ -111,7 +168,7 @@ export function buildRows(files, mode = "split") {
 
       if (mode === "unified") {
         for (const [i, line] of hunk.lines.entries()) {
-          rows.push({
+          const row = {
             kind: ROW.LINE,
             file,
             type: line.type,
@@ -119,20 +176,24 @@ export function buildRows(files, mode = "split") {
             newNo: line.newNo,
             text: line.text,
             key: `l:${file.path}:${h}:${i}`,
-          });
+          };
+          rows.push(row);
+          pushComments(row);
         }
         continue;
       }
 
       for (const [i, pair] of pairLines(hunk.lines).entries()) {
-        rows.push({
+        const row = {
           kind: ROW.LINE,
           file,
           left: pair.left,
           right: pair.right,
-          type: pair.left && pair.right ? (pair.left === pair.right ? "ctx" : "mod") : pair.left ? "del" : "add",
+          type: pairType(pair),
           key: `l:${file.path}:${h}:${i}`,
-        });
+        };
+        rows.push(row);
+        pushComments(row);
       }
     }
   }
@@ -150,6 +211,22 @@ function widestText(row, mode) {
 }
 
 /**
+ * How tall a collapsed thread's slot is.
+ *
+ * Derived from the text the same way a wrapped diff line is, then capped: a one-line note gets one
+ * line, a long one gets `commentLines` and a fade. Capping is what makes the height independent of
+ * what expanding would reveal, so expanding can overlay instead of reflow.
+ */
+function collapsedCommentHeight(row, metrics) {
+  const { lineHeight, commentCharsPerLine = 80, commentLines = 7, commentChrome = 150 } = metrics;
+  const body = row.comments[0]?.body ?? "";
+  const wrapped = body
+    .split("\n")
+    .reduce((n, para) => n + Math.max(1, Math.ceil(para.length / commentCharsPerLine)), 0);
+  return lineHeight * Math.min(commentLines, Math.max(1, wrapped)) + commentChrome;
+}
+
+/**
  * Row height in pixels, computed rather than measured.
  *
  * With a monospace font the number of display lines a row wraps to is `ceil(chars / charsPerLine)`
@@ -157,8 +234,9 @@ function widestText(row, mode) {
  * know its true height immediately instead of growing as rows are measured, which is the usual
  * tell that a list is virtualized.
  *
- * `measured` overrides for rows whose height genuinely cannot be derived — an expanded comment
- * thread, mainly.
+ * Comment rows are the one thing that could break this, and they are given a fixed slot instead —
+ * expanding one draws over the rows below rather than resizing its own. `measured` remains as an
+ * escape hatch for a row that genuinely has to be observed.
  */
 export function rowHeight(row, metrics) {
   const { lineHeight, charsPerLine, fileHeaderHeight, hunkHeaderHeight, wrap, measured } = metrics;
@@ -169,6 +247,7 @@ export function rowHeight(row, metrics) {
   if (row.kind === ROW.FILE) return fileHeaderHeight;
   if (row.kind === ROW.HUNK) return hunkHeaderHeight;
   if (row.kind === ROW.SPACER) return lineHeight * 3;
+  if (row.kind === ROW.COMMENT) return collapsedCommentHeight(row, metrics);
 
   if (!wrap || !charsPerLine || charsPerLine < 1) return lineHeight;
   const chars = widestText(row, metrics.mode).length;
@@ -220,6 +299,9 @@ export function visibleRange(offsets, scrollTop, viewportHeight, overscan = 8) {
 function searchableText(row) {
   if (row.kind === ROW.FILE) return [row.file.path];
   if (row.kind === ROW.HUNK) return [row.context ?? ""];
+  if (row.kind === ROW.COMMENT) {
+    return row.comments.flatMap((c) => [c.body, ...(c.replies ?? []).map((r) => r.body)]);
+  }
   if (row.kind !== ROW.LINE) return [];
   if (row.text !== undefined) return [row.text];
   return [row.left?.text ?? "", row.right?.text ?? ""];
@@ -241,6 +323,21 @@ function matcher(query, { regex, caseSensitive }) {
 }
 
 /**
+ * Whether a row belongs to a narrowed search.
+ *
+ * A comment counts as part of the side it annotates — narrowing to added lines and losing the
+ * comments hanging off them would hide exactly the notes you were looking for.
+ */
+function inScope(row, scope) {
+  if (row.kind === ROW.COMMENT) {
+    return scope === "added" ? row.side === "new" : row.side === "old";
+  }
+  if (row.kind !== ROW.LINE) return false;
+  if (scope === "added") return row.type === "add" || row.type === "mod";
+  return row.type === "del" || row.type === "mod";
+}
+
+/**
  * Row indices matching `query`.
  *
  * Searching the model rather than the DOM is what makes this work at all under virtualization —
@@ -255,13 +352,7 @@ export function searchRows(rows, query, { regex = false, caseSensitive = false, 
   const hits = [];
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i];
-    if (scope !== "all") {
-      if (row.kind !== ROW.LINE) continue;
-      const isAdd = row.type === "add" || row.type === "mod";
-      const isDel = row.type === "del" || row.type === "mod";
-      if (scope === "added" && !isAdd) continue;
-      if (scope === "removed" && !isDel) continue;
-    }
+    if (scope !== "all" && !inScope(row, scope)) continue;
     if (searchableText(row).some((t) => t && test(t))) {
       hits.push({ index: i, path: row.file?.path ?? null });
     }

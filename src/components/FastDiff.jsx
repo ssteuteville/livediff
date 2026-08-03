@@ -1,8 +1,15 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { ROW, buildRows, searchRows, countByFile, nextHit } from "../diff-model.js";
 import { useTextMetrics, useVirtualRows, useScrollAnchor } from "../hooks/useVirtualRows.js";
+import { loadGrammar, tokenize } from "../syntax.js";
+import {
+  COMMENT_ROW_LINES,
+  COMMENT_ROW_CHROME_PX,
+  COMMENT_CARD_INSET_PX,
+  COMMENT_EXPANDED_MAX_PX,
+} from "../../server/constants.js";
 import DiffSearch from "./DiffSearch.jsx";
-import CommentThread from "./CommentThread.jsx";
+import CommentThread, { CommentThreadPreview, ThreadHeader } from "./CommentThread.jsx";
 import CommentComposer from "./CommentComposer.jsx";
 
 const GUTTER = "w-12 shrink-0 select-none text-right text-neutral-400";
@@ -14,6 +21,8 @@ const GAP = {
   ctx: "",
 };
 
+const MARKER = { add: "+", del: "−" };
+
 const STATUS_STYLES = {
   added: "bg-green-100 text-green-700 dark:bg-green-500/20 dark:text-green-300",
   deleted: "bg-red-100 text-red-700 dark:bg-red-500/20 dark:text-red-300",
@@ -21,54 +30,126 @@ const STATUS_STYLES = {
   renamed: "bg-blue-100 text-blue-700 dark:bg-blue-500/20 dark:text-blue-300",
 };
 
-/** Split a line into the parts before, inside, and after a match, for highlighting. */
-function highlight(text, query, { regex, caseSensitive }) {
+/** The character range a search matches within a line, or null. */
+function matchRange(text, query, { regex, caseSensitive }) {
   if (!query) return null;
   try {
     const pattern = regex ? query : query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    const re = new RegExp(pattern, caseSensitive ? "" : "i");
-    const m = re.exec(text);
+    const m = new RegExp(pattern, caseSensitive ? "" : "i").exec(text);
     if (!m || !m[0]) return null;
-    return [text.slice(0, m.index), m[0], text.slice(m.index + m[0].length)];
+    return { start: m.index, end: m.index + m[0].length };
   } catch {
     return null;
   }
 }
 
-function LineText({ text, query, options }) {
-  const parts = highlight(text ?? "", query, options);
-  if (!parts) return <span className="whitespace-pre-wrap break-all">{text}</span>;
-  const [before, match, after] = parts;
+/**
+ * Cut syntax tokens at the search match, so a line can be coloured and marked at once.
+ *
+ * Doing it on the token stream rather than the text is what keeps highlighting from being an
+ * either/or with find: a match landing mid-token splits that token instead of replacing the line.
+ */
+function splitAtMatch(tokens, range) {
+  if (!range) return tokens;
+  const out = [];
+  let pos = 0;
+  for (const token of tokens) {
+    const start = pos;
+    const end = (pos += token.text.length);
+    if (range.end <= start || range.start >= end) {
+      out.push(token);
+      continue;
+    }
+    const from = Math.max(start, range.start) - start;
+    const to = Math.min(end, range.end) - start;
+    if (from > 0) out.push({ text: token.text.slice(0, from), cls: token.cls });
+    out.push({ text: token.text.slice(from, to), cls: token.cls, marked: true });
+    if (to < token.text.length) out.push({ text: token.text.slice(to), cls: token.cls });
+  }
+  return out;
+}
+
+function TokenSpan({ token }) {
+  if (token.marked) {
+    return <mark className={"rounded-sm bg-amber-300 text-black dark:bg-amber-400 " + token.cls}>{token.text}</mark>;
+  }
+  return token.cls ? <span className={token.cls}>{token.text}</span> : token.text;
+}
+
+function LineText({ text, lang, query, options }) {
+  const value = text ?? "";
+  const range = matchRange(value, query, options);
+  const tokens = tokenize(value, lang) ?? [{ text: value, cls: "" }];
+  const parts = splitAtMatch(tokens, range);
   return (
     <span className="whitespace-pre-wrap break-all">
-      {before}
-      <mark className="rounded-sm bg-amber-300 text-black dark:bg-amber-400">{match}</mark>
-      {after}
+      {parts.map((token, i) => (
+        <TokenSpan key={i} token={token} />
+      ))}
     </span>
   );
 }
 
-function Side({ line, kind, query, options, onAdd }) {
+function Side({ line, lang, kind, query, options, onAdd }) {
   const bg = kind === "add" ? GAP.add : kind === "del" ? GAP.del : "";
   return (
     <div className={"group flex min-w-0 flex-1 " + bg}>
       <span className={GUTTER}>{line?.oldNo ?? line?.newNo ?? ""}</span>
-      <span className="w-4 shrink-0 select-none text-center text-neutral-400">
-        {kind === "add" ? "+" : kind === "del" ? "−" : ""}
-      </span>
+      <span className="w-4 shrink-0 select-none text-center text-neutral-400">{MARKER[kind] ?? ""}</span>
       <div className="min-w-0 flex-1 pr-2">
-        {line ? <LineText text={line.text} query={query} options={options} /> : null}
+        {line ? <LineText text={line.text} lang={lang} query={query} options={options} /> : null}
       </div>
       {line && onAdd && (
         <button
           type="button"
           onClick={() => onAdd(line)}
-          className="invisible shrink-0 px-1 text-xs text-blue-600 group-hover:visible dark:text-blue-400"
+          className="mr-1 mt-0.5 hidden h-5 w-5 shrink-0 items-center justify-center rounded bg-blue-600 text-sm font-semibold leading-none text-white shadow-sm transition hover:bg-blue-700 group-hover:flex focus-visible:flex"
           title="Comment on this line"
+          aria-label="Comment on this line"
         >
           +
         </button>
       )}
+    </div>
+  );
+}
+
+/** In split mode a paired row shows a deletion on the left and an addition on the right. */
+function sideKind(row, which) {
+  const line = which === "left" ? row.left : row.right;
+  const opposite = which === "left" ? row.right : row.left;
+  if (!line) return "ctx";
+  if (!opposite) return which === "left" ? "del" : "add";
+  if (row.type === "mod") return which === "left" ? "del" : "add";
+  return "ctx";
+}
+
+/**
+ * A collapsed thread: the expanded card, drawn and clipped.
+ *
+ * Nothing inside is a real control — the whole slot is one click target, and where you click
+ * decides what the expanded thread opens into. Clicking the painted reply box opens it with the
+ * reply field focused, which is the only reason the illusion needs to be pixel-accurate.
+ */
+function CommentSlot({ row, lines, hidden, onOpen }) {
+  const open = (e) => onOpen(Boolean(e.target.closest("[data-reply-placeholder]")));
+
+  return (
+    <div
+      role="button"
+      tabIndex={0}
+      onClick={open}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onOpen(false);
+        }
+      }}
+      className={
+        "h-full cursor-pointer font-sans transition hover:brightness-[0.98] " + (hidden ? "invisible" : "")
+      }
+    >
+      <CommentThreadPreview comments={row.comments} lines={lines} file={row.file.path} line={row.line} />
     </div>
   );
 }
@@ -103,6 +184,7 @@ export default function FastDiff({ diff, comments, mode, onAddComment, onComment
   const scrollRef = useRef(null);
   const surfaceRef = useRef(null);
   const [composing, setComposing] = useState(null);
+  const [expanded, setExpanded] = useState(null);
   const [measured] = useState(() => new Map());
 
   const [searchOpen, setSearchOpen] = useState(false);
@@ -112,16 +194,7 @@ export default function FastDiff({ diff, comments, mode, onAddComment, onComment
 
   const text = useTextMetrics(surfaceRef);
 
-  const rows = useMemo(() => buildRows(diff?.files ?? [], mode), [diff, mode]);
-
-  const commentsByFile = useMemo(() => {
-    const map = new Map();
-    for (const c of comments ?? []) {
-      if (!map.has(c.file)) map.set(c.file, []);
-      map.get(c.file).push(c);
-    }
-    return map;
-  }, [comments]);
+  const rows = useMemo(() => buildRows(diff?.files ?? [], mode, comments), [diff, mode, comments]);
 
   // Gutter and marker columns are fixed; the rest of the width is what text wraps within.
   const charsPerLine = useMemo(() => {
@@ -130,17 +203,26 @@ export default function FastDiff({ diff, comments, mode, onAddComment, onComment
     return Math.max(20, Math.floor(usable / (text.charWidth || 8)));
   }, [text, mode]);
 
+  // A comment card spans the whole width, unlike a diff line, and is set in proportional text.
+  const commentCharsPerLine = useMemo(
+    () => Math.max(20, Math.floor((text.width - COMMENT_CARD_INSET_PX) / (text.proseCharWidth || 7))),
+    [text.width, text.proseCharWidth]
+  );
+
   const metrics = useMemo(
     () => ({
       lineHeight: text.lineHeight,
       charsPerLine,
       fileHeaderHeight: 40,
       hunkHeaderHeight: 26,
+      commentCharsPerLine,
+      commentLines: COMMENT_ROW_LINES,
+      commentChrome: COMMENT_ROW_CHROME_PX,
       wrap: true,
       mode,
       measured,
     }),
-    [text.lineHeight, charsPerLine, mode, measured]
+    [text.lineHeight, charsPerLine, commentCharsPerLine, mode, measured]
   );
 
   const { range, offsets, totalHeight, scrollToRow } = useVirtualRows({
@@ -150,6 +232,29 @@ export default function FastDiff({ diff, comments, mode, onAddComment, onComment
   });
 
   useScrollAnchor({ rows, containerRef: scrollRef, offsets, deps: [diff] });
+
+  // Grammars are fetched for what is on screen, not for the diff — scrolling into a Rust file is
+  // what pays for the Rust grammar. Joined into a string so the effect sees a stable dependency
+  // across the scroll frames that leave the visible languages unchanged.
+  const [, syntaxLoaded] = useReducer((n) => n + 1, 0);
+  const visibleLangs = useMemo(() => {
+    const langs = new Set();
+    for (let i = range.start; i < range.end; i++) {
+      if (rows[i]?.file?.lang) langs.add(rows[i].file.lang);
+    }
+    return [...langs].sort().join(" ");
+  }, [rows, range]);
+
+  useEffect(() => {
+    if (!visibleLangs) return;
+    let live = true;
+    Promise.all(visibleLangs.split(" ").map(loadGrammar)).then((added) => {
+      if (live && added.some(Boolean)) syntaxLoaded();
+    });
+    return () => {
+      live = false;
+    };
+  }, [visibleLangs]);
 
   const hits = useMemo(() => searchRows(rows, query, options), [rows, query, options]);
   const fileCount = useMemo(() => countByFile(hits).size, [hits]);
@@ -178,10 +283,25 @@ export default function FastDiff({ diff, comments, mode, onAddComment, onComment
         e.preventDefault();
         setSearchOpen(true);
       }
+      if (e.key === "Escape") {
+        setExpanded(null);
+        setComposing(null);
+      }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, []);
+
+  // Overlays are anchored by row key rather than index: a refetch renumbers every row, and an
+  // expanded thread that jumped to a different line on save would be worse than not having one.
+  const expandedIndex = useMemo(
+    () => (expanded ? rows.findIndex((r) => r.key === expanded.key) : -1),
+    [expanded, rows]
+  );
+  const composeIndex = useMemo(
+    () => (composing ? rows.findIndex((r) => r.key === composing.rowKey) : -1),
+    [composing, rows]
+  );
 
   const activeIndex = hits[active]?.index ?? -1;
   const slice = [];
@@ -246,14 +366,35 @@ export default function FastDiff({ diff, comments, mode, onAddComment, onComment
               );
             }
 
+            if (row.kind === ROW.COMMENT) {
+              return (
+                <div key={row.key} className="absolute inset-x-0" style={{ top, height }}>
+                  <CommentSlot
+                    row={row}
+                    lines={COMMENT_ROW_LINES}
+                    hidden={expanded?.key === row.key}
+                    onOpen={(toReply) => setExpanded({ key: row.key, reply: toReply })}
+                  />
+                </div>
+              );
+            }
+
             const ring = isActive ? "ring-2 ring-inset ring-amber-400" : "";
             const onAdd = (line) =>
-              setComposing({ file: row.file.path, line: line.newNo ?? line.oldNo, side: line.newNo ? "new" : "old", text: line.text });
+              setComposing({
+                rowKey: row.key,
+                file: row.file.path,
+                line: line.newNo ?? line.oldNo,
+                side: line.newNo ? "new" : "old",
+                text: line.text,
+              });
+
+            const lang = row.file?.lang;
 
             if (mode === "unified") {
               return (
                 <div key={row.key} className={"absolute inset-x-0 flex " + ring} style={{ top, height }}>
-                  <Side line={row} kind={row.type} query={query} options={options} onAdd={onAdd} />
+                  <Side line={row} lang={lang} kind={row.type} query={query} options={options} onAdd={onAdd} />
                 </div>
               );
             }
@@ -262,7 +403,8 @@ export default function FastDiff({ diff, comments, mode, onAddComment, onComment
               <div key={row.key} className={"absolute inset-x-0 flex " + ring} style={{ top, height }}>
                 <Side
                   line={row.left}
-                  kind={row.left && !row.right ? "del" : row.type === "mod" ? "del" : "ctx"}
+                  lang={lang}
+                  kind={sideKind(row, "left")}
                   query={query}
                   options={options}
                   onAdd={onAdd}
@@ -270,7 +412,8 @@ export default function FastDiff({ diff, comments, mode, onAddComment, onComment
                 <div className="w-px shrink-0 bg-neutral-200 dark:bg-neutral-800" />
                 <Side
                   line={row.right}
-                  kind={row.right && !row.left ? "add" : row.type === "mod" ? "add" : "ctx"}
+                  lang={lang}
+                  kind={sideKind(row, "right")}
                   query={query}
                   options={options}
                   onAdd={onAdd}
@@ -278,48 +421,67 @@ export default function FastDiff({ diff, comments, mode, onAddComment, onComment
               </div>
             );
           })}
+
+          {expandedIndex !== -1 && (
+            <div
+              // Opaque: the thread's own tint is translucent, and the rows it covers would
+              // otherwise read through the expanded card.
+              className="absolute inset-x-0 z-20 overflow-auto bg-white font-sans shadow-2xl ring-1 ring-amber-400/60 dark:bg-neutral-900"
+              style={{ top: offsets[expandedIndex], maxHeight: COMMENT_EXPANDED_MAX_PX }}
+            >
+              <CommentThread
+                comments={rows[expandedIndex].comments}
+                startReplying={expanded.reply}
+                header={
+                  <ThreadHeader
+                    comments={rows[expandedIndex].comments}
+                    file={rows[expandedIndex].file.path}
+                    line={rows[expandedIndex].line}
+                    action={
+                      <button
+                        type="button"
+                        onClick={() => setExpanded(null)}
+                        className="rounded px-1 text-[11px] text-neutral-500 hover:bg-neutral-200 dark:hover:bg-neutral-700"
+                      >
+                        collapse
+                      </button>
+                    }
+                  />
+                }
+                onResolve={(id) => onCommentAction(id, { status: "resolved" })}
+                onReopen={(id) => onCommentAction(id, { status: "open" })}
+                onDelete={(id) => onCommentAction(id, { delete: true })}
+                onReply={(id, body) => onCommentAction(id, { reply: { author: "user", body } })}
+              />
+            </div>
+          )}
+
+          {composeIndex !== -1 && (
+            <div
+              className="absolute inset-x-0 z-20 rounded-md border border-blue-300 bg-white p-2 font-sans shadow-xl dark:border-blue-500/40 dark:bg-neutral-900"
+              style={{ top: offsets[composeIndex + 1] }}
+            >
+              <div className="mb-1 font-mono text-[11px] text-neutral-500">
+                {composing.file}:{composing.line}
+              </div>
+              <CommentComposer
+                onCancel={() => setComposing(null)}
+                onSubmit={(body) => {
+                  onAddComment({
+                    file: composing.file,
+                    side: composing.side,
+                    line: composing.line,
+                    lineContent: composing.text,
+                    body,
+                  });
+                  setComposing(null);
+                }}
+              />
+            </div>
+          )}
         </div>
       </div>
 
-      {composing && (
-        <div className="border-t border-neutral-200 bg-white p-2 dark:border-neutral-800 dark:bg-neutral-900">
-          <CommentComposer
-            onCancel={() => setComposing(null)}
-            onSubmit={(body) => {
-              onAddComment({
-                file: composing.file,
-                side: composing.side,
-                line: composing.line,
-                lineContent: composing.text,
-                body,
-              });
-              setComposing(null);
-            }}
-          />
-        </div>
-      )}
-
-      {(comments ?? []).some((c) => c.status === "open") && (
-        <details className="max-h-64 shrink-0 overflow-auto border-t border-neutral-200 bg-white dark:border-neutral-800 dark:bg-neutral-900">
-          <summary className="cursor-pointer px-3 py-1.5 text-xs text-neutral-600 dark:text-neutral-300">
-            {(comments ?? []).filter((c) => c.status === "open").length} open comments
-          </summary>
-          <div className="px-3 pb-3">
-            {[...commentsByFile.entries()].map(([path, list]) => (
-              <div key={path} className="mb-2">
-                <div className="py-1 font-mono text-[11px] text-neutral-500">{path}</div>
-                <CommentThread
-                  comments={list}
-                  onResolve={(id) => onCommentAction(id, { status: "resolved" })}
-                  onReopen={(id) => onCommentAction(id, { status: "open" })}
-                  onDelete={(id) => onCommentAction(id, { delete: true })}
-                  onReply={(id, body) => onCommentAction(id, { reply: { author: "user", body } })}
-                />
-              </div>
-            ))}
-          </div>
-        </details>
-      )}
     </div>
   );
 }

@@ -8,28 +8,52 @@ import { buildOffsets, rowAt, visibleRange } from "../diff-model.js";
  * row's height for free. Re-measures on resize, and on font load — a webfont arriving late would
  * otherwise silently invalidate every height computed before it.
  */
+const HIDDEN_PROBE = "position:absolute;visibility:hidden;white-space:pre;";
+
+// Comment bodies are proportional text at a different size from the diff's monospace, so one
+// character width cannot answer for both. Matches the card body's `font-sans text-sm`.
+const PROSE_FONT = 'font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;font-size:14px;';
+
+function probeWidth(el, css, sample) {
+  const probe = document.createElement("span");
+  probe.textContent = sample;
+  probe.style.cssText = HIDDEN_PROBE + css;
+  el.appendChild(probe);
+  const width = probe.getBoundingClientRect().width / sample.length;
+  el.removeChild(probe);
+  return width;
+}
+
 export function useTextMetrics(ref) {
-  const [metrics, setMetrics] = useState({ charWidth: 8, lineHeight: 20, width: 0 });
+  const [metrics, setMetrics] = useState({ charWidth: 8, proseCharWidth: 7, lineHeight: 20, width: 0 });
 
   const measure = useCallback(() => {
     const el = ref.current;
     if (!el) return;
 
-    const probe = document.createElement("span");
-    probe.textContent = "0".repeat(100);
-    probe.style.cssText = "position:absolute;visibility:hidden;white-space:pre;";
-    el.appendChild(probe);
-    const charWidth = probe.getBoundingClientRect().width / 100;
-    el.removeChild(probe);
+    const charWidth = probeWidth(el, "", "0".repeat(100));
+    // Averaged over prose rather than a repeated glyph: proportional widths vary per character,
+    // and "0" repeated would overstate a typical sentence by a third.
+    const proseCharWidth = probeWidth(
+      el,
+      PROSE_FONT,
+      "the quick brown fox jumps over the lazy dog, and then it does so again "
+    );
 
     const style = getComputedStyle(el);
     const parsed = parseFloat(style.lineHeight);
     const lineHeight = Number.isFinite(parsed) ? parsed : parseFloat(style.fontSize) * 1.5;
 
     setMetrics((prev) => {
-      const next = { charWidth: charWidth || prev.charWidth, lineHeight, width: el.clientWidth };
+      const next = {
+        charWidth: charWidth || prev.charWidth,
+        proseCharWidth: proseCharWidth || prev.proseCharWidth,
+        lineHeight,
+        width: el.clientWidth,
+      };
       const same =
         Math.abs(next.charWidth - prev.charWidth) < 0.01 &&
+        Math.abs(next.proseCharWidth - prev.proseCharWidth) < 0.01 &&
         Math.abs(next.lineHeight - prev.lineHeight) < 0.01 &&
         next.width === prev.width;
       return same ? prev : next;
