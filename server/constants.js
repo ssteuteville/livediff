@@ -131,10 +131,13 @@ export const ENV = {
  * agents. Flip this to move everyone; append `?renderer=classic` or `?renderer=fast` to a URL to
  * override it for one tab, which is how the two get compared on the same diff.
  *
- *   "classic" — @git-diff-view/react's DiffView. Renders every row.
- *   "fast"    — virtualized rows with in-app search.
+ *   "fast"    — virtualized rows, in-app search, inline comment threads. Renders what is on
+ *               screen: ~60 rows and ~400 nodes whatever the diff's size.
+ *   "classic" — @git-diff-view/react's DiffView. Renders every row, which on a 20,000-line diff
+ *               means 500,000 nodes and about five seconds before anything is readable. Kept
+ *               because it is the renderer every earlier version shipped.
  */
-export const RENDERER = "classic";
+export const RENDERER = "fast";
 
 export const RENDERERS = ["classic", "fast"];
 

@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { COMMENT_REPLY_STRIP_PX } from "../../server/constants.js";
 
 function timeAgo(iso) {
   const s = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
@@ -55,7 +56,11 @@ function Action({ children }) {
 function ReplyStrip({ replies }) {
   const last = replies[replies.length - 1];
   return (
-    <div className="flex items-center gap-2 border-t border-neutral-100 bg-neutral-50 px-3 py-1.5 dark:border-neutral-800 dark:bg-neutral-800/50">
+    // Height is pinned to the constant the row model budgets for it, so the two cannot drift.
+    <div
+      style={{ height: COMMENT_REPLY_STRIP_PX }}
+      className="flex items-center gap-2 overflow-hidden border-t border-neutral-100 bg-neutral-50 px-3 dark:border-neutral-800 dark:bg-neutral-800/50"
+    >
       <AuthorBadge author={last.author} />
       {replies.length > 1 && (
         <span className="shrink-0 text-[11px] text-neutral-400">+{replies.length - 1}</span>
