@@ -4,3 +4,9 @@ dist
 *.log
 .diff-review/
 .playwright-mcp/
+test-results/
+playwright-report/
+.vitest/
+*.tgz
+tsconfig.tsbuildinfo
+*.tsbuildinfo

@@ -1,0 +1,44 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "plugins": [
+    "eslint",
+    "typescript",
+    "react",
+    "unicorn",
+    "promise",
+    "node",
+    "import",
+    "oxc",
+    "vitest"
+  ],
+  "categories": {
+    "correctness": "error",
+    "suspicious": "error",
+    "pedantic": "warn"
+  },
+  "options": {
+    "typeAware": false
+  },
+  "rules": {
+    "react/react-in-jsx-scope": "off",
+    "unicorn/no-array-sort": "off",
+    "eslint/no-underscore-dangle": "off",
+    "import/no-unassigned-import": "off",
+    "eslint/no-shadow": "warn",
+    "eslint/no-unmodified-loop-condition": "warn",
+    "unicorn/consistent-function-scoping": "warn",
+    "unicorn/no-new-array": "warn",
+    "promise/always-return": "warn",
+    "promise/no-callback-in-promise": "warn"
+  },
+  "ignorePatterns": ["dist", "dist-server", "node_modules", "test-results", "playwright-report"],
+  "overrides": [
+    {
+      "files": ["test/**/*", "e2e/**/*", "bench/**/*"],
+      "rules": {
+        "typescript/no-non-null-assertion": "off",
+        "eslint/no-console": "off"
+      }
+    }
+  ]
+}

@@ -1,0 +1,10 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "types": ["node"],
+    "allowJs": true,
+    "checkJs": false
+  },
+  "include": ["server/**/*", "shared/**/*", "test/**/*", "e2e/**/*", "bench/**/*"],
+  "exclude": ["test/browser/**/*"]
+}
