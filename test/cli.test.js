@@ -621,3 +621,31 @@ test("the worktree root itself carries no dir scope", async () => {
     }
   });
 });
+
+test("LIVEDIFF_BROWSER accepts a command with arguments", async () => {
+  await withTempXdg(async ({ root }) => {
+    const repo = await dirtyRepo(root);
+    try {
+      // `echo` alone succeeds; the point is that a command *with* args also resolves and runs,
+      // which is what an opener like `cmux open-window` or `code --open-url` needs.
+      const res = await cli([repo, "--json"], { env: { LIVEDIFF_BROWSER: "echo opening" } });
+      assert.equal(res.code, 0);
+      assert.equal(JSON.parse(res.stdout).opened, true);
+    } finally {
+      await stopHub();
+    }
+  });
+});
+
+test("a multi-word LIVEDIFF_BROWSER that fails is still reported honestly", async () => {
+  await withTempXdg(async ({ root }) => {
+    const repo = await dirtyRepo(root);
+    try {
+      const res = await cli([repo, "--json"], { env: { LIVEDIFF_BROWSER: "false --ignored" } });
+      assert.equal(res.code, 0);
+      assert.equal(JSON.parse(res.stdout).opened, false);
+    } finally {
+      await stopHub();
+    }
+  });
+});

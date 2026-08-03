@@ -4,11 +4,20 @@ import { ENV } from "./constants.js";
 
 const exec = promisify(execFile);
 
-function opener() {
-  if (process.env[ENV.BROWSER]) return process.env[ENV.BROWSER];
-  if (process.platform === "darwin") return "open";
-  if (process.platform === "win32") return "explorer";
-  return "xdg-open";
+/**
+ * The command that turns a URL into something the user can look at, as argv.
+ *
+ * LIVEDIFF_BROWSER may carry arguments — `cmux open-window`, `code --open-url`, `wezterm start` —
+ * so it is split rather than treated as a single binary name. It is deliberately split on
+ * whitespace instead of run through a shell: this is a "where do I open things" setting, not a
+ * place to want globbing or pipelines, and no shell means no quoting surprises around the URL.
+ */
+function openerArgv() {
+  const configured = process.env[ENV.BROWSER];
+  if (configured) return configured.trim().split(/\s+/);
+  if (process.platform === "darwin") return ["open"];
+  if (process.platform === "win32") return ["explorer"];
+  return ["xdg-open"];
 }
 
 /**
@@ -16,9 +25,9 @@ function opener() {
  * reporting but never worth failing a command over — the workspace is registered either way.
  */
 export async function openBrowser(url) {
-  const command = opener();
+  const [command, ...args] = openerArgv();
   try {
-    await exec(command, [url]);
+    await exec(command, [...args, url]);
     return true;
   } catch {
     // `explorer` exits non-zero even when it succeeds, so its status carries no information.
