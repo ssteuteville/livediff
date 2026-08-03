@@ -5,6 +5,6 @@
     "allowJs": true,
     "checkJs": false
   },
-  "include": ["server/**/*", "shared/**/*", "test/**/*", "e2e/**/*", "bench/**/*"],
+  "include": ["server/**/*", "shared/**/*", "test/**/*", "e2e/**/*", "bench/**/*", "types/**/*"],
   "exclude": ["test/browser/**/*"]
 }
