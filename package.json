@@ -20,7 +20,8 @@
     "build": "vite build",
     "start": "vite build && node server/index.js",
     "serve": "node server/index.js",
-    "test": "vitest run",
+    "test": "vitest run --project node",
+    "test:browser": "vitest run --project browser",
     "typecheck": "tsc -b",
     "lint": "oxlint",
     "format": "oxfmt .",
@@ -39,16 +40,19 @@
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.4",
     "@vitejs/plugin-react": "^4.7.0",
+    "@vitest/browser-playwright": "4.1.10",
     "autoprefixer": "^10.5.4",
     "concurrently": "^10.0.4",
     "oxfmt": "0.62.0",
     "oxlint": "1.77.0",
     "oxlint-tsgolint": "7.0.2001",
+    "playwright": "1.62.1",
     "postcss": "^8.5.23",
     "tailwindcss": "^3.4.19",
     "typescript": "7.0.2",
     "vite": "^6.4.3",
-    "vitest": "4.1.10"
+    "vitest": "4.1.10",
+    "vitest-browser-react": "2.2.0"
   },
   "pnpm": {
     "onlyBuiltDependencies": [

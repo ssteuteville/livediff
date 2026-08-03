@@ -6,6 +6,8 @@ dist
 .playwright-mcp/
 test-results/
 playwright-report/
+__screenshots__/
+.vitest-attachments/
 .vitest/
 *.tgz
 tsconfig.tsbuildinfo

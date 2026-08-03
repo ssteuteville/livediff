@@ -1,4 +1,6 @@
 import { defineConfig } from "vitest/config";
+import react from "@vitejs/plugin-react";
+import { playwright } from "@vitest/browser-playwright";
 
 export default defineConfig({
   test: {
@@ -9,6 +11,19 @@ export default defineConfig({
           environment: "node",
           include: ["test/*.test.{js,ts}"],
           testTimeout: 30_000,
+        },
+      },
+      {
+        plugins: [react()],
+        test: {
+          name: "browser",
+          include: ["test/browser/*.test.tsx"],
+          browser: {
+            enabled: true,
+            headless: true,
+            provider: playwright(),
+            instances: [{ browser: "chromium" }],
+          },
         },
       },
     ],
