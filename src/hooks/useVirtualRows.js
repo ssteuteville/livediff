@@ -1,0 +1,150 @@
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { buildOffsets, rowAt, visibleRange } from "../diff-model.js";
+
+/**
+ * Measure the font actually in use, so wrapped-row heights can be computed instead of observed.
+ *
+ * The whole no-jank property depends on this being right: one character measured once gives every
+ * row's height for free. Re-measures on resize, and on font load — a webfont arriving late would
+ * otherwise silently invalidate every height computed before it.
+ */
+export function useTextMetrics(ref) {
+  const [metrics, setMetrics] = useState({ charWidth: 8, lineHeight: 20, width: 0 });
+
+  const measure = useCallback(() => {
+    const el = ref.current;
+    if (!el) return;
+
+    const probe = document.createElement("span");
+    probe.textContent = "0".repeat(100);
+    probe.style.cssText = "position:absolute;visibility:hidden;white-space:pre;";
+    el.appendChild(probe);
+    const charWidth = probe.getBoundingClientRect().width / 100;
+    el.removeChild(probe);
+
+    const style = getComputedStyle(el);
+    const parsed = parseFloat(style.lineHeight);
+    const lineHeight = Number.isFinite(parsed) ? parsed : parseFloat(style.fontSize) * 1.5;
+
+    setMetrics((prev) => {
+      const next = { charWidth: charWidth || prev.charWidth, lineHeight, width: el.clientWidth };
+      const same =
+        Math.abs(next.charWidth - prev.charWidth) < 0.01 &&
+        Math.abs(next.lineHeight - prev.lineHeight) < 0.01 &&
+        next.width === prev.width;
+      return same ? prev : next;
+    });
+  }, [ref]);
+
+  useLayoutEffect(() => {
+    measure();
+    const el = ref.current;
+    if (!el) return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    document.fonts?.ready?.then(measure).catch(() => {});
+    return () => observer.disconnect();
+  }, [measure, ref]);
+
+  return metrics;
+}
+
+/**
+ * Virtualize a row list against a scroll container.
+ *
+ * Deliberately hand-rolled rather than pulled from a library: because heights here are computed
+ * rather than measured, the usual hard part — estimating, measuring, and reconciling — does not
+ * exist, and what remains is an offset table plus a binary search. A general virtualizer would
+ * have to be talked out of measuring.
+ *
+ * Returns the rows to render, their absolute offsets, the total height, and a scrollToRow.
+ */
+export function useVirtualRows({ rows, metrics, containerRef, overscan = 8 }) {
+  const [scrollTop, setScrollTop] = useState(0);
+  const [viewport, setViewport] = useState(0);
+  const frame = useRef(0);
+
+  const offsets = useMemo(() => buildOffsets(rows, metrics), [rows, metrics]);
+  const totalHeight = offsets.length ? offsets[offsets.length - 1] : 0;
+
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+
+    const read = () => {
+      setScrollTop(el.scrollTop);
+      setViewport(el.clientHeight);
+    };
+    read();
+
+    // Coalesce to one read per frame: scroll fires far faster than React can usefully re-render.
+    const onScroll = () => {
+      if (frame.current) return;
+      frame.current = requestAnimationFrame(() => {
+        frame.current = 0;
+        read();
+      });
+    };
+
+    el.addEventListener("scroll", onScroll, { passive: true });
+    const observer = new ResizeObserver(read);
+    observer.observe(el);
+    return () => {
+      el.removeEventListener("scroll", onScroll);
+      observer.disconnect();
+      if (frame.current) cancelAnimationFrame(frame.current);
+    };
+  }, [containerRef]);
+
+  const range = useMemo(
+    () => visibleRange(offsets, scrollTop, viewport || 800, overscan),
+    [offsets, scrollTop, viewport, overscan]
+  );
+
+  const scrollToRow = useCallback(
+    (index, { align = "center" } = {}) => {
+      const el = containerRef.current;
+      if (!el || index < 0 || index >= offsets.length - 1) return;
+      const top = offsets[index];
+      const height = offsets[index + 1] - top;
+      const target =
+        align === "start" ? top : top - Math.max(0, (el.clientHeight - height) / 2);
+      el.scrollTo({ top: Math.max(0, target), behavior: "auto" });
+    },
+    [containerRef, offsets]
+  );
+
+  /** The row currently at the top of the viewport — the anchor for keeping scroll stable. */
+  const topRow = useCallback(() => rowAt(offsets, scrollTop), [offsets, scrollTop]);
+
+  return { range, offsets, totalHeight, scrollToRow, topRow, viewport };
+}
+
+/**
+ * Keep the reader's place across a diff update.
+ *
+ * livediff refetches the whole diff whenever the worktree changes, which reorders and renumbers
+ * rows. Without this, saving a file while scrolled deep into a diff teleports you somewhere else —
+ * the failure that would make a virtualized view feel broken in exactly the situation livediff
+ * exists for. Anchoring on a row's identity rather than its index survives the update.
+ */
+export function useScrollAnchor({ rows, containerRef, offsets, deps }) {
+  const anchor = useRef(null);
+
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const index = rowAt(offsets, el.scrollTop);
+    anchor.current = { key: rows[index]?.key, delta: el.scrollTop - (offsets[index] ?? 0) };
+    // Captured before every change in `deps`; restored after, below.
+  }, deps); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useLayoutEffect(() => {
+    const el = containerRef.current;
+    const saved = anchor.current;
+    if (!el || !saved?.key) return;
+    const index = rows.findIndex((r) => r.key === saved.key);
+    if (index === -1) return; // the anchored row is gone; leave the scroll where it is
+    el.scrollTop = (offsets[index] ?? 0) + saved.delta;
+  }, [rows, offsets, containerRef]);
+}

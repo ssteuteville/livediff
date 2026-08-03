@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import FileDiff, { DiffModeEnum } from "./components/FileDiff.jsx";
+import FastDiff from "./components/FastDiff.jsx";
 import WorkspaceRail from "./components/WorkspaceRail.jsx";
 import ReviewBanner from "./components/ReviewBanner.jsx";
+import { RENDERER, RENDERERS } from "../server/constants.js";
 import {
   fetchWorkspaces,
   addWorkspace,
@@ -52,6 +54,11 @@ export default function App() {
   // ?dir=<subpath> narrows the view to one directory. It is a filter, not a workspace: comments
   // stay keyed to the worktree, so nothing is hidden from the CLI by scoping the browser.
   const dir = (urlParams.get("dir") || "").replace(/\/+$/, "");
+  // ?renderer=classic|fast overrides the build-time default for one tab, so the two can be
+  // compared on the same diff without a rebuild. See RENDERER in server/constants.js.
+  const requested = urlParams.get("renderer");
+  const renderer = RENDERERS.includes(requested) ? requested : RENDERER;
+  const fast = renderer === "fast";
 
   // Mirrors for use inside the once-only SSE subscription.
   const selectedRef = useRef(null);
@@ -306,7 +313,11 @@ export default function App() {
           </aside>
         )}
 
-        <main className="min-w-0 flex-1 overflow-y-auto p-4">
+        <main
+          className={
+            fast ? "flex min-w-0 flex-1 flex-col" : "min-w-0 flex-1 overflow-y-auto p-4"
+          }
+        >
           {error && (
             <div className="mb-3 rounded border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-500/30 dark:bg-red-950/30 dark:text-red-300">
               {error}
@@ -329,7 +340,17 @@ export default function App() {
               {dir ? `No changes under ${dir}.` : "No changes in this worktree."}
             </div>
           )}
+          {selectedWs && fast && visibleFiles.length > 0 && (
+            <FastDiff
+              diff={{ ...diff, files: visibleFiles }}
+              comments={visibleComments}
+              mode={mode === DiffModeEnum.Split ? "split" : "unified"}
+              onAddComment={onAddComment}
+              onCommentAction={onCommentAction}
+            />
+          )}
           {selectedWs &&
+            !fast &&
             visibleFiles.map((f, i) => (
               <div key={f.path} ref={(el) => (fileRefs.current[i] = el)}>
                 <FileDiff
