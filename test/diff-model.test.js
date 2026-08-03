@@ -11,6 +11,7 @@ import {
   searchRows,
   countByFile,
   nextHit,
+  anchoredCommentIds,
 } from "../src/diff-model.js";
 
 const PATCH = [
@@ -327,4 +328,14 @@ test("search reaches comment bodies and their replies", () => {
   ]);
   assert.equal(searchRows(rows, "reads worse").length, 1);
   assert.equal(searchRows(rows, "renamed it back").length, 1);
+});
+
+test("anchored ids name the comments that found a line, so the rest can be offered elsewhere", () => {
+  const kept = comment({ id: "kept", line: 2 });
+  const orphan = comment({ id: "orphan", line: 900 });
+  const rows = buildRows([file()], "split", [kept, orphan]);
+  const anchored = anchoredCommentIds(rows);
+  assert.ok(anchored.has("kept"));
+  assert.ok(!anchored.has("orphan"), "a comment with no line left is hidden, not lost");
+  assert.equal(anchoredCommentIds(buildRows([file()], "split")).size, 0);
 });

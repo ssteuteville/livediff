@@ -201,6 +201,22 @@ export function buildRows(files, mode = "split", comments = []) {
   return rows;
 }
 
+/**
+ * The comments that found a line to hang off.
+ *
+ * Anything left over is still stored, still counted, and still worth reading — the line it was
+ * written against has just stopped being part of the diff. Knowing which is which is what lets the
+ * UI offer those comments somewhere instead of dropping them.
+ */
+export function anchoredCommentIds(rows) {
+  const ids = new Set();
+  for (const row of rows) {
+    if (row.kind !== ROW.COMMENT) continue;
+    for (const c of row.comments) ids.add(c.id);
+  }
+  return ids;
+}
+
 /** The longest text a row will render, which is what decides how many display lines it wraps to. */
 function widestText(row, mode) {
   if (row.kind !== ROW.LINE) return "";

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
-import { ROW, buildRows, searchRows, countByFile, nextHit } from "../diff-model.js";
+import { ROW, buildRows, searchRows, countByFile, nextHit, anchoredCommentIds } from "../diff-model.js";
+import CommentDrawer from "./CommentDrawer.jsx";
 import { useTextMetrics, useVirtualRows, useScrollAnchor } from "../hooks/useVirtualRows.js";
 import { loadGrammar, tokenize } from "../syntax.js";
 import {
@@ -155,7 +156,7 @@ function CommentSlot({ row, lines, hidden, onOpen }) {
   );
 }
 
-function FileHeader({ file }) {
+function FileHeader({ file, comments, hidden, onShowComments }) {
   return (
     <div className="flex h-full items-center gap-2 border-y border-neutral-200 bg-neutral-50 px-3 text-sm dark:border-neutral-800 dark:bg-neutral-900">
       <span
@@ -169,6 +170,22 @@ function FileHeader({ file }) {
       <span className="truncate font-mono text-neutral-800 dark:text-neutral-100">{file.path}</span>
       {file.additions > 0 && <span className="text-xs text-green-600 dark:text-green-400">+{file.additions}</span>}
       {file.deletions > 0 && <span className="text-xs text-red-600 dark:text-red-400">−{file.deletions}</span>}
+      {comments > 0 && (
+        <button
+          type="button"
+          onClick={() => onShowComments(file.path)}
+          className={
+            "ml-auto shrink-0 rounded px-2 py-0.5 font-sans text-[11px] font-medium " +
+            (hidden > 0
+              ? "bg-amber-100 text-amber-800 hover:bg-amber-200 dark:bg-amber-500/20 dark:text-amber-300"
+              : "text-neutral-500 hover:bg-neutral-200 dark:hover:bg-neutral-800")
+          }
+          title={hidden > 0 ? `${hidden} not shown in this diff` : "See all comments on this file"}
+        >
+          {comments} comment{comments === 1 ? "" : "s"}
+          {hidden > 0 && ` · ${hidden} hidden`}
+        </button>
+      )}
     </div>
   );
 }
@@ -186,6 +203,7 @@ export default function FastDiff({ diff, comments, mode, jump, onAddComment, onC
   const surfaceRef = useRef(null);
   const [composing, setComposing] = useState(null);
   const [expanded, setExpanded] = useState(null);
+  const [drawer, setDrawer] = useState(null);
   const [measured] = useState(() => new Map());
 
   const [searchOpen, setSearchOpen] = useState(false);
@@ -196,6 +214,16 @@ export default function FastDiff({ diff, comments, mode, jump, onAddComment, onC
   const text = useTextMetrics(surfaceRef);
 
   const rows = useMemo(() => buildRows(diff?.files ?? [], mode, comments), [diff, mode, comments]);
+
+  const anchored = useMemo(() => anchoredCommentIds(rows), [rows]);
+  const commentsByFile = useMemo(() => {
+    const map = new Map();
+    for (const c of comments ?? []) {
+      if (!map.has(c.file)) map.set(c.file, []);
+      map.get(c.file).push(c);
+    }
+    return map;
+  }, [comments]);
 
   // Gutter and marker columns are fixed; the rest of the width is what text wraps within.
   const charsPerLine = useMemo(() => {
@@ -296,6 +324,7 @@ export default function FastDiff({ diff, comments, mode, jump, onAddComment, onC
       if (e.key === "Escape") {
         setExpanded(null);
         setComposing(null);
+        setDrawer(null);
       }
     };
     window.addEventListener("keydown", onKey);
@@ -336,6 +365,7 @@ export default function FastDiff({ diff, comments, mode, jump, onAddComment, onC
         />
       )}
 
+      <div className="flex min-h-0 flex-1">
       <div ref={scrollRef} className="min-h-0 flex-1 overflow-auto">
         <div ref={surfaceRef} className="relative font-mono text-[13px] leading-5" style={{ height: totalHeight }}>
           {slice.map((i) => {
@@ -345,9 +375,15 @@ export default function FastDiff({ diff, comments, mode, jump, onAddComment, onC
             const isActive = i === activeIndex;
 
             if (row.kind === ROW.FILE) {
+              const forFile = commentsByFile.get(row.file.path) ?? [];
               return (
                 <div key={row.key} className="absolute inset-x-0" style={{ top, height }}>
-                  <FileHeader file={row.file} />
+                  <FileHeader
+                    file={row.file}
+                    comments={forFile.length}
+                    hidden={forFile.filter((c) => !anchored.has(c.id)).length}
+                    onShowComments={setDrawer}
+                  />
                 </div>
               );
             }
@@ -492,6 +528,22 @@ export default function FastDiff({ diff, comments, mode, jump, onAddComment, onC
         </div>
       </div>
 
+        {drawer && (
+          <CommentDrawer
+            path={drawer}
+            comments={commentsByFile.get(drawer) ?? []}
+            anchored={anchored}
+            onClose={() => setDrawer(null)}
+            onGoTo={(key) => {
+              const index = rows.findIndex((r) => r.key === key);
+              if (index === -1) return;
+              scrollToRow(index);
+              setExpanded({ key, reply: false });
+            }}
+            onCommentAction={onCommentAction}
+          />
+        )}
+      </div>
     </div>
   );
 }
