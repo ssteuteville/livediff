@@ -152,16 +152,26 @@ export function useVirtualRows({ rows, metrics, containerRef, overscan = 8 }) {
  * the failure that would make a virtualized view feel broken in exactly the situation livediff
  * exists for. Anchoring on a row's identity rather than its index survives the update.
  */
-export function useScrollAnchor({ rows, containerRef, offsets, deps }) {
+export function useScrollAnchor({ rows, containerRef, offsets }) {
   const anchor = useRef(null);
+  const latest = useRef({ rows, offsets });
+  latest.current = { rows, offsets };
 
+  // Remembered on every scroll rather than when the rows change, because by the time a change is
+  // observable the old rows are already gone — anchoring on a dependency would restore whatever
+  // position the reader was in when the model was last replaced, which is usually the top.
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
-    const index = rowAt(offsets, el.scrollTop);
-    anchor.current = { key: rows[index]?.key, delta: el.scrollTop - (offsets[index] ?? 0) };
-    // Captured before every change in `deps`; restored after, below.
-  }, deps); // eslint-disable-line react-hooks/exhaustive-deps
+    const remember = () => {
+      const { rows: current, offsets: at } = latest.current;
+      const index = rowAt(at, el.scrollTop);
+      anchor.current = { key: current[index]?.key, delta: el.scrollTop - (at[index] ?? 0) };
+    };
+    remember();
+    el.addEventListener("scroll", remember, { passive: true });
+    return () => el.removeEventListener("scroll", remember);
+  }, [containerRef]);
 
   useLayoutEffect(() => {
     const el = containerRef.current;
@@ -169,6 +179,7 @@ export function useScrollAnchor({ rows, containerRef, offsets, deps }) {
     if (!el || !saved?.key) return;
     const index = rows.findIndex((r) => r.key === saved.key);
     if (index === -1) return; // the anchored row is gone; leave the scroll where it is
-    el.scrollTop = (offsets[index] ?? 0) + saved.delta;
+    const top = (offsets[index] ?? 0) + saved.delta;
+    if (Math.abs(el.scrollTop - top) > 0.5) el.scrollTop = top;
   }, [rows, offsets, containerRef]);
 }

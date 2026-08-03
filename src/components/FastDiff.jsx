@@ -261,7 +261,7 @@ export default function FastDiff({ diff, comments, mode, jump, showAll, onAddCom
     containerRef: scrollRef,
   });
 
-  useScrollAnchor({ rows, containerRef: scrollRef, offsets, deps: [diff] });
+  useScrollAnchor({ rows, containerRef: scrollRef, offsets });
 
   // Grammars are fetched for what is on screen, not for the diff — scrolling into a Rust file is
   // what pays for the Rust grammar. Joined into a string so the effect sees a stable dependency

@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { readFile } from "node:fs/promises";
+import { readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { BINARY_SNIFF_BYTES, GIT_MAX_BUFFER_BYTES, LEGACY_COMMENT_DIR } from "./constants.js";
@@ -243,8 +243,27 @@ function buildFile(path, oldPath, status, stat, patch) {
 }
 
 /**
- * A cheap signature of the working tree used to detect changes for live reload.
- * Combines porcelain status with each changed file's size+mtime.
+ * The paths named by a `--porcelain=v1 -z` status, with the origin path a rename reports second
+ * skipped so it is not mistaken for a changed file of its own.
+ */
+function statusPaths(status) {
+  const entries = status.split("\0").filter(Boolean);
+  const paths = [];
+  for (let i = 0; i < entries.length; i++) {
+    const code = entries[i].slice(0, 2);
+    paths.push(entries[i].slice(3));
+    if (code[0] === "R" || code[0] === "C") i++;
+  }
+  return paths;
+}
+
+/**
+ * A cheap signature of the working tree, used to decide when to tell browsers the diff moved.
+ *
+ * Status alone only changes when a file enters or leaves the changed set. Editing a file that is
+ * already modified — the thing livediff exists to watch — leaves it byte-identical, so the size and
+ * mtime of each changed path are folded in. That is one stat per changed file and no extra process,
+ * against a git spawn this function already pays for.
  */
 export async function worktreeSignature(cwd, base) {
   if (base) {
@@ -252,7 +271,15 @@ export async function worktreeSignature(cwd, base) {
       "|" + (await git(cwd, ["rev-parse", "HEAD"])).trim();
   }
   const status = await git(cwd, ["status", "--porcelain=v1", "-uall", "-z", ...EXCLUDE]);
-  return status;
+  const stamps = await Promise.all(
+    statusPaths(status).map((path) =>
+      stat(join(cwd, path)).then(
+        (s) => `${s.size}:${s.mtimeMs}`,
+        () => "-" // deleted between the status and the stat; status already recorded that
+      )
+    )
+  );
+  return `${status}|${stamps.join(",")}`;
 }
 
 /**

@@ -3,7 +3,7 @@ import FastDiff from "./components/FastDiff.jsx";
 import CommentDrawer from "./components/CommentDrawer.jsx";
 import WorkspaceRail from "./components/WorkspaceRail.jsx";
 import ReviewBanner from "./components/ReviewBanner.jsx";
-import { RENDERER, RENDERERS } from "../server/constants.js";
+import { RENDERER, RENDERERS, DIFF_REFETCH_DEBOUNCE_MS } from "../server/constants.js";
 import {
   fetchWorkspaces,
   addWorkspace,
@@ -25,6 +25,17 @@ const FileDiff = lazy(() => import("./components/FileDiff.jsx"));
 
 // When there is no diff, no comment can be anchored to one.
 const NOTHING_ANCHORED = new Set();
+
+/**
+ * Keep the previous value when a refetch returns the same thing.
+ *
+ * Every event refetches, and a fresh array from JSON is a new identity even when nothing changed —
+ * which invalidates the row model and re-flattens a 20,000-row diff to arrive back where it was.
+ * Saving one file broadcasts to every workspace's watchers, so this is the common case, not the
+ * rare one. Comparing the serialized form costs a millisecond against rebuilding everything.
+ */
+const keepIfSame = (setState) => (next) =>
+  setState((prev) => (JSON.stringify(prev) === JSON.stringify(next) ? prev : next));
 
 function useTheme() {
   const [theme, setTheme] = useState(
@@ -75,16 +86,25 @@ export default function App() {
   selectedRef.current = selected;
   baseRef.current = base;
 
-  const loadWorkspaces = useCallback(() => fetchWorkspaces().then(setWorkspaces).catch(() => {}), []);
+  const loadWorkspaces = useCallback(() => fetchWorkspaces().then(keepIfSame(setWorkspaces)).catch(() => {}), []);
+
+  // Saving several files in a row fires several diff events. Only the last answer is worth having,
+  // and without this the second-to-last can land after it and put a stale diff on screen.
+  const diffRequest = useRef(0);
 
   const loadDiff = useCallback((ws, b) => {
     if (!ws) {
       setDiff(null);
       return Promise.resolve();
     }
+    const request = ++diffRequest.current;
     return fetchDiff(ws, b || undefined)
-      .then(setDiff)
-      .catch((e) => setError(String(e.message || e)));
+      .then((next) => {
+        if (request === diffRequest.current) keepIfSame(setDiff)(next);
+      })
+      .catch((e) => {
+        if (request === diffRequest.current) setError(String(e.message || e));
+      });
   }, []);
 
   const loadComments = useCallback((ws) => {
@@ -92,8 +112,20 @@ export default function App() {
       setComments([]);
       return Promise.resolve();
     }
-    return fetchComments(ws).then(setComments).catch(() => {});
+    return fetchComments(ws).then(keepIfSame(setComments)).catch(() => {});
   }, []);
+
+  // A save that touches twenty files arrives as twenty events. Coalesce them into one fetch.
+  const diffTimer = useRef(0);
+  const refetchDiffSoon = useCallback(() => {
+    clearTimeout(diffTimer.current);
+    diffTimer.current = setTimeout(
+      () => loadDiff(selectedRef.current, baseRef.current),
+      DIFF_REFETCH_DEBOUNCE_MS
+    );
+  }, [loadDiff]);
+
+  useEffect(() => () => clearTimeout(diffTimer.current), []);
 
   const loadReview = useCallback((ws) => {
     if (!ws) {
@@ -138,7 +170,7 @@ export default function App() {
       onDiff: ({ ws }) => {
         loadWorkspaces();
         if (ws === selectedRef.current) {
-          loadDiff(selectedRef.current, baseRef.current);
+          refetchDiffSoon();
           setFlash(true);
           setTimeout(() => setFlash(false), 900);
         }
@@ -153,7 +185,7 @@ export default function App() {
         else setReview(null);
       },
     });
-  }, [loadWorkspaces, loadDiff, loadComments, loadReview]);
+  }, [loadWorkspaces, refetchDiffSoon, loadComments, loadReview]);
 
   const onDoneReviewing = useCallback(
     () => completeReview(review.reviewId).then(() => setReview(null)).catch(() => {}),

@@ -66,6 +66,9 @@ export const PROBE_TIMEOUT_MS = 500;
 /** Coalescing window for filesystem watch events on the config directory. */
 export const CONFIG_WATCH_DEBOUNCE_MS = 50;
 
+/** How long the UI waits for a burst of diff events to finish before refetching. */
+export const DIFF_REFETCH_DEBOUNCE_MS = 80;
+
 // ─── Storage ─────────────────────────────────────────────────────────────────
 
 /** Directory name used under both XDG config and XDG state. */

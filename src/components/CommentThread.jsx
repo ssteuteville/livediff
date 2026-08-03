@@ -70,12 +70,19 @@ function ReplyStrip({ replies }) {
   );
 }
 
+/**
+ * The card is a flex column filling its slot, with the body as the one part that gives.
+ *
+ * The slot's height comes from a constant measured off this card, and a constant measured off a
+ * rendering drifts the moment the rendering changes. Letting the body absorb the difference makes
+ * that drift cosmetic — a line more or fewer of preview — instead of a card that overflows its row.
+ */
 function CommentPreview({ comment, lines }) {
   const resolved = comment.status === "resolved";
   const replies = comment.replies ?? [];
   return (
-    <div className="rounded-md border border-neutral-200 bg-white text-sm shadow-sm dark:border-neutral-700 dark:bg-neutral-900">
-      <div className="flex items-center gap-2 border-b border-neutral-100 px-3 py-1.5 dark:border-neutral-800">
+    <div className="flex h-full flex-col rounded-md border border-neutral-200 bg-white text-sm shadow-sm dark:border-neutral-700 dark:bg-neutral-900">
+      <div className="flex shrink-0 items-center gap-2 border-b border-neutral-100 px-3 py-1.5 dark:border-neutral-800">
         <AuthorBadge author={comment.author} />
         <span className="text-[11px] text-neutral-400">{timeAgo(comment.createdAt)}</span>
         {resolved && (
@@ -90,7 +97,7 @@ function CommentPreview({ comment, lines }) {
       </div>
 
       <div
-        className="overflow-hidden whitespace-pre-wrap px-3 py-2 text-neutral-800 dark:text-neutral-100"
+        className="min-h-0 flex-1 overflow-hidden whitespace-pre-wrap px-3 py-2 text-neutral-800 dark:text-neutral-100"
         style={{ display: "-webkit-box", WebkitBoxOrient: "vertical", WebkitLineClamp: lines }}
       >
         {comment.body}
@@ -98,7 +105,7 @@ function CommentPreview({ comment, lines }) {
 
       {replies.length > 0 && <ReplyStrip replies={replies} />}
 
-      <div className="border-t border-neutral-100 px-3 py-1.5 dark:border-neutral-800">
+      <div className="shrink-0 border-t border-neutral-100 px-3 py-1.5 dark:border-neutral-800">
         <ReplyPlaceholder />
       </div>
     </div>
@@ -247,9 +254,13 @@ export function ThreadHeader({ comments, file, line, action }) {
 /** The still image of a thread: the first comment's card, clipped, with nothing interactive in it. */
 export function CommentThreadPreview({ comments, lines, file, line }) {
   return (
-    <div className={SHELL + " h-full overflow-hidden"}>
-      <ThreadHeader comments={comments} file={file} line={line} action="expand" />
-      <CommentPreview comment={comments[0]} lines={lines} />
+    <div className={SHELL + " flex h-full flex-col overflow-hidden"}>
+      <div className="shrink-0">
+        <ThreadHeader comments={comments} file={file} line={line} action="expand" />
+      </div>
+      <div className="min-h-0 flex-1">
+        <CommentPreview comment={comments[0]} lines={lines} />
+      </div>
     </div>
   );
 }

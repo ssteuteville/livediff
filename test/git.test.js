@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { withTempXdg, makeRepo } from "./helpers.js";
-import { changedPaths, currentBranch, getDiff, summary } from "../server/git.js";
+import { changedPaths, currentBranch, getDiff, summary, worktreeSignature } from "../server/git.js";
 
 const exec = promisify(execFile);
 
@@ -152,5 +152,44 @@ test("an empty untracked file produces a zero-line patch", async () => {
     const added = diff.files.find((f) => f.path === "empty.txt");
     assert.equal(added.additions, 0);
     assert.equal(added.binary, false);
+  });
+});
+
+test("the worktree signature notices an edit to an already-modified file", async () => {
+  await withTempXdg(async ({ root }) => {
+    const repo = await makeRepo(join(root, "repo"));
+    const file = join(repo, "README.md");
+
+    const clean = await worktreeSignature(repo, null);
+
+    // The easy case: a file joins the changed set, so status alone would catch it.
+    await writeFile(file, "# one\n", "utf8");
+    const firstEdit = await worktreeSignature(repo, null);
+    assert.notEqual(firstEdit, clean);
+
+    // The case livediff exists for, and the one status alone misses: editing it again. The set of
+    // changed files is identical, so only size and mtime can tell these apart.
+    await writeFile(file, "# two, a different length entirely\n", "utf8");
+    const secondEdit = await worktreeSignature(repo, null);
+    assert.notEqual(secondEdit, firstEdit, "a second edit must move the signature");
+  });
+});
+
+test("the worktree signature is stable when nothing changes", async () => {
+  await withTempXdg(async ({ root }) => {
+    const repo = await makeRepo(join(root, "repo"));
+    await writeFile(join(repo, "a.txt"), "a\n", "utf8");
+    const first = await worktreeSignature(repo, null);
+    assert.equal(await worktreeSignature(repo, null), first, "a poll must not report phantom changes");
+  });
+});
+
+test("a rename's origin path is not stat'd as a changed file of its own", async () => {
+  await withTempXdg(async ({ root }) => {
+    const repo = await makeRepo(join(root, "repo"));
+    await exec("git", ["mv", "README.md", "RENAMED.md"], { cwd: repo });
+    const sig = await worktreeSignature(repo, null);
+    assert.ok(sig.includes("RENAMED.md"));
+    assert.ok(!sig.includes("|-"), "a missing stat would mean the origin path was treated as real");
   });
 });
