@@ -1,5 +1,6 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import FastDiff from "./components/FastDiff.jsx";
+import CommentDrawer from "./components/CommentDrawer.jsx";
 import WorkspaceRail from "./components/WorkspaceRail.jsx";
 import ReviewBanner from "./components/ReviewBanner.jsx";
 import { RENDERER, RENDERERS } from "../server/constants.js";
@@ -21,6 +22,9 @@ import {
 // The classic renderer pulls in @git-diff-view and every highlight.js grammar — about a megabyte
 // the fast renderer never touches. Loading it on demand keeps that off the default path.
 const FileDiff = lazy(() => import("./components/FileDiff.jsx"));
+
+// When there is no diff, no comment can be anchored to one.
+const NOTHING_ANCHORED = new Set();
 
 function useTheme() {
   const [theme, setTheme] = useState(
@@ -47,6 +51,7 @@ export default function App() {
   const [review, setReview] = useState(null);
   const [error, setError] = useState(null);
   const [jump, setJump] = useState(null);
+  const [showAll, setShowAll] = useState(0);
   const theme = useTheme();
   const fileRefs = useRef({});
 
@@ -293,9 +298,15 @@ export default function App() {
 
         {selectedWs && (
           <aside className="w-60 shrink-0 overflow-y-auto border-r border-neutral-200 bg-white p-2 dark:border-neutral-800 dark:bg-neutral-900">
-            <div className="px-2 py-1 text-[11px] font-semibold uppercase tracking-wide text-neutral-400">
+            <button
+              type="button"
+              onClick={() => setShowAll(Date.now())}
+              disabled={comments.length === 0}
+              title={comments.length > 0 ? "See every comment in this worktree" : undefined}
+              className="w-full rounded px-2 py-1 text-left text-[11px] font-semibold uppercase tracking-wide text-neutral-400 enabled:hover:bg-neutral-100 enabled:hover:text-neutral-600 dark:enabled:hover:bg-neutral-800"
+            >
               {visibleFiles.length} files · {openTotal} open
-            </div>
+            </button>
             {visibleFiles.map((f, i) => {
               const fc = commentsByFile.get(f.path)?.filter((c) => c.status === "open").length ?? 0;
               return (
@@ -345,8 +356,30 @@ export default function App() {
             </div>
           )}
           {selectedWs && diff && visibleFiles.length === 0 && (
-            <div className="mt-24 text-center text-sm text-neutral-400">
-              {dir ? `No changes under ${dir}.` : "No changes in this worktree."}
+            <div className="flex min-h-0 flex-1">
+              <div className="flex flex-1 flex-col items-center justify-center gap-3 text-sm text-neutral-400">
+                <p>{dir ? `No changes under ${dir}.` : "No changes in this worktree."}</p>
+                {/* With no files there are no headers to hang them off, and these are exactly the
+                    comments worth finding: the diff moved on, the thread did not. */}
+                {comments.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setShowAll(Date.now())}
+                    className="rounded border border-neutral-300 px-3 py-1 text-xs text-neutral-600 hover:bg-neutral-100 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800"
+                  >
+                    Read {comments.length} comment{comments.length === 1 ? "" : "s"} left here
+                  </button>
+                )}
+              </div>
+              {showAll > 0 && (
+                <CommentDrawer
+                  path={null}
+                  comments={comments}
+                  anchored={NOTHING_ANCHORED}
+                  onClose={() => setShowAll(0)}
+                  onCommentAction={onCommentAction}
+                />
+              )}
             </div>
           )}
           {selectedWs && fast && visibleFiles.length > 0 && (
@@ -355,6 +388,7 @@ export default function App() {
               comments={visibleComments}
               mode={mode}
               jump={jump}
+              showAll={showAll}
               onAddComment={onAddComment}
               onCommentAction={onCommentAction}
             />

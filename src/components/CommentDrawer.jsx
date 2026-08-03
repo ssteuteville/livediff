@@ -8,7 +8,7 @@ import CommentThread from "./CommentThread.jsx";
  * Those are the comments most worth finding — you left them, something changed, and you want to
  * know what came back. The rail counts them, so there has to be somewhere to read them.
  */
-function Group({ title, entries, note, onGoTo, onCommentAction }) {
+function Group({ title, entries, note, showFile, onGoTo, onCommentAction }) {
   if (entries.length === 0) return null;
   return (
     <section className="mb-4">
@@ -16,10 +16,11 @@ function Group({ title, entries, note, onGoTo, onCommentAction }) {
         {title}
       </h3>
       {note && <p className="px-3 pb-2 text-[11px] text-neutral-500">{note}</p>}
-      {entries.map(({ key, side, line, comments }) => (
+      {entries.map(({ key, file, side, line, comments }) => (
         <div key={key} className="mb-2">
           <div className="flex items-center gap-2 px-3 pb-1">
-            <span className="font-mono text-[11px] text-neutral-500">
+            <span className="truncate font-mono text-[11px] text-neutral-500" title={file}>
+              {showFile && `${file}:`}
               {side === "old" ? "−" : "+"}
               {line}
             </span>
@@ -46,26 +47,28 @@ function Group({ title, entries, note, onGoTo, onCommentAction }) {
   );
 }
 
-/** Group a file's comments by the line they were left on, newest anchor last. */
+/** Group comments by the line they were left on, in file then line order. */
 function byAnchor(comments) {
   const groups = new Map();
   for (const c of comments) {
     const key = `c:${c.file}:${c.side}:${c.line}`;
-    if (!groups.has(key)) groups.set(key, { key, side: c.side, line: c.line, comments: [] });
+    if (!groups.has(key)) groups.set(key, { key, file: c.file, side: c.side, line: c.line, comments: [] });
     groups.get(key).comments.push(c);
   }
-  return [...groups.values()].sort((a, b) => a.line - b.line);
+  return [...groups.values()].sort((a, b) => a.file.localeCompare(b.file) || a.line - b.line);
 }
 
+/** `path` names one file, or is null for every comment in the worktree. */
 export default function CommentDrawer({ path, comments, anchored, onClose, onGoTo, onCommentAction }) {
-  const inDiff = byAnchor(comments.filter((c) => anchored.has(c.id)));
-  const gone = byAnchor(comments.filter((c) => !anchored.has(c.id)));
+  const scoped = path ? comments.filter((c) => c.file === path) : comments;
+  const inDiff = byAnchor(scoped.filter((c) => anchored.has(c.id)));
+  const gone = byAnchor(scoped.filter((c) => !anchored.has(c.id)));
 
   return (
     <aside className="flex w-96 shrink-0 flex-col border-l border-neutral-200 bg-white dark:border-neutral-800 dark:bg-neutral-900">
       <header className="flex items-center gap-2 border-b border-neutral-200 px-3 py-2 dark:border-neutral-800">
-        <span className="truncate font-mono text-xs text-neutral-700 dark:text-neutral-200" title={path}>
-          {path}
+        <span className="truncate font-mono text-xs text-neutral-700 dark:text-neutral-200" title={path ?? ""}>
+          {path ?? `All comments · ${scoped.length}`}
         </span>
         <button
           type="button"
@@ -78,13 +81,22 @@ export default function CommentDrawer({ path, comments, anchored, onClose, onGoT
       </header>
 
       <div className="min-h-0 flex-1 overflow-y-auto py-2">
-        {comments.length === 0 && (
-          <p className="px-3 py-6 text-center text-xs text-neutral-400">No comments on this file.</p>
+        {scoped.length === 0 && (
+          <p className="px-3 py-6 text-center text-xs text-neutral-400">
+            {path ? "No comments on this file." : "No comments in this worktree."}
+          </p>
         )}
-        <Group title="In this diff" entries={inDiff} onGoTo={onGoTo} onCommentAction={onCommentAction} />
+        <Group
+          title="In this diff"
+          entries={inDiff}
+          showFile={!path}
+          onGoTo={onGoTo}
+          onCommentAction={onCommentAction}
+        />
         <Group
           title="No longer in the diff"
           entries={gone}
+          showFile={!path}
           note="The lines these were left on are not part of the current diff. They are still stored, and still yours to resolve."
           onCommentAction={onCommentAction}
         />

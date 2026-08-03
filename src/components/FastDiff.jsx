@@ -198,7 +198,7 @@ function FileHeader({ file, comments, hidden, onShowComments }) {
  * monospace character width rather than measured. Find is in-app for the same reason the DOM is
  * small: the browser's own find cannot see rows that are not there.
  */
-export default function FastDiff({ diff, comments, mode, jump, onAddComment, onCommentAction }) {
+export default function FastDiff({ diff, comments, mode, jump, showAll, onAddComment, onCommentAction }) {
   const scrollRef = useRef(null);
   const surfaceRef = useRef(null);
   const [composing, setComposing] = useState(null);
@@ -294,6 +294,10 @@ export default function FastDiff({ diff, comments, mode, jump, onAddComment, onC
     if (index !== -1) scrollToRow(index, { align: "start" });
   }, [jump?.nonce]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  useEffect(() => {
+    if (showAll) setDrawer({ path: null });
+  }, [showAll]);
+
   const hits = useMemo(() => searchRows(rows, query, options), [rows, query, options]);
   const fileCount = useMemo(() => countByFile(hits).size, [hits]);
 
@@ -382,7 +386,7 @@ export default function FastDiff({ diff, comments, mode, jump, onAddComment, onC
                     file={row.file}
                     comments={forFile.length}
                     hidden={forFile.filter((c) => !anchored.has(c.id)).length}
-                    onShowComments={setDrawer}
+                    onShowComments={(p) => setDrawer({ path: p })}
                   />
                 </div>
               );
@@ -530,8 +534,8 @@ export default function FastDiff({ diff, comments, mode, jump, onAddComment, onC
 
         {drawer && (
           <CommentDrawer
-            path={drawer}
-            comments={commentsByFile.get(drawer) ?? []}
+            path={drawer.path}
+            comments={comments ?? []}
             anchored={anchored}
             onClose={() => setDrawer(null)}
             onGoTo={(key) => {
