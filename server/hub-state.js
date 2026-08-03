@@ -2,19 +2,30 @@ import { readFile, unlink, mkdir, open, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { writeJsonAtomic } from "./atomic.js";
+import {
+  APP_DIR_NAME,
+  ENV,
+  LOCK_FILENAME,
+  LOCK_STALE_MS,
+  LOG_FILENAME,
+  LOOPBACK_HOST,
+  PROBE_TIMEOUT_MS,
+  SHUTDOWN_TIMEOUT_MS,
+  STATE_FILENAME,
+} from "./constants.js";
 
 /**
  * Hub runtime state lives under XDG_STATE_HOME, not XDG_CONFIG_HOME: it describes a running
  * process, is meaningless after a reboot, and must not be mistaken for user configuration.
  */
 export function stateDir() {
-  const base = process.env.XDG_STATE_HOME || join(homedir(), ".local", "state");
-  return join(base, "livediff");
+  const base = process.env[ENV.XDG_STATE_HOME] || join(homedir(), ".local", "state");
+  return join(base, APP_DIR_NAME);
 }
 
-export const statePath = () => join(stateDir(), "hub.json");
-export const lockPath = () => join(stateDir(), "hub.lock");
-export const logPath = () => join(stateDir(), "hub.log");
+export const statePath = () => join(stateDir(), STATE_FILENAME);
+export const lockPath = () => join(stateDir(), LOCK_FILENAME);
+export const logPath = () => join(stateDir(), LOG_FILENAME);
 
 export async function readState() {
   try {
@@ -44,7 +55,6 @@ export function pidAlive(pid) {
   }
 }
 
-const LOCK_STALE_MS = 30_000;
 
 export async function acquireLock(attempt = 0) {
   await mkdir(stateDir(), { recursive: true });
@@ -88,9 +98,9 @@ export function isBlockedPort(port) {
   return BLOCKED_PORTS.has(port);
 }
 
-export async function probeMeta(port, timeoutMs = 500) {
+export async function probeMeta(port, timeoutMs = PROBE_TIMEOUT_MS) {
   try {
-    const res = await fetch(`http://127.0.0.1:${port}/api/meta`, {
+    const res = await fetch(`http://${LOOPBACK_HOST}:${port}/api/meta`, {
       signal: AbortSignal.timeout(timeoutMs),
     });
     if (!res.ok) return null;
@@ -115,7 +125,7 @@ export async function waitUntil(predicate, timeoutMs, intervalMs = 50) {
  * `livediff stop` and by ensureHub replacing a mismatched version — they had drifted apart.
  */
 export async function shutdownHub(state) {
-  await fetch(`http://127.0.0.1:${state.port}/api/shutdown`, {
+  await fetch(`http://${LOOPBACK_HOST}:${state.port}/api/shutdown`, {
     method: "POST",
     signal: AbortSignal.timeout(2000),
   }).catch(() => {
@@ -125,7 +135,10 @@ export async function shutdownHub(state) {
       /* already gone */
     }
   });
-  const stopped = await waitUntil(async () => !(await probeMeta(state.port, 200)), 5000);
+  const stopped = await waitUntil(
+    async () => !(await probeMeta(state.port, 200)),
+    SHUTDOWN_TIMEOUT_MS
+  );
   await clearState();
   return stopped;
 }

@@ -1,4 +1,5 @@
 import { writeFile, rename, mkdir, rm } from "node:fs/promises";
+import { ID_LENGTH } from "./constants.js";
 import { randomUUID } from "node:crypto";
 import { dirname, join, basename } from "node:path";
 
@@ -9,7 +10,7 @@ import { dirname, join, basename } from "node:path";
 export async function writeJsonAtomic(file, data) {
   const dir = dirname(file);
   await mkdir(dir, { recursive: true });
-  const tmp = join(dir, `.${basename(file)}.${randomUUID().slice(0, 8)}.tmp`);
+  const tmp = join(dir, `.${basename(file)}.${randomUUID().slice(0, ID_LENGTH)}.tmp`);
   try {
     await writeFile(tmp, JSON.stringify(data, null, 2) + "\n", "utf8");
     await rename(tmp, file);

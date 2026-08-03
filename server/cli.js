@@ -8,11 +8,11 @@ import { openBrowser } from "./open-browser.js";
 import { sseEvents } from "./sse.js";
 import { diagnose } from "./doctor.js";
 import { COMMENT_STATUSES, filterByStatus, formatComments, emptyMessage } from "./comment-format.js";
-import { PURGE_DAYS } from "./comment-lifecycle.js";
+import { EXIT_ERROR, EXIT_OK, EXIT_USAGE, ID_PATTERN, PURGE_DAYS } from "./constants.js";
 
-const EXIT_OK = 0;
-const EXIT_ERROR = 1;
-const EXIT_USAGE = 2;
+
+
+
 
 /**
  * One pass over argv, so "is this flag set" and "what is its value" can't disagree. A flag that
@@ -67,7 +67,7 @@ async function api(base, path, init) {
   return body;
 }
 
-const isId = (s) => /^[0-9a-f]{8}$/.test(s);
+const isId = (s) => ID_PATTERN.test(s);
 
 /**
  * A bare token is a path if it is written like one, or if it actually names a directory — so

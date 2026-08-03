@@ -1,14 +1,15 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  ORPHAN_ARCHIVE_DAYS,
-  RESOLVED_ARCHIVE_DAYS,
-  PURGE_DAYS,
+
+
+
   isOrphaned,
   shouldArchive,
   shouldPurge,
   daysUntilPurge,
 } from "../server/comment-lifecycle.js";
+import { ORPHAN_ARCHIVE_DAYS, RESOLVED_ARCHIVE_DAYS, PURGE_DAYS } from "../server/constants.js";
 
 const NOW = Date.parse("2026-07-31T00:00:00.000Z");
 const daysAgo = (n) => new Date(NOW - n * 86_400_000).toISOString();

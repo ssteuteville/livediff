@@ -2,11 +2,12 @@ import { execFile } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { promisify } from "node:util";
+import { BINARY_SNIFF_BYTES, GIT_MAX_BUFFER_BYTES, LEGACY_COMMENT_DIR } from "./constants.js";
 
 const exec = promisify(execFile);
 
 // Keep livediff's own comment store out of the diff it renders.
-const EXCLUDE = ["--", ".", ":(exclude).diff-review"];
+const EXCLUDE = ["--", ".", `:(exclude)${LEGACY_COMMENT_DIR}`];
 
 const EXT_LANG = {
   js: "javascript", jsx: "jsx", mjs: "javascript", cjs: "javascript",
@@ -35,7 +36,7 @@ async function git(cwd, args) {
   try {
     const { stdout } = await exec("git", args, {
       cwd,
-      maxBuffer: 64 * 1024 * 1024,
+      maxBuffer: GIT_MAX_BUFFER_BYTES,
       windowsHide: true,
     });
     return stdout;
@@ -196,7 +197,7 @@ async function readAddedFile(cwd, path) {
   }
 
   // git's own heuristic: a NUL byte in the first 8000 bytes means binary.
-  const binary = buf.subarray(0, 8000).includes(0);
+  const binary = buf.subarray(0, BINARY_SNIFF_BYTES).includes(0);
   if (binary) {
     const patch =
       `diff --git a/${path} b/${path}\nnew file mode 100644\n` +

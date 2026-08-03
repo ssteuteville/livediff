@@ -1,10 +1,11 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { ENV } from "./constants.js";
 
 const exec = promisify(execFile);
 
 function opener() {
-  if (process.env.LIVEDIFF_BROWSER) return process.env.LIVEDIFF_BROWSER;
+  if (process.env[ENV.BROWSER]) return process.env[ENV.BROWSER];
   if (process.platform === "darwin") return "open";
   if (process.platform === "win32") return "explorer";
   return "xdg-open";
@@ -22,6 +23,6 @@ export async function openBrowser(url) {
   } catch {
     // `explorer` exits non-zero even when it succeeds, so its status carries no information.
     // An explicit LIVEDIFF_BROWSER is still reported honestly.
-    return process.platform === "win32" && !process.env.LIVEDIFF_BROWSER;
+    return process.platform === "win32" && !process.env[ENV.BROWSER];
   }
 }

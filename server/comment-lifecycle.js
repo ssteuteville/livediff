@@ -6,11 +6,12 @@
  * itself the moment a file returns to the diff.
  */
 
-export const ORPHAN_ARCHIVE_DAYS = 5;
-export const RESOLVED_ARCHIVE_DAYS = 30;
-export const PURGE_DAYS = 200;
-
-const DAY_MS = 86_400_000;
+import {
+  DAY_MS,
+  ORPHAN_ARCHIVE_DAYS,
+  PURGE_DAYS,
+  RESOLVED_ARCHIVE_DAYS,
+} from "./constants.js";
 
 const ageInDays = (iso, now) => (now - Date.parse(iso)) / DAY_MS;
 

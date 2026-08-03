@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { APP_DIR_NAME, ENV, ID_LENGTH, ID_PATTERN, REGISTRY_FILENAME } from "./constants.js";
 import { readFile, realpath, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join, resolve, basename, sep } from "node:path";
@@ -13,20 +14,20 @@ import { toplevel } from "./git.js";
  */
 
 export function configDir() {
-  const base = process.env.XDG_CONFIG_HOME || join(homedir(), ".config");
-  return join(base, "livediff");
+  const base = process.env[ENV.XDG_CONFIG_HOME] || join(homedir(), ".config");
+  return join(base, APP_DIR_NAME);
 }
 
 export function registryPath() {
-  return join(configDir(), "workspaces.json");
+  return join(configDir(), REGISTRY_FILENAME);
 }
 
 /** Stable, idempotent id derived from the absolute path. */
 export function idFor(path) {
-  return createHash("sha1").update(resolve(path)).digest("hex").slice(0, 8);
+  return createHash("sha1").update(resolve(path)).digest("hex").slice(0, ID_LENGTH);
 }
 
-const isId = (s) => /^[0-9a-f]{8}$/.test(s);
+const isId = (s) => ID_PATTERN.test(s);
 
 /**
  * Registered paths come from `git rev-parse --show-toplevel`, which resolves symlinks — on macOS

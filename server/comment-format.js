@@ -1,10 +1,11 @@
 /** Filtering and rendering for review comments. Pure — no I/O, no hub, no process state. */
 
 import { daysUntilPurge } from "./comment-lifecycle.js";
+import { MAX_ANCHOR_LENGTH } from "./constants.js";
 
 export const COMMENT_STATUSES = ["open", "resolved", "all"];
 
-const MAX_ANCHOR = 120;
+
 
 export function filterByStatus(comments, status) {
   return status === "all" ? comments : comments.filter((c) => c.status === status);
@@ -17,7 +18,7 @@ export function filterByStatus(comments, status) {
 function anchor(lineContent) {
   const text = String(lineContent ?? "").trim();
   if (!text) return null;
-  return text.length > MAX_ANCHOR ? `${text.slice(0, MAX_ANCHOR - 1)}…` : text;
+  return text.length > MAX_ANCHOR_LENGTH ? `${text.slice(0, MAX_ANCHOR_LENGTH - 1)}…` : text;
 }
 
 export function formatComments(comments, { now = Date.now() } = {}) {

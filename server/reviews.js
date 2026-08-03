@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { ID_LENGTH } from "./constants.js";
 
 /**
  * A review request is a "someone is waiting on you" marker: `livediff <path> --wait` opens one,
@@ -15,7 +16,7 @@ const byWorkspace = new Map();
 export function openReview(ws) {
   const existing = byWorkspace.get(ws);
   if (existing) return existing;
-  const request = { reviewId: randomUUID().slice(0, 8), ws, startedAt: new Date().toISOString() };
+  const request = { reviewId: randomUUID().slice(0, ID_LENGTH), ws, startedAt: new Date().toISOString() };
   byId.set(request.reviewId, request);
   byWorkspace.set(ws, request);
   return request;

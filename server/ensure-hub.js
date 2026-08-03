@@ -6,6 +6,7 @@ import {
   readState, clearState, pidAlive, probeMeta, waitUntil, shutdownHub,
   acquireLock, releaseLock, logPath, stateDir,
 } from "./hub-state.js";
+import { APP_DIR_NAME, SPAWN_WAIT_TIMEOUT_MS } from "./constants.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const SERVER = join(__dirname, "index.js");
@@ -74,7 +75,7 @@ export async function ensureHub() {
   const state = await readState();
   if (state) {
     const meta = await probeMeta(state.port, 1000);
-    const isOurs = meta?.name === "livediff";
+    const isOurs = meta?.name === APP_DIR_NAME;
     if (isOurs && meta.version === VERSION) return (ensured = url(state.port));
     if (isOurs || pidAlive(state.pid)) await shutdownHub(state);
     else await clearState();
@@ -84,7 +85,7 @@ export async function ensureHub() {
   const spawner = await acquireLock();
   try {
     if (spawner) await spawnHub();
-    const found = await waitForHub(10_000);
+    const found = await waitForHub(SPAWN_WAIT_TIMEOUT_MS);
     if (!found) throw await failure();
     return (ensured = found);
   } finally {

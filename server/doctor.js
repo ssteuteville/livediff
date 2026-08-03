@@ -5,6 +5,14 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 import { configDir, readRegistry, idFor } from "./registry.js";
 import { listComments } from "./comments.js";
+import {
+  APP_DIR_NAME,
+  ARCHIVE_WARN_BYTES,
+  COMMENTS_DIR_NAME,
+  DAY_MS,
+  LEGACY_COMMENT_DIR,
+  LOCK_STALE_MS,
+} from "./constants.js";
 import { toplevel } from "./git.js";
 import { readState, statePath, lockPath, pidAlive, probeMeta } from "./hub-state.js";
 
@@ -68,12 +76,13 @@ async function checkHub(version) {
 async function checkLock() {
   try {
     const info = await stat(lockPath());
-    const age = Math.round((Date.now() - info.mtimeMs) / 1000);
-    if (age > 30) {
+    const ageMs = Date.now() - info.mtimeMs;
+    if (ageMs > LOCK_STALE_MS) {
+      const seconds = Math.round(LOCK_STALE_MS / 1000);
       return warn(
         "stale spawn lock",
-        `${lockPath()} is ${age}s old`,
-        "Harmless — it is broken automatically after 30s. Delete it to silence this."
+        `${lockPath()} is ${Math.round(ageMs / 1000)}s old`,
+        `Harmless — it is broken automatically after ${seconds}s. Delete it to silence this.`
       );
     }
     return ok("spawn lock", "held by a starting hub");
@@ -127,7 +136,7 @@ async function checkLegacyDirs() {
   const workspaces = await readRegistry();
   const dirs = await Promise.all(
     workspaces.map(async (w) => {
-      const dir = join(w.path, ".diff-review");
+      const dir = join(w.path, LEGACY_COMMENT_DIR);
       try {
         await access(dir);
         return dir;
@@ -166,7 +175,7 @@ async function installedPluginVersion() {
   }
   const found = [];
   for (const marketplace of marketplaces) {
-    const dir = join(cache, marketplace, "livediff");
+    const dir = join(cache, marketplace, APP_DIR_NAME);
     let versions = [];
     try {
       versions = await readdir(dir);
@@ -216,7 +225,7 @@ async function checkPlugin(version) {
   return ok("claude plugin", `v${installed}`);
 }
 
-const WARN_BYTES = 5 * 1024 * 1024;
+
 
 /**
  * Archive growth is the one thing doctor would otherwise only describe. Every other finding
@@ -230,7 +239,7 @@ async function checkArchive() {
 
   for (const w of workspaces) {
     try {
-      bytes += (await stat(join(configDir(), "comments", `${w.id}.json`))).size;
+      bytes += (await stat(join(configDir(), COMMENTS_DIR_NAME, `${w.id}.json`))).size;
     } catch {
       continue; // no store for this workspace yet
     }
@@ -244,13 +253,13 @@ async function checkArchive() {
   const size = `${(bytes / 1024).toFixed(1)} KB`;
   if (!archived) return ok("comment archive", `${size}, nothing archived`);
 
-  const days = Math.floor((Date.now() - Date.parse(oldest)) / 86_400_000);
+  const days = Math.floor((Date.now() - Date.parse(oldest)) / DAY_MS);
   const noun = archived === 1 ? "archived comment" : "archived comments";
   const detail =
     `${workspaces.length} workspaces, ${archived} ${noun}, ${size}\n` +
     `oldest archived ${days} days ago`;
   const fix = "livediff prune --dry-run";
-  return bytes > WARN_BYTES
+  return bytes > ARCHIVE_WARN_BYTES
     ? warn("comment archive is large", detail, fix)
     : { level: "ok", title: "comment archive", detail, fix };
 }

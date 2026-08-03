@@ -2,6 +2,12 @@ import { randomUUID } from "node:crypto";
 import { readFile, writeFile, rm, rmdir, mkdir, stat } from "node:fs/promises";
 import { join, dirname } from "node:path";
 import { configDir } from "./registry.js";
+import {
+  COMMENTS_DIR_NAME,
+  COMMENT_STORE_VERSION,
+  ID_LENGTH,
+  LEGACY_COMMENT_DIR,
+} from "./constants.js";
 import { writeJsonAtomic } from "./atomic.js";
 import { currentBranch } from "./git.js";
 import { isOrphaned, shouldArchive, shouldPurge } from "./comment-lifecycle.js";
@@ -27,7 +33,7 @@ import { isOrphaned, shouldArchive, shouldPurge } from "./comment-lifecycle.js";
  */
 
 function storePath(wsId) {
-  return join(configDir(), "comments", `${wsId}.json`);
+  return join(configDir(), COMMENTS_DIR_NAME, `${wsId}.json`);
 }
 
 // Pre-v0.3 versions wrote comments into <worktree>/.diff-review/comments.json. Migrate that file
@@ -42,7 +48,7 @@ async function migrateLegacy(wsId, repoPath) {
   } catch {
     /* no central file yet — check for a legacy one */
   }
-  const legacyDir = join(repoPath, ".diff-review");
+  const legacyDir = join(repoPath, LEGACY_COMMENT_DIR);
   const legacyFile = join(legacyDir, "comments.json");
   let raw;
   try {
@@ -78,7 +84,7 @@ async function readStore(wsId, repoPath) {
 }
 
 async function writeStore(wsId, comments) {
-  await writeJsonAtomic(storePath(wsId), { version: 2, comments });
+  await writeJsonAtomic(storePath(wsId), { version: COMMENT_STORE_VERSION, comments });
 }
 
 /**
@@ -102,7 +108,7 @@ export async function addComment(wsId, repoPath, input) {
   const store = await readStore(wsId, repoPath);
   const now = new Date().toISOString();
   const comment = {
-    id: randomUUID().slice(0, 8),
+    id: randomUUID().slice(0, ID_LENGTH),
     file: input.file,
     side: input.side === "old" ? "old" : "new",
     line: Number(input.line),

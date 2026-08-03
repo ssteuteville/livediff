@@ -32,15 +32,29 @@ import {
   configDir,
 } from "./registry.js";
 import { writeState, clearState, probeMeta, isBlockedPort } from "./hub-state.js";
+import {
+  APP_DIR_NAME,
+  COMMENTS_DIR_NAME,
+  DAY_MS,
+  DEFAULT_POLL_MS,
+  DEFAULT_PORT,
+  ENV,
+  ID_LENGTH,
+  LOOPBACK_HOST,
+  PORT_FALLBACK_ATTEMPTS,
+  REGISTRY_FILENAME,
+  SSE_RETRY_MS,
+  SWEEP_INTERVAL_MS,
+} from "./constants.js";
 import { migrateRegistry } from "./migrations.js";
 import { openReview, reviewFor, closeReview } from "./reviews.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DIST = join(__dirname, "..", "dist");
 
-const PREFERRED_PORT = Number(process.env.LIVEDIFF_PORT || 4180);
+const PREFERRED_PORT = Number(process.env[ENV.PORT] || DEFAULT_PORT);
 let BOUND_PORT = PREFERRED_PORT;
-const POLL_MS = Number(process.env.LIVEDIFF_POLL_MS || 1000);
+const POLL_MS = Number(process.env[ENV.POLL_MS] || DEFAULT_POLL_MS);
 
 let VERSION = "0.0.0";
 try {
@@ -153,7 +167,7 @@ const server = createServer(async (req, res) => {
   try {
     if (pathname === "/api/meta") {
       return send(res, 200, {
-        name: "livediff",
+        name: APP_DIR_NAME,
         port: BOUND_PORT,
         version: VERSION,
         clients: sseClients.size,
@@ -250,7 +264,7 @@ const server = createServer(async (req, res) => {
     if (pathname === "/api/purge" && req.method === "POST") {
       const { path, keepDays, dryRun } = await readBody(req);
       const targets = await targetWorkspaces(path);
-      const cutoff = Date.now() - keepDays * 86_400_000;
+      const cutoff = Date.now() - keepDays * DAY_MS;
       let count = 0;
       for (const w of targets) {
         if (dryRun) {
@@ -327,7 +341,7 @@ const server = createServer(async (req, res) => {
         "cache-control": "no-cache",
         connection: "keep-alive",
       });
-      res.write("retry: 2000\n\n");
+      res.write(`retry: ${SSE_RETRY_MS}\n\n`);
       sseClients.add(res);
       startPolling();
       req.on("close", () => {
@@ -347,14 +361,14 @@ const server = createServer(async (req, res) => {
  * Bind `preferred`, or the next free port after it. An occupied port whose occupant is an
  * equivalent livediff hub means this process is redundant — signalled by returning null.
  */
-async function listenWithFallback(srv, preferred, tries = 20) {
+async function listenWithFallback(srv, preferred, tries = PORT_FALLBACK_ATTEMPTS) {
   for (let port = preferred; port < preferred + tries; port++) {
     if (isBlockedPort(port)) continue;
     try {
       await new Promise((res, rej) => {
         const onError = (err) => rej(err);
         srv.once("error", onError);
-        srv.listen(port, "127.0.0.1", () => {
+        srv.listen(port, LOOPBACK_HOST, () => {
           srv.removeListener("error", onError);
           res();
         });
@@ -380,7 +394,7 @@ let pollTimer = null;
  * the lifecycle thresholds are measured in days, so sweeping every tick would double git spawns
  * per second to enforce a five-day rule. Twice a day is ample; `livediff archive` forces it.
  */
-const SWEEP_INTERVAL_MS = 12 * 60 * 60_000;
+
 let lastSweep = 0;
 
 /**
@@ -466,8 +480,8 @@ function stopPolling() {
 function watchConfigDir() {
   const dir = configDir();
   const fire = debounce((file) => {
-    if (file === "workspaces.json") return broadcast("workspaces", { reason: "file" });
-    const match = /^([0-9a-f]{8})\.json$/.exec(file ?? "");
+    if (file === REGISTRY_FILENAME) return broadcast("workspaces", { reason: "file" });
+    const match = new RegExp(`^([0-9a-f]{${ID_LENGTH}})\\.json$`).exec(file ?? "");
     if (match) broadcast("comments", { reason: "file", ws: match[1] });
   }, 50);
 
@@ -481,9 +495,9 @@ function watchConfigDir() {
     }
   };
 
-  mkdirSync(join(dir, "comments"), { recursive: true });
+  mkdirSync(join(dir, COMMENTS_DIR_NAME), { recursive: true });
   attach(dir, (name) => name);
-  attach(join(dir, "comments"), (name) => name);
+  attach(join(dir, COMMENTS_DIR_NAME), (name) => name);
 }
 
 function debounce(fn, ms) {
@@ -526,7 +540,7 @@ async function main() {
 
   const link = `http://localhost:${port}`;
   console.log(`livediff hub → ${link}  (v${VERSION})`);
-  if (process.env.LIVEDIFF_OPEN === "1") openBrowser(link);
+  if (process.env[ENV.OPEN] === "1") openBrowser(link);
 }
 
 main();
