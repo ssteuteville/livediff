@@ -192,6 +192,43 @@ comments. This is where I would stop, and I suspect it is enough.
 requires giving up native Cmd+F, so it should be last and should be a deliberate decision, not a
 default.
 
+## Outcome (2026-08-03)
+
+Decisions taken: Safari does not matter, native Cmd+F is not required, both diff shapes must work,
+and lockfiles are a separate concern. That unblocked virtualization, so items 1, 2 and 5 were
+built and 3 and 4 were skipped — `content-visibility` and collapse-by-default both become moot
+once rows are not in the DOM at all.
+
+**Server (shipped, 0.6.0).** One whole-tree `git diff` split by path, with a per-file fallback;
+untracked files synthesized from a read rather than two `--no-index` spawns each.
+
+| Case | Before | After | |
+| --- | --- | --- | --- |
+| 500 untracked files | 13,864 ms | 137 ms | 101× |
+| 500 tracked modified | 7,341 ms | 311 ms | 23× |
+
+**Renderer (behind `RENDERER`, default `classic`).** Flat row model with analytic monospace
+heights. Measured on the 20k-line fixture:
+
+| | |
+| --- | --- |
+| Rows | 20,002 |
+| Document height | 400,066 px, computed in 4 ms |
+| Rendered at scroll 250,000 px | **62 rows** |
+| Window selection | 0.081 ms |
+| Search over every row | 8 ms, 10,000 hits |
+
+Against the ≥140,000 DOM node floor measured above, that is roughly 400 nodes — about 320× fewer.
+
+Two follow-ups this opens rather than closes:
+
+- **Shiki becomes affordable.** Highlighting ~60 visible rows instead of 20,000 changes the
+  economics; a heavier, better highlighter is now the cheaper option. See
+  `2026-08-03-related-projects.md`.
+- **The refetch is still undebounced.** Item 2 above was addressed only by `useScrollAnchor`
+  preserving scroll position, not by reducing the work. On a large diff every save still refetches
+  and rebuilds everything.
+
 ## Open questions for you
 
 1. **Does Cmd+F work in Safari on a long diff today?** Open a diff taller than the viewport in
