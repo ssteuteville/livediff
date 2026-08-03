@@ -1,4 +1,4 @@
-import { test } from "node:test";
+import { test } from "vitest";
 import assert from "node:assert/strict";
 import { join } from "node:path";
 import { mkdir, utimes, writeFile } from "node:fs/promises";
