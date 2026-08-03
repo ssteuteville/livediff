@@ -14,7 +14,10 @@
 - **Never chain shell commands** — no `&&`, `||`, `|`, `;`. One command per invocation.
 - Conventional Commits: `type(scope): subject`, scope is `livediff`.
 - Prefer no comments. A comment explains *why*, never *what*.
-- `engines.node` stays `>=18` — consumers receive compiled JS. Do not change it.
+- `engines.node` is `>=24` and `.node-version` pins 24 (revised 2026-08-03 from `>=18`). Node 24 is the active LTS; 26 is Current until October.
+- Browser tests assert with `expect`, not `node:assert` — Vite externalizes node builtins in the browser. The node project keeps `node:assert/strict`.
+- Browser component tests must `import "../../src/index.css"`, or every Tailwind class is a no-op and layout assertions prove nothing.
+- React 19 commits asynchronously: await the mount, never query the DOM straight after `render()`.
 - **Never write test artifacts into the repo under test.** Screenshots landing in the working tree change the diff mid-run and trigger refetches between assertions. This cost a full debugging session once already.
 - **Match status text case-insensitively.** DOM text is lowercase with `text-transform: uppercase`; an assertion on `MODIFIED` never matches.
 - E2E must never touch the developer's real livediff state. Always redirect `XDG_CONFIG_HOME`, `XDG_STATE_HOME`, and `HOME` to a temp directory first.

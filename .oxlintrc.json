@@ -13,17 +13,16 @@
   ],
   "categories": {
     "correctness": "error",
-    "suspicious": "error",
-    "pedantic": "warn"
+    "suspicious": "error"
   },
   "options": {
     "typeAware": false
   },
   "rules": {
     "react/react-in-jsx-scope": "off",
-    "unicorn/no-array-sort": "off",
     "eslint/no-underscore-dangle": "off",
     "import/no-unassigned-import": "off",
+    "unicorn/no-array-sort": "warn",
     "eslint/no-shadow": "warn",
     "eslint/no-unmodified-loop-condition": "warn",
     "unicorn/consistent-function-scoping": "warn",

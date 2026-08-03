@@ -19,12 +19,12 @@ warn() { printf '\033[33m!\033[0m %s\n' "$1"; }
 
 # --- Node ---
 if ! command -v node >/dev/null 2>&1; then
-  echo "Node.js is required (>= 18). Install it and re-run." >&2
+  echo "Node.js is required (>= 24). Install it and re-run." >&2
   exit 1
 fi
 NODE_MAJOR="$(node -p 'process.versions.node.split(".")[0]')"
-if [ "$NODE_MAJOR" -lt 18 ]; then
-  echo "Node >= 18 required; found $(node -v)." >&2
+if [ "$NODE_MAJOR" -lt 24 ]; then
+  echo "Node >= 24 required; found $(node -v)." >&2
   exit 1
 fi
 ok "Node $(node -v)"

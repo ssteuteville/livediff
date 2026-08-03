@@ -8,5 +8,5 @@
     "allowJs": true,
     "checkJs": false
   },
-  "include": ["src/**/*", "shared/**/*", "test/browser/**/*", "vite.config.js"]
+  "include": ["src/**/*", "shared/**/*", "test/browser/**/*", "types/**/*", "vite.config.js"]
 }

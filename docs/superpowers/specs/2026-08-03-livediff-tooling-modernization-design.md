@@ -95,7 +95,13 @@ resolution complexity for no isolation benefit.
 ### Packaging change
 
 `bin` becomes `dist-server/cli.js`. `files` becomes `["dist-server", "dist"]`. `prepack` builds
-both. Consumers still receive plain JavaScript, so **`engines.node` stays `>=18`**.
+both. Consumers still receive plain JavaScript.
+
+**`engines.node` is `>=24`** (revised 2026-08-03; it was `>=18`). Node 24 is the active LTS — 26 is
+Current and does not go LTS until October. livediff is installed locally by developers who already
+run a modern Node, so the old floor bought nothing and cost real options: `Array#toSorted` and the
+rest of the modern library surface were off the table for a compatibility target nobody was using.
+`.node-version` pins 24 for contributors and CI.
 
 `install.sh` packs a tarball and installs it globally, and `livediff doctor` verifies the result —
 both must keep working unchanged from the user's side. This is the checkpoint with real packaging
