@@ -5,6 +5,9 @@ import CommentThread from "./CommentThread.jsx";
 
 const sideToStr = (side) => (side === SplitSide.old ? "old" : "new");
 
+// The library's enum stays behind this module's lazy boundary; callers pass "split" | "unified".
+const VIEW_MODE = { split: DiffModeEnum.Split, unified: DiffModeEnum.Unified };
+
 const STATUS_STYLES = {
   added: "bg-green-100 text-green-700 dark:bg-green-500/20 dark:text-green-300",
   deleted: "bg-red-100 text-red-700 dark:bg-red-500/20 dark:text-red-300",
@@ -56,7 +59,7 @@ export default function FileDiff({ file, comments, mode, theme, onAddComment, on
         <div className="text-[13px]">
           <DiffView
             data={data}
-            diffViewMode={mode}
+            diffViewMode={VIEW_MODE[mode] ?? DiffModeEnum.Split}
             diffViewTheme={theme}
             diffViewHighlight
             diffViewAddWidget
@@ -97,5 +100,3 @@ export default function FileDiff({ file, comments, mode, theme, onAddComment, on
     </section>
   );
 }
-
-export { DiffModeEnum };

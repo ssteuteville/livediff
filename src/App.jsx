@@ -1,5 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import FileDiff, { DiffModeEnum } from "./components/FileDiff.jsx";
+import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import FastDiff from "./components/FastDiff.jsx";
 import WorkspaceRail from "./components/WorkspaceRail.jsx";
 import ReviewBanner from "./components/ReviewBanner.jsx";
@@ -18,6 +17,10 @@ import {
   completeReview,
   subscribe,
 } from "./api.js";
+
+// The classic renderer pulls in @git-diff-view and every highlight.js grammar — about a megabyte
+// the fast renderer never touches. Loading it on demand keeps that off the default path.
+const FileDiff = lazy(() => import("./components/FileDiff.jsx"));
 
 function useTheme() {
   const [theme, setTheme] = useState(
@@ -38,7 +41,7 @@ export default function App() {
   const [diff, setDiff] = useState(null);
   const [comments, setComments] = useState([]);
   const [base, setBase] = useState("");
-  const [mode, setMode] = useState(DiffModeEnum.Split);
+  const [mode, setMode] = useState("split");
   const [filter, setFilter] = useState("all");
   const [flash, setFlash] = useState(false);
   const [review, setReview] = useState(null);
@@ -237,8 +240,8 @@ export default function App() {
           />
           <div className="flex overflow-hidden rounded border border-neutral-300 dark:border-neutral-700">
             {[
-              [DiffModeEnum.Split, "Split"],
-              [DiffModeEnum.Unified, "Unified"],
+              ["split", "Split"],
+              ["unified", "Unified"],
             ].map(([m, label]) => (
               <button
                 key={label}
@@ -344,25 +347,27 @@ export default function App() {
             <FastDiff
               diff={{ ...diff, files: visibleFiles }}
               comments={visibleComments}
-              mode={mode === DiffModeEnum.Split ? "split" : "unified"}
+              mode={mode}
               onAddComment={onAddComment}
               onCommentAction={onCommentAction}
             />
           )}
-          {selectedWs &&
-            !fast &&
-            visibleFiles.map((f, i) => (
-              <div key={f.path} ref={(el) => (fileRefs.current[i] = el)}>
-                <FileDiff
-                  file={f}
-                  comments={commentsByFile.get(f.path) ?? []}
-                  mode={mode}
-                  theme={theme}
-                  onAddComment={onAddComment}
-                  onCommentAction={onCommentAction}
-                />
-              </div>
-            ))}
+          {selectedWs && !fast && visibleFiles.length > 0 && (
+            <Suspense fallback={<div className="mt-24 text-center text-sm text-neutral-400">Loading diff view…</div>}>
+              {visibleFiles.map((f, i) => (
+                <div key={f.path} ref={(el) => (fileRefs.current[i] = el)}>
+                  <FileDiff
+                    file={f}
+                    comments={commentsByFile.get(f.path) ?? []}
+                    mode={mode}
+                    theme={theme}
+                    onAddComment={onAddComment}
+                    onCommentAction={onCommentAction}
+                  />
+                </div>
+              ))}
+            </Suspense>
+          )}
         </main>
       </div>
     </div>
