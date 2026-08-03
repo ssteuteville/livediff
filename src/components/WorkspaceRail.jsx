@@ -28,6 +28,7 @@ function WorkspaceRow({ ws, selected, onSelect, onRemove }) {
       </div>
       {ws.openComments > 0 && (
         <span
+          data-rail-comment-count
           className={
             "shrink-0 rounded-full px-1.5 text-[10px] font-semibold " +
             (selected ? "bg-white/25 text-white" : "bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300")

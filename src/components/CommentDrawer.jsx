@@ -17,7 +17,7 @@ function Group({ title, entries, note, showFile, onGoTo, onCommentAction }) {
       </h3>
       {note && <p className="px-3 pb-2 text-[11px] text-neutral-500">{note}</p>}
       {entries.map(({ key, file, side, line, comments }) => (
-        <div key={key} className="mb-2">
+        <div key={key} data-drawer-comment className="mb-2">
           <div className="flex items-center gap-2 px-3 pb-1">
             <span className="truncate font-mono text-[11px] text-neutral-500" title={file}>
               {showFile && `${file}:`}
@@ -65,7 +65,10 @@ export default function CommentDrawer({ path, comments, anchored, onClose, onGoT
   const gone = byAnchor(scoped.filter((c) => !anchored.has(c.id)));
 
   return (
-    <aside className="flex w-96 shrink-0 flex-col border-l border-neutral-200 bg-white dark:border-neutral-800 dark:bg-neutral-900">
+    <aside
+      data-comment-drawer
+      className="flex w-96 shrink-0 flex-col border-l border-neutral-200 bg-white dark:border-neutral-800 dark:bg-neutral-900"
+    >
       <header className="flex items-center gap-2 border-b border-neutral-200 px-3 py-2 dark:border-neutral-800">
         <span className="truncate font-mono text-xs text-neutral-700 dark:text-neutral-200" title={path ?? ""}>
           {path ?? `All comments · ${scoped.length}`}

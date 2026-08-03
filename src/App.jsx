@@ -19,6 +19,10 @@ import {
   subscribe,
 } from "./api.js";
 
+// Lets a test assert which renderers the *served* bundle knows about. A stale build once produced a
+// full session of measurements that all described the classic renderer.
+if (typeof window !== "undefined") window.__LIVEDIFF_RENDERERS__ = RENDERERS;
+
 // The classic renderer pulls in @git-diff-view and every highlight.js grammar — about a megabyte
 // the fast renderer never touches. Loading it on demand keeps that off the default path.
 const FileDiff = lazy(() => import("./components/FileDiff.jsx"));
@@ -329,9 +333,13 @@ export default function App() {
         )}
 
         {selectedWs && (
-          <aside className="w-60 shrink-0 overflow-y-auto border-r border-neutral-200 bg-white p-2 dark:border-neutral-800 dark:bg-neutral-900">
+          <aside
+            data-file-list
+            className="w-60 shrink-0 overflow-y-auto border-r border-neutral-200 bg-white p-2 dark:border-neutral-800 dark:bg-neutral-900"
+          >
             <button
               type="button"
+              data-see-all-comments
               onClick={() => setShowAll(Date.now())}
               disabled={comments.length === 0}
               title={comments.length > 0 ? "See every comment in this worktree" : undefined}
@@ -344,6 +352,7 @@ export default function App() {
               return (
                 <button
                   key={f.path}
+                  data-file-item={f.path}
                   onClick={() => scrollToFile(i, f.path)}
                   className="flex w-full items-center gap-1.5 rounded px-2 py-1 text-left text-xs hover:bg-neutral-100 dark:hover:bg-neutral-800"
                 >

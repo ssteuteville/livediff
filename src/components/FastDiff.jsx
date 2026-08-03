@@ -104,6 +104,7 @@ function Side({ line, lang, kind, query, options, onAdd }) {
       {line && onAdd && (
         <button
           type="button"
+          data-add-comment
           onClick={() => onAdd(line)}
           className="mr-1 mt-0.5 hidden h-5 w-5 shrink-0 items-center justify-center rounded bg-blue-600 text-sm font-semibold leading-none text-white shadow-sm transition hover:bg-blue-700 group-hover:flex focus-visible:flex"
           title="Comment on this line"
@@ -370,7 +371,7 @@ export default function FastDiff({ diff, comments, mode, jump, showAll, onAddCom
       )}
 
       <div className="flex min-h-0 flex-1">
-      <div ref={scrollRef} className="min-h-0 flex-1 overflow-auto">
+      <div ref={scrollRef} data-diff-scroll className="min-h-0 flex-1 overflow-auto">
         <div ref={surfaceRef} className="relative font-mono text-[13px] leading-5" style={{ height: totalHeight }}>
           {slice.map((i) => {
             const row = rows[i];
@@ -381,7 +382,13 @@ export default function FastDiff({ diff, comments, mode, jump, showAll, onAddCom
             if (row.kind === ROW.FILE) {
               const forFile = commentsByFile.get(row.file.path) ?? [];
               return (
-                <div key={row.key} className="absolute inset-x-0" style={{ top, height }}>
+                <div
+                  key={row.key}
+                  data-row
+                  data-row-kind="file"
+                  className="absolute inset-x-0"
+                  style={{ top, height }}
+                >
                   <FileHeader
                     file={row.file}
                     comments={forFile.length}
@@ -396,6 +403,8 @@ export default function FastDiff({ diff, comments, mode, jump, showAll, onAddCom
               return (
                 <div
                   key={row.key}
+                  data-row
+                  data-row-kind="hunk"
                   className="absolute inset-x-0 flex items-center bg-blue-50/60 px-3 text-[11px] text-blue-700 dark:bg-blue-500/10 dark:text-blue-300"
                   style={{ top, height }}
                 >
@@ -408,6 +417,8 @@ export default function FastDiff({ diff, comments, mode, jump, showAll, onAddCom
               return (
                 <div
                   key={row.key}
+                  data-row
+                  data-row-kind="spacer"
                   className="absolute inset-x-0 flex items-center justify-center text-sm text-neutral-500"
                   style={{ top, height }}
                 >
@@ -418,7 +429,14 @@ export default function FastDiff({ diff, comments, mode, jump, showAll, onAddCom
 
             if (row.kind === ROW.COMMENT) {
               return (
-                <div key={row.key} className="absolute inset-x-0" style={{ top, height }}>
+                <div
+                  key={row.key}
+                  data-row
+                  data-row-kind="comment"
+                  data-comment-slot
+                  className="absolute inset-x-0"
+                  style={{ top, height }}
+                >
                   <CommentSlot
                     row={row}
                     lines={COMMENT_ROW_LINES}
@@ -443,14 +461,26 @@ export default function FastDiff({ diff, comments, mode, jump, showAll, onAddCom
 
             if (mode === "unified") {
               return (
-                <div key={row.key} className={"absolute inset-x-0 flex " + ring} style={{ top, height }}>
+                <div
+                  key={row.key}
+                  data-row
+                  data-row-kind="line"
+                  className={"absolute inset-x-0 flex " + ring}
+                  style={{ top, height }}
+                >
                   <Side line={row} lang={lang} kind={row.type} query={query} options={options} onAdd={onAdd} />
                 </div>
               );
             }
 
             return (
-              <div key={row.key} className={"absolute inset-x-0 flex " + ring} style={{ top, height }}>
+              <div
+                key={row.key}
+                data-row
+                data-row-kind="line"
+                className={"absolute inset-x-0 flex " + ring}
+                style={{ top, height }}
+              >
                 <Side
                   line={row.left}
                   lang={lang}
@@ -474,6 +504,7 @@ export default function FastDiff({ diff, comments, mode, jump, showAll, onAddCom
 
           {expandedIndex !== -1 && (
             <div
+              data-comment-expanded
               // Opaque: the thread's own tint is translucent, and the rows it covers would
               // otherwise read through the expanded card.
               className="absolute inset-x-0 z-20 overflow-auto bg-white font-sans shadow-2xl ring-1 ring-amber-400/60 dark:bg-neutral-900"
@@ -508,6 +539,7 @@ export default function FastDiff({ diff, comments, mode, jump, showAll, onAddCom
 
           {composeIndex !== -1 && (
             <div
+              data-comment-composer
               className="absolute inset-x-0 z-20 rounded-md border border-blue-300 bg-white p-2 font-sans shadow-xl dark:border-blue-500/40 dark:bg-neutral-900"
               style={{ top: offsets[composeIndex + 1] }}
             >

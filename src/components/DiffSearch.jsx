@@ -64,7 +64,10 @@ export default function DiffSearch({
   const files = fileCount > 1 ? ` · ${fileCount} files` : "";
 
   return (
-    <div className="flex items-center gap-2 border-b border-neutral-200 bg-white px-3 py-1.5 dark:border-neutral-800 dark:bg-neutral-900">
+    <div
+      data-diff-search
+      className="flex items-center gap-2 border-b border-neutral-200 bg-white px-3 py-1.5 dark:border-neutral-800 dark:bg-neutral-900"
+    >
       <input
         ref={inputRef}
         value={query}
