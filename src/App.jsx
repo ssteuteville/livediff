@@ -31,6 +31,24 @@ const FileDiff = lazy(() => import("./components/FileDiff.jsx"));
 // When there is no diff, no comment can be anchored to one.
 const NOTHING_ANCHORED = new Set();
 
+const COMPARE_FIELD =
+  "w-44 rounded border px-2 py-1 font-mono outline-none focus:border-blue-500 ";
+
+/**
+ * A chosen ref changes what the whole page means, so the field has to read as active rather than as
+ * an empty box someone typed in. Tinted and bordered when set, plain while it is showing HEAD.
+ */
+function comparingClass(base) {
+  if (base) {
+    return (
+      COMPARE_FIELD +
+      "no-caret pr-6 border-blue-400 bg-blue-50 font-medium text-blue-800 " +
+      "dark:border-blue-500/60 dark:bg-blue-500/10 dark:text-blue-200"
+    );
+  }
+  return COMPARE_FIELD + "border-neutral-300 bg-white dark:border-neutral-700 dark:bg-neutral-800";
+}
+
 /**
  * Keep the previous value when a refetch returns the same thing.
  *
@@ -293,15 +311,28 @@ export default function App() {
         <div className="ml-auto flex items-center gap-2 text-xs">
           <label className="flex items-center gap-1.5 text-neutral-500 dark:text-neutral-400">
             vs
-            <input
-              value={base}
-              onChange={(e) => setBase(e.target.value)}
-              list="livediff-refs"
-              data-compare-against
-              placeholder="HEAD"
-              title="Compare the working tree against a branch, from where it diverged"
-              className="w-44 rounded border border-neutral-300 bg-white px-2 py-1 font-mono outline-none focus:border-blue-500 dark:border-neutral-700 dark:bg-neutral-800"
-            />
+            <span className="relative flex items-center">
+              <input
+                value={base}
+                onChange={(e) => setBase(e.target.value)}
+                list="livediff-refs"
+                data-compare-against
+                placeholder="HEAD"
+                title="Compare the working tree against a branch, from where it diverged"
+                className={comparingClass(base)}
+              />
+              {base && (
+                <button
+                  type="button"
+                  data-clear-compare
+                  onClick={() => setBase("")}
+                  title="Back to comparing against the last commit"
+                  className="absolute right-1 rounded px-1 text-[11px] leading-none text-blue-600 hover:bg-blue-100 dark:text-blue-300 dark:hover:bg-blue-500/20"
+                >
+                  ✕
+                </button>
+              )}
+            </span>
           </label>
           <datalist id="livediff-refs">
             <option value="HEAD">last commit — uncommitted changes only</option>

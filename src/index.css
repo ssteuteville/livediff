@@ -13,6 +13,12 @@ body,
   margin: 0;
 }
 
+/* The datalist caret is the affordance for "there is a list here", so it stays while the field is
+   empty. Once a ref is chosen the useful action is clearing it, and the two would otherwise stack. */
+.no-caret::-webkit-calendar-picker-indicator {
+  display: none;
+}
+
 body {
   font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
 }
