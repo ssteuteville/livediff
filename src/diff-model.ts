@@ -11,15 +11,105 @@
  * lies. That is the whole reason this can virtualize without feeling like it virtualizes.
  */
 
+import type { Comment, DiffFile } from "../shared/types.js";
+
 export const ROW = {
   FILE: "file",
   HUNK: "hunk",
   LINE: "line",
   SPACER: "spacer",
   COMMENT: "comment",
-};
+} as const;
 
-const LINE_TYPE = { "+": "add", "-": "del", " ": "ctx" };
+export type DiffMode = "unified" | "split";
+export type DiffLineType = "add" | "del" | "ctx";
+export type SplitLineType = DiffLineType | "mod";
+
+export interface DiffLine {
+  type: DiffLineType;
+  oldNo: number | null;
+  newNo: number | null;
+  text: string;
+}
+
+export interface Hunk {
+  header: string;
+  context: string;
+  lines: DiffLine[];
+}
+
+interface RowBase {
+  file: DiffFile;
+  key: string;
+}
+
+export interface FileRow extends RowBase {
+  kind: typeof ROW.FILE;
+}
+
+export interface HunkRow extends RowBase {
+  kind: typeof ROW.HUNK;
+  text: string;
+  context: string;
+}
+
+export interface UnifiedLineRow extends RowBase {
+  kind: typeof ROW.LINE;
+  type: DiffLineType;
+  oldNo: number | null;
+  newNo: number | null;
+  text: string;
+}
+
+export interface SplitLineRow extends RowBase {
+  kind: typeof ROW.LINE;
+  type: SplitLineType;
+  left: DiffLine | null;
+  right: DiffLine | null;
+}
+
+export type LineRow = UnifiedLineRow | SplitLineRow;
+
+export interface SpacerRow extends RowBase {
+  kind: typeof ROW.SPACER;
+  text: string;
+}
+
+export interface CommentRow extends RowBase {
+  kind: typeof ROW.COMMENT;
+  side: Comment["side"];
+  line: number;
+  comments: Comment[];
+}
+
+export type DiffRow = FileRow | HunkRow | LineRow | SpacerRow | CommentRow;
+
+export interface DiffMetrics {
+  lineHeight: number;
+  charsPerLine: number;
+  fileHeaderHeight: number;
+  hunkHeaderHeight: number;
+  wrap: boolean;
+  mode: DiffMode;
+  measured?: Map<string, number>;
+  commentCharsPerLine?: number;
+  commentLines?: number;
+  commentChrome?: number;
+  commentReplyStrip?: number;
+}
+
+export interface SearchOptions {
+  regex?: boolean;
+  caseSensitive?: boolean;
+  scope?: "all" | "added" | "removed";
+}
+
+export interface SearchHit {
+  index: number;
+  path: string | null;
+}
+
+const LINE_TYPE: Record<string, DiffLineType> = { "+": "add", "-": "del", " ": "ctx" };
 
 /**
  * Parse a unified diff patch into hunks of typed lines.
@@ -27,11 +117,11 @@ const LINE_TYPE = { "+": "add", "-": "del", " ": "ctx" };
  * Only the body matters — git already decided what changed, so this is transcription, not diffing.
  * Lines before the first `@@` are the file header, which the caller already has structured data for.
  */
-export function parsePatch(patch) {
-  const hunks = [];
+export function parsePatch(patch: string): Hunk[] {
+  const hunks: Hunk[] = [];
   if (!patch) return hunks;
 
-  let current = null;
+  let current: Hunk | null = null;
   let oldNo = 0;
   let newNo = 0;
 
@@ -40,14 +130,14 @@ export function parsePatch(patch) {
       const m = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@(.*)$/.exec(raw);
       oldNo = m ? Number(m[1]) : 1;
       newNo = m ? Number(m[2]) : 1;
-      current = { header: raw, context: m ? m[3].trim() : "", lines: [] };
+      current = { header: raw, context: m?.[3]?.trim() ?? "", lines: [] };
       hunks.push(current);
       continue;
     }
     if (!current) continue; // still in the file header
     if (raw.startsWith("\\")) continue; // "\ No newline at end of file"
 
-    const type = LINE_TYPE[raw[0]];
+    const type = LINE_TYPE[raw[0] ?? ""];
     if (!type) continue; // trailing blank from the split, or an unexpected marker
 
     const text = raw.slice(1);
@@ -68,24 +158,29 @@ export function parsePatch(patch) {
  * Split mode produces fewer rows than unified for exactly this reason — a measured 20,000 against
  * 30,000 on the same diff — which is worth knowing because the intuition runs the other way.
  */
-function pairLines(lines) {
-  const rows = [];
+interface LinePair {
+  left: DiffLine | null;
+  right: DiffLine | null;
+}
+
+function pairLines(lines: DiffLine[]): LinePair[] {
+  const rows: LinePair[] = [];
   let i = 0;
   while (i < lines.length) {
-    const line = lines[i];
+    const line = lines[i]!;
     if (line.type !== "del") {
       rows.push({
         left: line.type === "add" ? null : line,
-        right: line.type === "del" ? null : line,
+        right: line,
       });
       i++;
       continue;
     }
     // Collect the run of deletions, then the run of additions that follows, and zip them.
-    const dels = [];
-    while (i < lines.length && lines[i].type === "del") dels.push(lines[i++]);
-    const adds = [];
-    while (i < lines.length && lines[i].type === "add") adds.push(lines[i++]);
+    const dels: DiffLine[] = [];
+    while (i < lines.length && lines[i]!.type === "del") dels.push(lines[i++]!);
+    const adds: DiffLine[] = [];
+    while (i < lines.length && lines[i]!.type === "add") adds.push(lines[i++]!);
     for (let k = 0; k < Math.max(dels.length, adds.length); k++) {
       rows.push({ left: dels[k] ?? null, right: adds[k] ?? null });
     }
@@ -93,37 +188,45 @@ function pairLines(lines) {
   return rows;
 }
 
-function pairType(pair) {
+function pairType(pair: LinePair): SplitLineType {
   if (pair.left && pair.right) return pair.left === pair.right ? "ctx" : "mod";
   return pair.left ? "del" : "add";
 }
 
-const anchorKey = (path, side, line) => `${path}:${side}:${line}`;
+const anchorKey = (path: string, side: Comment["side"], line: number) => `${path}:${side}:${line}`;
 
 /** Group comments by the line they hang off, so emitting them costs one lookup per row. */
-export function commentAnchors(comments) {
-  const byAnchor = new Map();
-  for (const c of comments ?? []) {
+export function commentAnchors(comments: Comment[] = []): Map<string, Comment[]> {
+  const byAnchor = new Map<string, Comment[]>();
+  for (const c of comments) {
     const key = anchorKey(c.file, c.side, c.line);
-    if (!byAnchor.has(key)) byAnchor.set(key, []);
-    byAnchor.get(key).push(c);
+    const anchored = byAnchor.get(key);
+    if (anchored) anchored.push(c);
+    else byAnchor.set(key, [c]);
   }
   return byAnchor;
 }
 
 /** The comment threads anchored to a row, in the order their sides appear on screen. */
-function commentsForRow(row, byAnchor) {
+interface CommentThread {
+  side: Comment["side"];
+  line: number;
+  comments: Comment[];
+}
+
+function commentsForRow(row: LineRow, byAnchor: Map<string, Comment[]>): CommentThread[] {
   if (byAnchor.size === 0) return [];
-  const sides = [];
-  if (row.text !== undefined) {
+  const sides: Array<[Comment["side"], number]> = [];
+  if ("text" in row) {
     const side = row.newNo == null ? "old" : "new";
-    sides.push([side, row.newNo ?? row.oldNo]);
+    const line = row.newNo ?? row.oldNo;
+    if (line != null) sides.push([side, line]);
   } else {
     if (row.left?.oldNo != null) sides.push(["old", row.left.oldNo]);
     if (row.right?.newNo != null) sides.push(["new", row.right.newNo]);
   }
 
-  const found = [];
+  const found: CommentThread[] = [];
   for (const [side, line] of sides) {
     const hit = byAnchor.get(anchorKey(row.file.path, side, line));
     if (hit) found.push({ side, line, comments: hit });
@@ -141,11 +244,15 @@ function commentsForRow(row, byAnchor) {
  * fixed slot whatever they contain — see COMMENT_ROW_LINES — because a row whose height depends on
  * its content would have to be measured, and measurement is the thing this model exists to avoid.
  */
-export function buildRows(files, mode = "split", comments = []) {
-  const rows = [];
+export function buildRows(
+  files: DiffFile[],
+  mode: DiffMode = "split",
+  comments: Comment[] = [],
+): DiffRow[] {
+  const rows: DiffRow[] = [];
   const byAnchor = commentAnchors(comments);
 
-  const pushComments = (row) => {
+  const pushComments = (row: LineRow) => {
     for (const thread of commentsForRow(row, byAnchor)) {
       rows.push({
         kind: ROW.COMMENT,
@@ -217,8 +324,8 @@ export function buildRows(files, mode = "split", comments = []) {
  * written against has just stopped being part of the diff. Knowing which is which is what lets the
  * UI offer those comments somewhere instead of dropping them.
  */
-export function anchoredCommentIds(rows) {
-  const ids = new Set();
+export function anchoredCommentIds(rows: DiffRow[]): Set<string> {
+  const ids = new Set<string>();
   for (const row of rows) {
     if (row.kind !== ROW.COMMENT) continue;
     for (const c of row.comments) ids.add(c.id);
@@ -227,9 +334,8 @@ export function anchoredCommentIds(rows) {
 }
 
 /** The longest text a row will render, which is what decides how many display lines it wraps to. */
-function widestText(row, mode) {
-  if (row.kind !== ROW.LINE) return "";
-  if (mode === "unified") return row.text ?? "";
+function widestText(row: LineRow, mode: DiffMode): string {
+  if ("text" in row) return mode === "unified" ? row.text : "";
   const left = row.left?.text?.length ?? 0;
   const right = row.right?.text?.length ?? 0;
   return left >= right ? (row.left?.text ?? "") : (row.right?.text ?? "");
@@ -242,7 +348,7 @@ function widestText(row, mode) {
  * line, a long one gets `commentLines` and a fade. Capping is what makes the height independent of
  * what expanding would reveal, so expanding can overlay instead of reflow.
  */
-function collapsedCommentHeight(row, metrics) {
+function collapsedCommentHeight(row: CommentRow, metrics: DiffMetrics): number {
   const {
     lineHeight,
     commentCharsPerLine = 80,
@@ -271,7 +377,7 @@ function collapsedCommentHeight(row, metrics) {
  * expanding one draws over the rows below rather than resizing its own. `measured` remains as an
  * escape hatch for a row that genuinely has to be observed.
  */
-export function rowHeight(row, metrics) {
+export function rowHeight(row: DiffRow, metrics: DiffMetrics): number {
   const { lineHeight, charsPerLine, fileHeaderHeight, hunkHeaderHeight, wrap, measured } = metrics;
 
   const override = measured?.get(row.key);
@@ -283,7 +389,7 @@ export function rowHeight(row, metrics) {
   if (row.kind === ROW.COMMENT) return collapsedCommentHeight(row, metrics);
 
   if (!wrap || !charsPerLine || charsPerLine < 1) return lineHeight;
-  const chars = widestText(row, metrics.mode).length;
+  const chars = row.kind === ROW.LINE ? widestText(row, metrics.mode).length : 0;
   return lineHeight * Math.max(1, Math.ceil(chars / charsPerLine));
 }
 
@@ -291,21 +397,21 @@ export function rowHeight(row, metrics) {
  * Running offsets for every row, plus the total. One pass, and the result supports binary search
  * for "which row is at scrollTop" — the two things a virtualizer needs.
  */
-export function buildOffsets(rows, metrics) {
+export function buildOffsets(rows: DiffRow[], metrics: DiffMetrics): Float64Array {
   const offsets = new Float64Array(rows.length + 1);
   for (let i = 0; i < rows.length; i++) {
-    offsets[i + 1] = offsets[i] + rowHeight(rows[i], metrics);
+    offsets[i + 1] = offsets[i]! + rowHeight(rows[i]!, metrics);
   }
   return offsets;
 }
 
 /** Index of the last row starting at or before `y`. Binary search over the offset table. */
-export function rowAt(offsets, y) {
+export function rowAt(offsets: Float64Array, y: number): number {
   let lo = 0;
   let hi = offsets.length - 2;
   while (lo < hi) {
     const mid = (lo + hi + 1) >> 1;
-    if (offsets[mid] <= y) lo = mid;
+    if (offsets[mid]! <= y) lo = mid;
     else hi = mid - 1;
   }
   return lo;
@@ -315,7 +421,12 @@ export function rowAt(offsets, y) {
  * Rows intersecting the viewport, padded by `overscan` rows on each side so scrolling does not
  * reveal blank space before React commits.
  */
-export function visibleRange(offsets, scrollTop, viewportHeight, overscan = 8) {
+export function visibleRange(
+  offsets: Float64Array,
+  scrollTop: number,
+  viewportHeight: number,
+  overscan = 8,
+): { start: number; end: number } {
   const count = offsets.length - 1;
   if (count === 0) return { start: 0, end: 0 };
   const first = rowAt(offsets, scrollTop);
@@ -329,19 +440,22 @@ export function visibleRange(offsets, scrollTop, viewportHeight, overscan = 8) {
 // ─── Search ──────────────────────────────────────────────────────────────────
 
 /** Every piece of text a row displays, so a match can be found without touching the DOM. */
-function searchableText(row) {
+function searchableText(row: DiffRow): string[] {
   if (row.kind === ROW.FILE) return [row.file.path];
   if (row.kind === ROW.HUNK) return [row.context ?? ""];
   if (row.kind === ROW.COMMENT) {
     return row.comments.flatMap((c) => [c.body, ...(c.replies ?? []).map((r) => r.body)]);
   }
   if (row.kind !== ROW.LINE) return [];
-  if (row.text !== undefined) return [row.text];
+  if ("text" in row) return [row.text];
   return [row.left?.text ?? "", row.right?.text ?? ""];
 }
 
 /** Build a matcher, treating an invalid regex as "no matches" rather than throwing at the caller. */
-function matcher(query, { regex, caseSensitive }) {
+function matcher(
+  query: string,
+  { regex, caseSensitive }: Required<Pick<SearchOptions, "regex" | "caseSensitive">>,
+): ((text: string) => boolean) | null {
   if (!query) return null;
   if (!regex) {
     const needle = caseSensitive ? query : query.toLowerCase();
@@ -361,7 +475,7 @@ function matcher(query, { regex, caseSensitive }) {
  * A comment counts as part of the side it annotates — narrowing to added lines and losing the
  * comments hanging off them would hide exactly the notes you were looking for.
  */
-function inScope(row, scope) {
+function inScope(row: DiffRow, scope: "added" | "removed"): boolean {
   if (row.kind === ROW.COMMENT) {
     return scope === "added" ? row.side === "new" : row.side === "old";
   }
@@ -379,16 +493,17 @@ function inScope(row, scope) {
  * grouped and counted per file.
  */
 export function searchRows(
-  rows,
-  query,
-  { regex = false, caseSensitive = false, scope = "all" } = {},
-) {
+  rows: DiffRow[],
+  query: string,
+  options: SearchOptions = {},
+): SearchHit[] {
+  const { regex = false, caseSensitive = false, scope = "all" } = options;
   const test = matcher(query, { regex, caseSensitive });
   if (!test) return [];
 
-  const hits = [];
+  const hits: SearchHit[] = [];
   for (let i = 0; i < rows.length; i++) {
-    const row = rows[i];
+    const row = rows[i]!;
     if (scope !== "all" && !inScope(row, scope)) continue;
     if (searchableText(row).some((t) => t && test(t))) {
       hits.push({ index: i, path: row.file?.path ?? null });
@@ -398,8 +513,8 @@ export function searchRows(
 }
 
 /** Match counts per file, for a result summary the browser's own find cannot produce. */
-export function countByFile(hits) {
-  const counts = new Map();
+export function countByFile(hits: SearchHit[]): Map<string, number> {
+  const counts = new Map<string, number>();
   for (const hit of hits) {
     if (!hit.path) continue;
     counts.set(hit.path, (counts.get(hit.path) ?? 0) + 1);
@@ -408,12 +523,12 @@ export function countByFile(hits) {
 }
 
 /** Wrap-around navigation: the next hit at or after `from`, cycling to the start at the end. */
-export function nextHit(hits, from, direction = 1) {
+export function nextHit(hits: SearchHit[], from: number, direction = 1): number | null {
   if (!hits.length) return null;
   if (direction > 0) {
     const found = hits.findIndex((h) => h.index > from);
     return found === -1 ? 0 : found;
   }
-  for (let i = hits.length - 1; i >= 0; i--) if (hits[i].index < from) return i;
+  for (let i = hits.length - 1; i >= 0; i--) if (hits[i]!.index < from) return i;
   return hits.length - 1;
 }

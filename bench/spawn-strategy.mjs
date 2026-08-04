@@ -20,7 +20,7 @@ async function sequential() {
 }
 
 async function concurrent(limit = 16) {
-  const out = new Array(paths.length);
+  const out = Array.from({ length: paths.length });
   let cursor = 0;
   async function worker() {
     while (cursor < paths.length) {

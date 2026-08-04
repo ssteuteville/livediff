@@ -1,4 +1,36 @@
-import CommentThread from "./CommentThread.jsx";
+import type { Comment, Reply } from "../../shared/types.ts";
+import CommentThread from "./CommentThread.tsx";
+
+interface CommentGroup {
+  key: string;
+  file: string;
+  side: Comment["side"];
+  line: number;
+  comments: Comment[];
+}
+
+type CommentUpdate =
+  | { status: Comment["status"] }
+  | { delete: true }
+  | { reply: Pick<Reply, "author" | "body"> };
+
+interface GroupProps {
+  title: string;
+  entries: readonly CommentGroup[];
+  note?: string;
+  showFile: boolean;
+  onGoTo?: ((anchorKey: string) => void) | undefined;
+  onCommentAction: (commentId: string, update: CommentUpdate) => void;
+}
+
+interface CommentDrawerProps {
+  path: string | null;
+  comments: readonly Comment[];
+  anchored: ReadonlySet<string>;
+  onClose: () => void;
+  onGoTo?: (anchorKey: string) => void;
+  onCommentAction: (commentId: string, update: CommentUpdate) => void;
+}
 
 /**
  * Every comment on one file, including the ones the diff can no longer show.
@@ -8,7 +40,7 @@ import CommentThread from "./CommentThread.jsx";
  * Those are the comments most worth finding — you left them, something changed, and you want to
  * know what came back. The rail counts them, so there has to be somewhere to read them.
  */
-function Group({ title, entries, note, showFile, onGoTo, onCommentAction }) {
+function Group({ title, entries, note, showFile, onGoTo, onCommentAction }: GroupProps) {
   if (entries.length === 0) return null;
   return (
     <section className="mb-4">
@@ -36,6 +68,8 @@ function Group({ title, entries, note, showFile, onGoTo, onCommentAction }) {
           </div>
           <CommentThread
             comments={comments}
+            startReplying={false}
+            header={null}
             onResolve={(id) => onCommentAction(id, { status: "resolved" })}
             onReopen={(id) => onCommentAction(id, { status: "open" })}
             onDelete={(id) => onCommentAction(id, { delete: true })}
@@ -48,13 +82,22 @@ function Group({ title, entries, note, showFile, onGoTo, onCommentAction }) {
 }
 
 /** Group comments by the line they were left on, in file then line order. */
-function byAnchor(comments) {
-  const groups = new Map();
-  for (const c of comments) {
-    const key = `c:${c.file}:${c.side}:${c.line}`;
-    if (!groups.has(key))
-      groups.set(key, { key, file: c.file, side: c.side, line: c.line, comments: [] });
-    groups.get(key).comments.push(c);
+function byAnchor(comments: readonly Comment[]): CommentGroup[] {
+  const groups = new Map<string, CommentGroup>();
+  for (const comment of comments) {
+    const key = `c:${comment.file}:${comment.side}:${comment.line}`;
+    const group = groups.get(key);
+    if (group) {
+      group.comments.push(comment);
+    } else {
+      groups.set(key, {
+        key,
+        file: comment.file,
+        side: comment.side,
+        line: comment.line,
+        comments: [comment],
+      });
+    }
   }
   return [...groups.values()].sort((a, b) => a.file.localeCompare(b.file) || a.line - b.line);
 }
@@ -67,10 +110,10 @@ export default function CommentDrawer({
   onClose,
   onGoTo,
   onCommentAction,
-}) {
-  const scoped = path ? comments.filter((c) => c.file === path) : comments;
-  const inDiff = byAnchor(scoped.filter((c) => anchored.has(c.id)));
-  const gone = byAnchor(scoped.filter((c) => !anchored.has(c.id)));
+}: CommentDrawerProps) {
+  const scoped = path ? comments.filter((comment) => comment.file === path) : comments;
+  const inDiff = byAnchor(scoped.filter((comment) => anchored.has(comment.id)));
+  const gone = byAnchor(scoped.filter((comment) => !anchored.has(comment.id)));
 
   return (
     <aside

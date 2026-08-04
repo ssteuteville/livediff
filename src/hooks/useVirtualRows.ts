@@ -1,5 +1,38 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { buildOffsets, rowAt, visibleRange } from "../diff-model.js";
+import type { RefObject } from "react";
+import type { DiffMetrics, DiffRow } from "../diff-model.js";
+
+export interface TextMetrics {
+  charWidth: number;
+  proseCharWidth: number;
+  lineHeight: number;
+  width: number;
+}
+
+type ElementRef = RefObject<HTMLElement | null>;
+
+interface VirtualRowsOptions {
+  rows: DiffRow[];
+  metrics: DiffMetrics;
+  containerRef: ElementRef;
+  overscan?: number;
+}
+
+interface ScrollToRowOptions {
+  align?: "center" | "start";
+}
+
+interface ScrollAnchor {
+  key: string;
+  delta: number;
+}
+
+interface ScrollAnchorOptions {
+  rows: DiffRow[];
+  containerRef: ElementRef;
+  offsets: Float64Array;
+}
 
 /**
  * Measure the font actually in use, so wrapped-row heights can be computed instead of observed.
@@ -15,7 +48,7 @@ const HIDDEN_PROBE = "position:absolute;visibility:hidden;white-space:pre;";
 const PROSE_FONT =
   'font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;font-size:14px;';
 
-function probeWidth(el, css, sample) {
+function probeWidth(el: HTMLElement, css: string, sample: string): number {
   const probe = document.createElement("span");
   probe.textContent = sample;
   probe.style.cssText = HIDDEN_PROBE + css;
@@ -25,8 +58,8 @@ function probeWidth(el, css, sample) {
   return width;
 }
 
-export function useTextMetrics(ref) {
-  const [metrics, setMetrics] = useState({
+export function useTextMetrics(ref: ElementRef): TextMetrics {
+  const [metrics, setMetrics] = useState<TextMetrics>({
     charWidth: 8,
     proseCharWidth: 7,
     lineHeight: 20,
@@ -89,13 +122,13 @@ export function useTextMetrics(ref) {
  *
  * Returns the rows to render, their absolute offsets, the total height, and a scrollToRow.
  */
-export function useVirtualRows({ rows, metrics, containerRef, overscan = 8 }) {
+export function useVirtualRows({ rows, metrics, containerRef, overscan = 8 }: VirtualRowsOptions) {
   const [scrollTop, setScrollTop] = useState(0);
   const [viewport, setViewport] = useState(0);
-  const frame = useRef(0);
+  const frame = useRef<number | null>(null);
 
   const offsets = useMemo(() => buildOffsets(rows, metrics), [rows, metrics]);
-  const totalHeight = offsets.length ? offsets[offsets.length - 1] : 0;
+  const totalHeight = offsets[offsets.length - 1] ?? 0;
 
   useEffect(() => {
     const el = containerRef.current;
@@ -109,9 +142,9 @@ export function useVirtualRows({ rows, metrics, containerRef, overscan = 8 }) {
 
     // Coalesce to one read per frame: scroll fires far faster than React can usefully re-render.
     const onScroll = () => {
-      if (frame.current) return;
+      if (frame.current !== null) return;
       frame.current = requestAnimationFrame(() => {
-        frame.current = 0;
+        frame.current = null;
         read();
       });
     };
@@ -122,7 +155,7 @@ export function useVirtualRows({ rows, metrics, containerRef, overscan = 8 }) {
     return () => {
       el.removeEventListener("scroll", onScroll);
       observer.disconnect();
-      if (frame.current) cancelAnimationFrame(frame.current);
+      if (frame.current !== null) cancelAnimationFrame(frame.current);
     };
   }, [containerRef]);
 
@@ -132,11 +165,11 @@ export function useVirtualRows({ rows, metrics, containerRef, overscan = 8 }) {
   );
 
   const scrollToRow = useCallback(
-    (index, { align = "center" } = {}) => {
+    (index: number, { align = "center" }: ScrollToRowOptions = {}) => {
       const el = containerRef.current;
       if (!el || index < 0 || index >= offsets.length - 1) return;
-      const top = offsets[index];
-      const height = offsets[index + 1] - top;
+      const top = offsets[index] ?? 0;
+      const height = (offsets[index + 1] ?? top) - top;
       const target = align === "start" ? top : top - Math.max(0, (el.clientHeight - height) / 2);
       el.scrollTo({ top: Math.max(0, target), behavior: "auto" });
     },
@@ -157,9 +190,9 @@ export function useVirtualRows({ rows, metrics, containerRef, overscan = 8 }) {
  * the failure that would make a virtualized view feel broken in exactly the situation livediff
  * exists for. Anchoring on a row's identity rather than its index survives the update.
  */
-export function useScrollAnchor({ rows, containerRef, offsets }) {
-  const anchor = useRef(null);
-  const latest = useRef({ rows, offsets });
+export function useScrollAnchor({ rows, containerRef, offsets }: ScrollAnchorOptions): void {
+  const anchor = useRef<ScrollAnchor | null>(null);
+  const latest = useRef<Pick<ScrollAnchorOptions, "rows" | "offsets">>({ rows, offsets });
   latest.current = { rows, offsets };
 
   // Remembered on every scroll rather than when the rows change, because by the time a change is
@@ -171,7 +204,8 @@ export function useScrollAnchor({ rows, containerRef, offsets }) {
     const remember = () => {
       const { rows: current, offsets: at } = latest.current;
       const index = rowAt(at, el.scrollTop);
-      anchor.current = { key: current[index]?.key, delta: el.scrollTop - (at[index] ?? 0) };
+      const row = current[index];
+      anchor.current = row ? { key: row.key, delta: el.scrollTop - (at[index] ?? 0) } : null;
     };
     remember();
     el.addEventListener("scroll", remember, { passive: true });

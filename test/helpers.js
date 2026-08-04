@@ -73,7 +73,8 @@ export async function startHub({ port = 0, timeoutMs = 10_000 } = {}) {
   child.once("exit", () => {
     exited = true;
   });
-  while (Date.now() < deadline && !exited) {
+  while (Date.now() < deadline) {
+    if (exited) break;
     try {
       const parsed = JSON.parse(await readFile(state, "utf8"));
       if (parsed.pid === child.pid && parsed.port) {

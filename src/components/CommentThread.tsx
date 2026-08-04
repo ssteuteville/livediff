@@ -1,7 +1,52 @@
-import { useState } from "react";
+import { useState, type KeyboardEvent, type ReactNode } from "react";
 import { COMMENT_REPLY_STRIP_PX } from "../../shared/constants.ts";
 
-function timeAgo(iso) {
+interface ThreadReply {
+  author: string;
+  body: string;
+  ts?: string;
+}
+
+interface ThreadComment {
+  id: string;
+  author: string;
+  body: string;
+  status: string;
+  replies?: readonly ThreadReply[];
+  createdAt?: string;
+}
+
+type CommentAction = (commentId: ThreadComment["id"]) => void;
+type ReplyAction = (commentId: ThreadComment["id"], body: string) => void;
+
+interface CommentProps {
+  comment: ThreadComment;
+  startReplying: boolean;
+  onResolve: CommentAction;
+  onReopen: CommentAction;
+  onDelete: CommentAction;
+  onReply: ReplyAction;
+}
+
+interface ThreadHeaderProps {
+  comments: readonly ThreadComment[];
+  file: string;
+  line: number;
+  action: ReactNode;
+}
+
+interface CommentThreadProps {
+  comments: readonly ThreadComment[];
+  startReplying: boolean;
+  header: ReactNode;
+  onResolve: CommentAction;
+  onReopen: CommentAction;
+  onDelete: CommentAction;
+  onReply: ReplyAction;
+}
+
+function timeAgo(iso: string | undefined): string {
+  if (!iso) return "";
   const s = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
   if (s < 60) return "just now";
   if (s < 3600) return `${Math.floor(s / 60)}m ago`;
@@ -9,7 +54,7 @@ function timeAgo(iso) {
   return `${Math.floor(s / 86400)}d ago`;
 }
 
-function AuthorBadge({ author }) {
+function AuthorBadge({ author }: { author: string }) {
   const isClaude = author === "claude";
   return (
     <span
@@ -43,7 +88,7 @@ function ReplyPlaceholder() {
   );
 }
 
-function Action({ children }) {
+function Action({ children }: { children: ReactNode }) {
   return <span className="rounded px-1.5 py-0.5 text-[11px] text-neutral-500">{children}</span>;
 }
 
@@ -53,8 +98,9 @@ function Action({ children }) {
  * Without it a collapsed thread shows only the opening comment, so an answered question and an
  * ignored one look identical until you open them.
  */
-function ReplyStrip({ replies }) {
+function ReplyStrip({ replies }: { replies: readonly ThreadReply[] }) {
   const last = replies[replies.length - 1];
+  if (!last) return null;
   return (
     // Height is pinned to the constant the row model budgets for it, so the two cannot drift.
     <div
@@ -79,7 +125,7 @@ function ReplyStrip({ replies }) {
  * rendering drifts the moment the rendering changes. Letting the body absorb the difference makes
  * that drift cosmetic — a line more or fewer of preview — instead of a card that overflows its row.
  */
-function CommentPreview({ comment, lines }) {
+function CommentPreview({ comment, lines }: { comment: ThreadComment; lines: number }) {
   const resolved = comment.status === "resolved";
   const replies = comment.replies ?? [];
   return (
@@ -114,10 +160,11 @@ function CommentPreview({ comment, lines }) {
   );
 }
 
-function Comment({ comment, startReplying, onResolve, onReopen, onDelete, onReply }) {
+function Comment({ comment, startReplying, onResolve, onReopen, onDelete, onReply }: CommentProps) {
   const [replying, setReplying] = useState(Boolean(startReplying));
   const [reply, setReply] = useState("");
   const resolved = comment.status === "resolved";
+  const replies = comment.replies ?? [];
 
   return (
     <div className="rounded-md border border-neutral-200 bg-white text-sm shadow-sm dark:border-neutral-700 dark:bg-neutral-900">
@@ -149,9 +196,9 @@ function Comment({ comment, startReplying, onResolve, onReopen, onDelete, onRepl
         {comment.body}
       </div>
 
-      {comment.replies?.length > 0 && (
+      {replies.length > 0 && (
         <div className="space-y-1.5 border-t border-neutral-100 px-3 py-2 dark:border-neutral-800">
-          {comment.replies.map((r, i) => (
+          {replies.map((r, i) => (
             <div key={i} className="rounded bg-neutral-50 p-2 dark:bg-neutral-800/50">
               <div className="mb-0.5 flex items-center gap-2">
                 <AuthorBadge author={r.author} />
@@ -173,7 +220,7 @@ function Comment({ comment, startReplying, onResolve, onReopen, onDelete, onRepl
               rows={2}
               value={reply}
               onChange={(e) => setReply(e.target.value)}
-              onKeyDown={(e) => {
+              onKeyDown={(e: KeyboardEvent<HTMLTextAreaElement>) => {
                 if ((e.metaKey || e.ctrlKey) && e.key === "Enter" && reply.trim()) {
                   onReply(comment.id, reply.trim());
                   setReply("");
@@ -219,13 +266,13 @@ const SHELL =
   "space-y-2 border-y border-amber-300/40 bg-amber-50/40 px-3 py-2 dark:border-amber-500/20 dark:bg-amber-950/10";
 
 /** Has anyone from Claude's side of the conversation spoken in this thread yet? */
-export function claudeReplied(comments) {
+export function claudeReplied(comments: readonly ThreadComment[]): boolean {
   return comments.some((c) => (c.replies ?? []).some((r) => r.author === "claude"));
 }
 
 const BADGE = "rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ";
 
-function ReplyBadge({ comments }) {
+function ReplyBadge({ comments }: { comments: readonly ThreadComment[] }) {
   if (claudeReplied(comments)) {
     return (
       <span
@@ -249,7 +296,7 @@ function ReplyBadge({ comments }) {
 }
 
 /** Identical in both states, so opening a thread reads as the same card unfolding. */
-export function ThreadHeader({ comments, file, line, action }) {
+export function ThreadHeader({ comments, file, line, action }: ThreadHeaderProps) {
   const count = comments.length + comments.reduce((n, c) => n + (c.replies?.length ?? 0), 0);
   return (
     <div className="flex items-center gap-2 pb-1">
@@ -266,14 +313,27 @@ export function ThreadHeader({ comments, file, line, action }) {
 }
 
 /** The still image of a thread: the first comment's card, clipped, with nothing interactive in it. */
-export function CommentThreadPreview({ comments, lines, file, line }) {
+export function CommentThreadPreview({
+  comments,
+  lines,
+  file,
+  line,
+}: {
+  comments: readonly ThreadComment[];
+  lines: number;
+  file: string;
+  line: number;
+}) {
+  const firstComment = comments[0];
+  if (!firstComment) return null;
+
   return (
     <div className={SHELL + " flex h-full flex-col overflow-hidden"}>
       <div className="shrink-0">
         <ThreadHeader comments={comments} file={file} line={line} action="expand" />
       </div>
       <div className="min-h-0 flex-1">
-        <CommentPreview comment={comments[0]} lines={lines} />
+        <CommentPreview comment={firstComment} lines={lines} />
       </div>
     </div>
   );
@@ -287,7 +347,7 @@ export default function CommentThread({
   onReopen,
   onDelete,
   onReply,
-}) {
+}: CommentThreadProps) {
   return (
     <div className={SHELL}>
       {header}

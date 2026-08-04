@@ -1,6 +1,22 @@
-import { useState } from "react";
+import { useState, type KeyboardEvent, type MouseEvent } from "react";
+import type { WorkspaceSummary } from "../api.ts";
 
-function WorkspaceRow({ ws, selected, onSelect, onRemove }) {
+interface WorkspaceRowProps {
+  ws: WorkspaceSummary;
+  selected: boolean;
+  onSelect: (id: string) => void;
+  onRemove: (id: string) => void;
+}
+
+interface WorkspaceRailProps {
+  workspaces: WorkspaceSummary[];
+  selected: string | null;
+  onSelect: (id: string) => void;
+  onRemove: (id: string) => void;
+  onAdd: (path: string) => void;
+}
+
+function WorkspaceRow({ ws, selected, onSelect, onRemove }: WorkspaceRowProps) {
   return (
     <div
       onClick={() => onSelect(ws.id)}
@@ -43,7 +59,7 @@ function WorkspaceRow({ ws, selected, onSelect, onRemove }) {
         </span>
       )}
       <button
-        onClick={(e) => {
+        onClick={(e: MouseEvent<HTMLButtonElement>) => {
           e.stopPropagation();
           onRemove(ws.id);
         }}
@@ -59,7 +75,13 @@ function WorkspaceRow({ ws, selected, onSelect, onRemove }) {
   );
 }
 
-export default function WorkspaceRail({ workspaces, selected, onSelect, onRemove, onAdd }) {
+export default function WorkspaceRail({
+  workspaces,
+  selected,
+  onSelect,
+  onRemove,
+  onAdd,
+}: WorkspaceRailProps) {
   const [path, setPath] = useState("");
   const submit = () => {
     const p = path.trim();
@@ -100,7 +122,7 @@ export default function WorkspaceRail({ workspaces, selected, onSelect, onRemove
           <input
             value={path}
             onChange={(e) => setPath(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && submit()}
+            onKeyDown={(e: KeyboardEvent<HTMLInputElement>) => e.key === "Enter" && submit()}
             placeholder="add path…"
             className="min-w-0 flex-1 rounded border border-neutral-300 bg-white px-2 py-1 text-xs outline-none focus:border-blue-500 dark:border-neutral-700 dark:bg-neutral-800"
           />

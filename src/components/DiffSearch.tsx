@@ -1,12 +1,32 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, type KeyboardEvent, type ReactNode } from "react";
+import type { SearchHit, SearchOptions } from "../diff-model.ts";
 
 const SCOPES = [
   ["all", "all"],
   ["added", "+ only"],
   ["removed", "− only"],
-];
+] as const;
 
-function Toggle({ active, onClick, title, children }) {
+interface ToggleProps {
+  active: boolean;
+  onClick: () => void;
+  title: string;
+  children: ReactNode;
+}
+
+interface DiffSearchProps {
+  query: string;
+  onQuery: (query: string) => void;
+  options: SearchOptions;
+  onOptions: (options: SearchOptions) => void;
+  hits: SearchHit[];
+  active: number;
+  onNavigate: (direction: 1 | -1) => void;
+  onClose: () => void;
+  fileCount: number;
+}
+
+function Toggle({ active, onClick, title, children }: ToggleProps) {
   return (
     <button
       type="button"
@@ -41,15 +61,15 @@ export default function DiffSearch({
   onNavigate,
   onClose,
   fileCount,
-}) {
-  const inputRef = useRef(null);
+}: DiffSearchProps) {
+  const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     inputRef.current?.focus();
     inputRef.current?.select();
   }, []);
 
-  const onKeyDown = (e) => {
+  const onKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Escape") {
       e.preventDefault();
       onClose();
@@ -103,14 +123,14 @@ export default function DiffSearch({
 
       <div className="ml-2 flex items-center gap-1">
         <Toggle
-          active={options.caseSensitive}
+          active={options.caseSensitive === true}
           onClick={() => onOptions({ ...options, caseSensitive: !options.caseSensitive })}
           title="Match case"
         >
           Aa
         </Toggle>
         <Toggle
-          active={options.regex}
+          active={options.regex === true}
           onClick={() => onOptions({ ...options, regex: !options.regex })}
           title="Regular expression"
         >

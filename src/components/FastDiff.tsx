@@ -1,4 +1,13 @@
-import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useReducer,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type MouseEvent,
+} from "react";
 import {
   ROW,
   buildRows,
@@ -7,9 +16,20 @@ import {
   nextHit,
   anchoredCommentIds,
 } from "../diff-model.js";
-import CommentDrawer from "./CommentDrawer.jsx";
-import { useTextMetrics, useVirtualRows, useScrollAnchor } from "../hooks/useVirtualRows.js";
+import type {
+  CommentRow,
+  DiffLine,
+  DiffMode,
+  SearchOptions,
+  SplitLineRow,
+  UnifiedLineRow,
+} from "../diff-model.js";
+import type { NewComment } from "../api.ts";
+import type { Comment, Diff, DiffFile, Reply } from "../../shared/types.ts";
+import CommentDrawer from "./CommentDrawer.tsx";
+import { useTextMetrics, useVirtualRows, useScrollAnchor } from "../hooks/useVirtualRows.ts";
 import { loadGrammar, tokenize } from "../syntax.js";
+import type { Token } from "../syntax.js";
 import {
   COMMENT_ROW_LINES,
   COMMENT_ROW_CHROME_PX,
@@ -17,9 +37,44 @@ import {
   COMMENT_REPLY_STRIP_PX,
   COMMENT_EXPANDED_MAX_PX,
 } from "../../shared/constants.ts";
-import DiffSearch from "./DiffSearch.jsx";
-import CommentThread, { CommentThreadPreview, ThreadHeader } from "./CommentThread.jsx";
-import CommentComposer from "./CommentComposer.jsx";
+import DiffSearch from "./DiffSearch.tsx";
+import CommentThread, { CommentThreadPreview, ThreadHeader } from "./CommentThread.tsx";
+import CommentComposer from "./CommentComposer.tsx";
+
+type CommentAction = Partial<Pick<Comment, "status">> & {
+  delete?: boolean;
+  reply?: Pick<Reply, "author" | "body">;
+};
+
+interface FastDiffProps {
+  diff: Diff | null;
+  comments: Comment[];
+  mode: DiffMode;
+  jump: { path: string; nonce: number } | null;
+  showAll: number;
+  onAddComment: (input: NewComment) => void | Promise<void>;
+  onCommentAction: (id: Comment["id"], action: CommentAction) => void | Promise<void>;
+}
+
+interface MatchRange {
+  start: number;
+  end: number;
+}
+
+interface MarkedToken extends Token {
+  marked?: boolean;
+}
+
+type DisplayLine = DiffLine | UnifiedLineRow;
+type ComposeState = {
+  rowKey: string;
+  file: string;
+  line: number;
+  side: Comment["side"];
+  text: string;
+};
+type ExpandedState = { key: string; reply: boolean };
+type DrawerState = { path: string | null };
 
 const GUTTER = "w-12 shrink-0 select-none text-right text-neutral-400";
 
@@ -30,17 +85,22 @@ const GAP = {
   ctx: "",
 };
 
-const MARKER = { add: "+", del: "−" };
+const MARKER: Partial<Record<"add" | "del" | "ctx", string>> = { add: "+", del: "−" };
 
 const STATUS_STYLES = {
   added: "bg-green-100 text-green-700 dark:bg-green-500/20 dark:text-green-300",
   deleted: "bg-red-100 text-red-700 dark:bg-red-500/20 dark:text-red-300",
   modified: "bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300",
   renamed: "bg-blue-100 text-blue-700 dark:bg-blue-500/20 dark:text-blue-300",
-};
+  copied: "bg-blue-100 text-blue-700 dark:bg-blue-500/20 dark:text-blue-300",
+} satisfies Record<DiffFile["status"], string>;
 
 /** The character range a search matches within a line, or null. */
-function matchRange(text, query, { regex, caseSensitive }) {
+function matchRange(
+  text: string,
+  query: string,
+  { regex, caseSensitive }: SearchOptions,
+): MatchRange | null {
   if (!query) return null;
   try {
     const pattern = regex ? query : query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -58,9 +118,9 @@ function matchRange(text, query, { regex, caseSensitive }) {
  * Doing it on the token stream rather than the text is what keeps highlighting from being an
  * either/or with find: a match landing mid-token splits that token instead of replacing the line.
  */
-function splitAtMatch(tokens, range) {
-  if (!range) return tokens;
-  const out = [];
+function splitAtMatch(tokens: readonly Token[], range: MatchRange | null): MarkedToken[] {
+  if (!range) return tokens.map((token) => ({ ...token }));
+  const out: MarkedToken[] = [];
   let pos = 0;
   for (const token of tokens) {
     const start = pos;
@@ -78,7 +138,7 @@ function splitAtMatch(tokens, range) {
   return out;
 }
 
-function TokenSpan({ token }) {
+function TokenSpan({ token }: { token: MarkedToken }) {
   if (token.marked) {
     return (
       <mark className={"rounded-sm bg-amber-300 text-black dark:bg-amber-400 " + token.cls}>
@@ -89,7 +149,17 @@ function TokenSpan({ token }) {
   return token.cls ? <span className={token.cls}>{token.text}</span> : token.text;
 }
 
-function LineText({ text, lang, query, options }) {
+function LineText({
+  text,
+  lang,
+  query,
+  options,
+}: {
+  text: string;
+  lang: string;
+  query: string;
+  options: SearchOptions;
+}) {
   const value = text ?? "";
   const range = matchRange(value, query, options);
   const tokens = tokenize(value, lang) ?? [{ text: value, cls: "" }];
@@ -103,7 +173,21 @@ function LineText({ text, lang, query, options }) {
   );
 }
 
-function Side({ line, lang, kind, query, options, onAdd }) {
+function Side({
+  line,
+  lang,
+  kind,
+  query,
+  options,
+  onAdd,
+}: {
+  line: DisplayLine | null;
+  lang: string;
+  kind: "add" | "del" | "ctx";
+  query: string;
+  options: SearchOptions;
+  onAdd: ((line: DisplayLine) => void) | undefined;
+}) {
   const bg = kind === "add" ? GAP.add : kind === "del" ? GAP.del : "";
   return (
     <div className={"group flex min-w-0 flex-1 " + bg}>
@@ -131,7 +215,7 @@ function Side({ line, lang, kind, query, options, onAdd }) {
 }
 
 /** In split mode a paired row shows a deletion on the left and an addition on the right. */
-function sideKind(row, which) {
+function sideKind(row: SplitLineRow, which: "left" | "right"): "add" | "del" | "ctx" {
   const line = which === "left" ? row.left : row.right;
   const opposite = which === "left" ? row.right : row.left;
   if (!line) return "ctx";
@@ -147,15 +231,26 @@ function sideKind(row, which) {
  * decides what the expanded thread opens into. Clicking the painted reply box opens it with the
  * reply field focused, which is the only reason the illusion needs to be pixel-accurate.
  */
-function CommentSlot({ row, lines, hidden, onOpen }) {
-  const open = (e) => onOpen(Boolean(e.target.closest("[data-reply-placeholder]")));
+function CommentSlot({
+  row,
+  lines,
+  hidden,
+  onOpen,
+}: {
+  row: CommentRow;
+  lines: number;
+  hidden: boolean;
+  onOpen: (toReply: boolean) => void;
+}) {
+  const open = (e: MouseEvent<HTMLDivElement>) =>
+    onOpen(e.target instanceof Element && Boolean(e.target.closest("[data-reply-placeholder]")));
 
   return (
     <div
       role="button"
       tabIndex={0}
       onClick={open}
-      onKeyDown={(e) => {
+      onKeyDown={(e: KeyboardEvent<HTMLDivElement>) => {
         if (e.key === "Enter" || e.key === " ") {
           e.preventDefault();
           onOpen(false);
@@ -176,7 +271,17 @@ function CommentSlot({ row, lines, hidden, onOpen }) {
   );
 }
 
-function FileHeader({ file, comments, hidden, onShowComments }) {
+function FileHeader({
+  file,
+  comments,
+  hidden,
+  onShowComments,
+}: {
+  file: DiffFile;
+  comments: number;
+  hidden: number;
+  onShowComments: (path: string) => void;
+}) {
   return (
     <div className="flex h-full items-center gap-2 border-y border-neutral-200 bg-neutral-50 px-3 text-sm dark:border-neutral-800 dark:bg-neutral-900">
       <span
@@ -230,17 +335,21 @@ export default function FastDiff({
   showAll,
   onAddComment,
   onCommentAction,
-}) {
-  const scrollRef = useRef(null);
-  const surfaceRef = useRef(null);
-  const [composing, setComposing] = useState(null);
-  const [expanded, setExpanded] = useState(null);
-  const [drawer, setDrawer] = useState(null);
-  const [measured] = useState(() => new Map());
+}: FastDiffProps) {
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const surfaceRef = useRef<HTMLDivElement>(null);
+  const [composing, setComposing] = useState<ComposeState | null>(null);
+  const [expanded, setExpanded] = useState<ExpandedState | null>(null);
+  const [drawer, setDrawer] = useState<DrawerState | null>(null);
+  const [measured] = useState(() => new Map<string, number>());
 
   const [searchOpen, setSearchOpen] = useState(false);
   const [query, setQuery] = useState("");
-  const [options, setOptions] = useState({ regex: false, caseSensitive: false, scope: "all" });
+  const [options, setOptions] = useState<SearchOptions>({
+    regex: false,
+    caseSensitive: false,
+    scope: "all",
+  });
   const [active, setActive] = useState(0);
 
   const text = useTextMetrics(surfaceRef);
@@ -249,10 +358,11 @@ export default function FastDiff({
 
   const anchored = useMemo(() => anchoredCommentIds(rows), [rows]);
   const commentsByFile = useMemo(() => {
-    const map = new Map();
-    for (const c of comments ?? []) {
-      if (!map.has(c.file)) map.set(c.file, []);
-      map.get(c.file).push(c);
+    const map = new Map<string, Comment[]>();
+    for (const c of comments) {
+      const forFile = map.get(c.file);
+      if (forFile) forFile.push(c);
+      else map.set(c.file, [c]);
     }
     return map;
   }, [comments]);
@@ -301,9 +411,10 @@ export default function FastDiff({
   // across the scroll frames that leave the visible languages unchanged.
   const [, syntaxLoaded] = useReducer((n) => n + 1, 0);
   const visibleLangs = useMemo(() => {
-    const langs = new Set();
+    const langs = new Set<string>();
     for (let i = range.start; i < range.end; i++) {
-      if (rows[i]?.file?.lang) langs.add(rows[i].file.lang);
+      const row = rows[i];
+      if (row?.file.lang) langs.add(row.file.lang);
     }
     return [...langs].sort().join(" ");
   }, [rows, range]);
@@ -337,11 +448,12 @@ export default function FastDiff({
   useEffect(() => setActive(0), [query, options]);
 
   useEffect(() => {
-    if (hits.length) scrollToRow(hits[Math.min(active, hits.length - 1)].index);
+    const hit = hits[Math.min(active, hits.length - 1)];
+    if (hit) scrollToRow(hit.index);
   }, [hits, active, scrollToRow]);
 
   const navigate = useCallback(
-    (direction) => {
+    (direction: 1 | -1) => {
       if (!hits.length) return;
       const from = hits[active]?.index ?? -1;
       const next = nextHit(hits, from, direction);
@@ -353,7 +465,7 @@ export default function FastDiff({
   // Cmd+F is bound deliberately: the browser's find would only see the rows in view and silently
   // report far fewer matches than exist, which is worse than replacing it outright.
   useEffect(() => {
-    const onKey = (e) => {
+    const onKey = (e: globalThis.KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === "f") {
         e.preventDefault();
         setSearchOpen(true);
@@ -380,7 +492,7 @@ export default function FastDiff({
   );
 
   const activeIndex = hits[active]?.index ?? -1;
-  const slice = [];
+  const slice: number[] = [];
   for (let i = range.start; i < range.end; i++) slice.push(i);
 
   return (
@@ -411,8 +523,9 @@ export default function FastDiff({
           >
             {slice.map((i) => {
               const row = rows[i];
-              const top = offsets[i];
-              const height = offsets[i + 1] - top;
+              if (!row) return null;
+              const top = offsets[i] ?? 0;
+              const height = (offsets[i + 1] ?? top) - top;
               const isActive = i === activeIndex;
 
               if (row.kind === ROW.FILE) {
@@ -483,19 +596,24 @@ export default function FastDiff({
                 );
               }
 
+              if (row.kind !== ROW.LINE) return null;
+
               const ring = isActive ? "ring-2 ring-inset ring-amber-400" : "";
-              const onAdd = (line) =>
+              const onAdd = (line: DisplayLine) => {
+                const lineNumber = line.newNo ?? line.oldNo;
+                if (lineNumber === null) return;
                 setComposing({
                   rowKey: row.key,
                   file: row.file.path,
-                  line: line.newNo ?? line.oldNo,
-                  side: line.newNo ? "new" : "old",
+                  line: lineNumber,
+                  side: line.newNo === null ? "old" : "new",
                   text: line.text,
                 });
+              };
 
-              const lang = row.file?.lang;
+              const lang = row.file.lang;
 
-              if (mode === "unified") {
+              if ("text" in row) {
                 return (
                   <div
                     key={row.key}
@@ -545,13 +663,13 @@ export default function FastDiff({
               );
             })}
 
-            {expandedIndex !== -1 && (
+            {expanded && rows[expandedIndex]?.kind === ROW.COMMENT && (
               <div
                 data-comment-expanded
                 // Opaque: the thread's own tint is translucent, and the rows it covers would
                 // otherwise read through the expanded card.
                 className="absolute inset-x-0 z-20 overflow-auto bg-white font-sans shadow-2xl ring-1 ring-amber-400/60 dark:bg-neutral-900"
-                style={{ top: offsets[expandedIndex], maxHeight: COMMENT_EXPANDED_MAX_PX }}
+                style={{ top: offsets[expandedIndex] ?? 0, maxHeight: COMMENT_EXPANDED_MAX_PX }}
               >
                 <CommentThread
                   comments={rows[expandedIndex].comments}
@@ -580,7 +698,7 @@ export default function FastDiff({
               </div>
             )}
 
-            {composeIndex !== -1 && (
+            {composing && composeIndex !== -1 && (
               <div
                 data-comment-composer
                 className="absolute inset-x-0 z-20 rounded-md border border-blue-300 bg-white p-2 font-sans shadow-xl dark:border-blue-500/40 dark:bg-neutral-900"
@@ -610,7 +728,7 @@ export default function FastDiff({
         {drawer && (
           <CommentDrawer
             path={drawer.path}
-            comments={comments ?? []}
+            comments={comments}
             anchored={anchored}
             onClose={() => setDrawer(null)}
             onGoTo={(key) => {

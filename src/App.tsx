@@ -1,8 +1,20 @@
-import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import FastDiff from "./components/FastDiff.jsx";
-import CommentDrawer from "./components/CommentDrawer.jsx";
-import WorkspaceRail from "./components/WorkspaceRail.jsx";
-import ReviewBanner from "./components/ReviewBanner.jsx";
+import {
+  Suspense,
+  lazy,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type Dispatch,
+  type SetStateAction,
+} from "react";
+import type { Comment, Diff, Reply, Review } from "../shared/types.ts";
+import type { HubEvent, NewComment, WorkspaceSummary } from "./api.ts";
+import FastDiff from "./components/FastDiff.tsx";
+import CommentDrawer from "./components/CommentDrawer.tsx";
+import WorkspaceRail from "./components/WorkspaceRail.tsx";
+import ReviewBanner from "./components/ReviewBanner.tsx";
 import { RENDERER, RENDERERS, DIFF_REFETCH_DEBOUNCE_MS } from "../shared/constants.ts";
 import {
   fetchWorkspaces,
@@ -18,18 +30,18 @@ import {
   fetchReview,
   completeReview,
   subscribe,
-} from "./api.js";
+} from "./api.ts";
 
 // Lets a test assert which renderers the *served* bundle knows about. A stale build once produced a
 // full session of measurements that all described the classic renderer.
-if (typeof window !== "undefined") window.__LIVEDIFF_RENDERERS__ = RENDERERS;
+if (typeof window !== "undefined") window.__LIVEDIFF_RENDERERS__ = [...RENDERERS];
 
 // The classic renderer pulls in @git-diff-view and every highlight.js grammar — about a megabyte
 // the fast renderer never touches. Loading it on demand keeps that off the default path.
-const FileDiff = lazy(() => import("./components/FileDiff.jsx"));
+const FileDiff = lazy(() => import("./components/FileDiff.tsx"));
 
 // When there is no diff, no comment can be anchored to one.
-const NOTHING_ANCHORED = new Set();
+const NOTHING_ANCHORED: ReadonlySet<string> = new Set();
 
 const COMPARE_FIELD = "w-44 rounded border px-2 py-1 font-mono outline-none focus:border-blue-500 ";
 
@@ -37,7 +49,16 @@ const COMPARE_FIELD = "w-44 rounded border px-2 py-1 font-mono outline-none focu
  * A chosen ref changes what the whole page means, so the field has to read as active rather than as
  * an empty box someone typed in. Tinted and bordered when set, plain while it is showing HEAD.
  */
-function comparingClass(base) {
+type DiffMode = "split" | "unified";
+type CommentFilter = "all" | Comment["status"];
+type Theme = "dark" | "light";
+type CommentAction = Partial<Pick<Comment, "status">> & {
+  delete?: boolean;
+  reply?: Pick<Reply, "author" | "body">;
+};
+type ReviewEvent = HubEvent & { state: "open" | "done" | "cancelled" };
+
+function comparingClass(base: string): string {
   if (base) {
     return (
       COMPARE_FIELD +
@@ -56,16 +77,33 @@ function comparingClass(base) {
  * Saving one file broadcasts to every workspace's watchers, so this is the common case, not the
  * rare one. Comparing the serialized form costs a millisecond against rebuilding everything.
  */
-const keepIfSame = (setState) => (next) =>
-  setState((prev) => (JSON.stringify(prev) === JSON.stringify(next) ? prev : next));
+function keepIfSame<T>(setState: Dispatch<SetStateAction<T>>): (next: T) => void {
+  return (next) =>
+    setState((previous) => (JSON.stringify(previous) === JSON.stringify(next) ? previous : next));
+}
 
-function useTheme() {
-  const [theme, setTheme] = useState(
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function isRenderer(value: string | null): value is (typeof RENDERERS)[number] {
+  return value === "classic" || value === "fast";
+}
+
+function isReviewEvent(event: HubEvent): event is ReviewEvent {
+  return (
+    "state" in event &&
+    (event.state === "open" || event.state === "done" || event.state === "cancelled")
+  );
+}
+
+function useTheme(): Theme {
+  const [theme, setTheme] = useState<Theme>(
     window.matchMedia?.("(prefers-color-scheme: dark)").matches ? "dark" : "light",
   );
   useEffect(() => {
     const mq = window.matchMedia("(prefers-color-scheme: dark)");
-    const on = (e) => setTheme(e.matches ? "dark" : "light");
+    const on = (event: MediaQueryListEvent) => setTheme(event.matches ? "dark" : "light");
     mq.addEventListener("change", on);
     return () => mq.removeEventListener("change", on);
   }, []);
@@ -73,22 +111,22 @@ function useTheme() {
 }
 
 export default function App() {
-  const [workspaces, setWorkspaces] = useState([]);
+  const [workspaces, setWorkspaces] = useState<WorkspaceSummary[]>([]);
   const [loaded, setLoaded] = useState(false);
-  const [selected, setSelected] = useState(null);
-  const [diff, setDiff] = useState(null);
-  const [comments, setComments] = useState([]);
+  const [selected, setSelected] = useState<string | null>(null);
+  const [diff, setDiff] = useState<Diff | null>(null);
+  const [comments, setComments] = useState<Comment[]>([]);
   const [base, setBase] = useState("");
-  const [refs, setRefs] = useState([]);
-  const [mode, setMode] = useState("split");
-  const [filter, setFilter] = useState("all");
+  const [refs, setRefs] = useState<string[]>([]);
+  const [mode, setMode] = useState<DiffMode>("split");
+  const [filter, setFilter] = useState<CommentFilter>("all");
   const [flash, setFlash] = useState(false);
-  const [review, setReview] = useState(null);
-  const [error, setError] = useState(null);
-  const [jump, setJump] = useState(null);
+  const [review, setReview] = useState<Review | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [jump, setJump] = useState<{ path: string; nonce: number } | null>(null);
   const [showAll, setShowAll] = useState(0);
   const theme = useTheme();
-  const fileRefs = useRef({});
+  const fileRefs = useRef<Record<number, HTMLDivElement | null>>({});
 
   // Deep-link / focused mode via URL params: ?ws=<id> or ?path=<dir> targets a workspace,
   // ?focus=1 hides the workspaces rail and opens straight to it.
@@ -101,11 +139,11 @@ export default function App() {
   // ?renderer=classic|fast overrides the build-time default for one tab, so the two can be
   // compared on the same diff without a rebuild. See RENDERER in server/constants.js.
   const requested = urlParams.get("renderer");
-  const renderer = RENDERERS.includes(requested) ? requested : RENDERER;
+  const renderer = isRenderer(requested) ? requested : RENDERER;
   const fast = renderer === "fast";
 
   // Mirrors for use inside the once-only SSE subscription.
-  const selectedRef = useRef(null);
+  const selectedRef = useRef<string | null>(null);
   const baseRef = useRef("");
   selectedRef.current = selected;
   baseRef.current = base;
@@ -125,7 +163,7 @@ export default function App() {
   // and without this the second-to-last can land after it and put a stale diff on screen.
   const diffRequest = useRef(0);
 
-  const loadDiff = useCallback((ws, b) => {
+  const loadDiff = useCallback((ws: string | null, b: string): Promise<void> => {
     if (!ws) {
       setDiff(null);
       return Promise.resolve();
@@ -135,12 +173,12 @@ export default function App() {
       .then((next) => {
         if (request === diffRequest.current) keepIfSame(setDiff)(next);
       })
-      .catch((e) => {
-        if (request === diffRequest.current) setError(String(e.message || e));
+      .catch((cause: unknown) => {
+        if (request === diffRequest.current) setError(errorMessage(cause));
       });
   }, []);
 
-  const loadComments = useCallback((ws) => {
+  const loadComments = useCallback((ws: string | null): Promise<void> => {
     if (!ws) {
       setComments([]);
       return Promise.resolve();
@@ -151,7 +189,7 @@ export default function App() {
   }, []);
 
   // A save that touches twenty files arrives as twenty events. Coalesce them into one fetch.
-  const diffTimer = useRef(0);
+  const diffTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const refetchDiffSoon = useCallback(() => {
     clearTimeout(diffTimer.current);
     diffTimer.current = setTimeout(
@@ -162,7 +200,7 @@ export default function App() {
 
   useEffect(() => () => clearTimeout(diffTimer.current), []);
 
-  const loadReview = useCallback((ws) => {
+  const loadReview = useCallback((ws: string | null): Promise<void> => {
     if (!ws) {
       setReview(null);
       return Promise.resolve();
@@ -183,7 +221,7 @@ export default function App() {
     if (ws) setSelected(ws);
     else if (path)
       resolvePath(path)
-        .then((w) => setSelected(w.id))
+        .then((workspace) => setSelected(workspace.id))
         .catch(() => {});
   }, [urlParams]);
 
@@ -199,7 +237,8 @@ export default function App() {
     }
     if (selected && workspaces.some((w) => w.id === selected)) return;
     if (focused) return; // focused mode targets a specific workspace via URL; no fallback
-    setSelected(workspaces[0].id);
+    const firstWorkspace = workspaces[0];
+    if (firstWorkspace) setSelected(firstWorkspace.id);
   }, [workspaces, selected, focused, loaded]);
 
   useEffect(() => {
@@ -223,7 +262,8 @@ export default function App() {
   useEffect(() => {
     return subscribe({
       onWorkspaces: () => loadWorkspaces(),
-      onDiff: ({ ws }) => {
+      onDiff: (event) => {
+        const { ws } = event;
         loadWorkspaces();
         if (ws === selectedRef.current) {
           refetchDiffSoon();
@@ -231,11 +271,14 @@ export default function App() {
           setTimeout(() => setFlash(false), 900);
         }
       },
-      onComments: ({ ws }) => {
+      onComments: (event) => {
+        const { ws } = event;
         loadWorkspaces();
         if (ws === selectedRef.current) loadComments(selectedRef.current);
       },
-      onReview: ({ ws, state }) => {
+      onReview: (event) => {
+        if (!isReviewEvent(event)) return;
+        const { ws, state } = event;
         if (ws !== selectedRef.current) return;
         if (state === "open") loadReview(selectedRef.current);
         else setReview(null);
@@ -245,21 +288,23 @@ export default function App() {
 
   const onDoneReviewing = useCallback(
     () =>
-      completeReview(review.reviewId)
-        .then(() => setReview(null))
-        .catch(() => {}),
+      review === null
+        ? Promise.resolve()
+        : completeReview(review.reviewId)
+            .then(() => setReview(null))
+            .catch(() => {}),
     [review],
   );
 
   const onAddWorkspace = useCallback(
-    (path) =>
+    (path: string) =>
       addWorkspace(path)
         .then(loadWorkspaces)
-        .catch((e) => setError(String(e.message || e))),
+        .catch((cause: unknown) => setError(errorMessage(cause))),
     [loadWorkspaces],
   );
   const onRemoveWorkspace = useCallback(
-    (id) =>
+    (id: string) =>
       removeWorkspace(id)
         .then(loadWorkspaces)
         .catch(() => {}),
@@ -267,12 +312,17 @@ export default function App() {
   );
 
   const onAddComment = useCallback(
-    (input) => createComment(selected, input).then(() => loadComments(selected)),
+    (input: NewComment) =>
+      selected === null
+        ? Promise.resolve()
+        : createComment(selected, input).then(() => loadComments(selected)),
     [selected, loadComments],
   );
   const onCommentAction = useCallback(
-    (id, action) => {
-      const p = action.delete ? removeComment(selected, id) : patchComment(selected, id, action);
+    (id: string, action: CommentAction) => {
+      if (selected === null) return Promise.resolve();
+      const p =
+        "delete" in action ? removeComment(selected, id) : patchComment(selected, id, action);
       return p.then(() => loadComments(selected));
     },
     [selected, loadComments],
@@ -290,10 +340,11 @@ export default function App() {
   }, [diff, dir]);
 
   const commentsByFile = useMemo(() => {
-    const map = new Map();
+    const map = new Map<string, Comment[]>();
     for (const c of visibleComments) {
-      if (!map.has(c.file)) map.set(c.file, []);
-      map.get(c.file).push(c);
+      const fileComments = map.get(c.file);
+      if (fileComments) fileComments.push(c);
+      else map.set(c.file, [c]);
     }
     return map;
   }, [visibleComments]);
@@ -302,9 +353,9 @@ export default function App() {
   const openTotal = comments.filter((c) => c.status === "open").length;
   // The two renderers scroll differently: classic has a DOM node per file, the fast one has to be
   // told which row to jump to. The nonce makes clicking the same file twice scroll again.
-  const scrollToFile = (i, path) => {
+  const scrollToFile = (index: number, path: string) => {
     if (fast) setJump({ path, nonce: Date.now() });
-    else fileRefs.current[i]?.scrollIntoView({ behavior: "smooth", block: "start" });
+    else fileRefs.current[index]?.scrollIntoView({ behavior: "smooth", block: "start" });
   };
 
   return (
@@ -372,10 +423,12 @@ export default function App() {
             ))}
           </datalist>
           <div className="flex overflow-hidden rounded border border-neutral-300 dark:border-neutral-700">
-            {[
-              ["split", "Split"],
-              ["unified", "Unified"],
-            ].map(([m, label]) => (
+            {(
+              [
+                ["split", "Split"],
+                ["unified", "Unified"],
+              ] as const
+            ).map(([m, label]) => (
               <button
                 key={label}
                 onClick={() => setMode(m)}
@@ -391,7 +444,7 @@ export default function App() {
             ))}
           </div>
           <div className="flex overflow-hidden rounded border border-neutral-300 dark:border-neutral-700">
-            {["all", "open", "resolved"].map((f) => (
+            {(["all", "open", "resolved"] as const).map((f) => (
               <button
                 key={f}
                 onClick={() => setFilter(f)}
@@ -520,7 +573,7 @@ export default function App() {
               )}
             </div>
           )}
-          {selectedWs && fast && visibleFiles.length > 0 && (
+          {selectedWs && diff && fast && visibleFiles.length > 0 && (
             <FastDiff
               diff={{ ...diff, files: visibleFiles }}
               comments={visibleComments}
@@ -538,7 +591,12 @@ export default function App() {
               }
             >
               {visibleFiles.map((f, i) => (
-                <div key={f.path} ref={(el) => (fileRefs.current[i] = el)}>
+                <div
+                  key={f.path}
+                  ref={(element) => {
+                    fileRefs.current[i] = element;
+                  }}
+                >
                   <FileDiff
                     file={f}
                     comments={commentsByFile.get(f.path) ?? []}
