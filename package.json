@@ -23,6 +23,7 @@
     "test": "vitest run --project node",
     "test:browser": "vitest run --project browser",
     "e2e": "playwright test",
+    "verify": "pnpm typecheck && pnpm lint && pnpm test && pnpm test:browser && pnpm e2e",
     "typecheck": "tsc -b",
     "lint": "oxlint",
     "format": "oxfmt .",
@@ -45,6 +46,7 @@
     "@vitest/browser-playwright": "4.1.10",
     "autoprefixer": "^10.5.4",
     "concurrently": "^10.0.4",
+    "lefthook": "2.1.10",
     "oxfmt": "0.62.0",
     "oxlint": "1.77.0",
     "oxlint-tsgolint": "7.0.2001",
@@ -58,7 +60,8 @@
   },
   "pnpm": {
     "onlyBuiltDependencies": [
-      "esbuild"
+      "esbuild",
+      "lefthook"
     ]
   }
 }

@@ -16,10 +16,14 @@ export function fixturePath(name: FixtureName): string {
   return path;
 }
 
-export function workspaceUrl(name: FixtureName): string {
+export function workspaceId(name: FixtureName): string {
   const id = (JSON.parse(fromEnv("LIVEDIFF_E2E_IDS")) as Record<string, string>)[name];
   if (!id) throw new Error(`no workspace id for ${name}`);
-  return `${hubUrl()}/?ws=${id}`;
+  return id;
+}
+
+export function workspaceUrl(name: FixtureName): string {
+  return `${hubUrl()}/?ws=${workspaceId(name)}`;
 }
 
 /**
