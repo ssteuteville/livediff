@@ -27,7 +27,7 @@ export type NewComment = Pick<Comment, "file" | "side" | "line" | "body"> &
 
 async function json<T>(res: Response): Promise<T> {
   if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
-  return (await res.json()) as T;
+  return await res.json();
 }
 
 const asJson =
@@ -122,7 +122,8 @@ export function subscribe({ onDiff, onComments, onWorkspaces, onReview }: Subscr
   const parse = (fn?: (e: HubEvent) => void) => (e: MessageEvent<string>) => {
     let data: HubEvent = {};
     try {
-      data = JSON.parse(e.data) as HubEvent;
+      const parsed: unknown = JSON.parse(e.data);
+      if (isHubEvent(parsed)) data = parsed;
     } catch {
       /* ignore */
     }
@@ -133,4 +134,17 @@ export function subscribe({ onDiff, onComments, onWorkspaces, onReview }: Subscr
   es.addEventListener("workspaces", parse(onWorkspaces));
   es.addEventListener("review", parse(onReview));
   return () => es.close();
+}
+
+function isHubEvent(value: unknown): value is HubEvent {
+  if (!isRecord(value)) return false;
+  const { ws, reason } = value;
+  return (
+    (ws === undefined || typeof ws === "string") &&
+    (reason === undefined || typeof reason === "string")
+  );
+}
+
+function isRecord(value: unknown): value is Record<PropertyKey, unknown> {
+  return typeof value === "object" && value !== null;
 }

@@ -27,7 +27,7 @@ export function filterByStatus<T extends { status: CommentStatus }>(
  * this text does not, so it is worth the extra line of output.
  */
 function anchor(lineContent: unknown): string | null {
-  const text = String(lineContent ?? "").trim();
+  const text = typeof lineContent === "string" ? lineContent.trim() : "";
   if (!text) return null;
   return text.length > MAX_ANCHOR_LENGTH ? `${text.slice(0, MAX_ANCHOR_LENGTH - 1)}…` : text;
 }

@@ -416,15 +416,16 @@ export default function FastDiff({
       const row = rows[i];
       if (row?.file.lang) langs.add(row.file.lang);
     }
-    return [...langs].sort().join(" ");
+    return [...langs].toSorted().join(" ");
   }, [rows, range]);
 
   useEffect(() => {
-    if (!visibleLangs) return;
+    if (!visibleLangs) return undefined;
     let live = true;
-    Promise.all(visibleLangs.split(" ").map(loadGrammar)).then((added) => {
+    void (async () => {
+      const added = await Promise.all(visibleLangs.split(" ").map(loadGrammar));
       if (live && added.some(Boolean)) syntaxLoaded();
-    });
+    })().catch(() => {});
     return () => {
       live = false;
     };
@@ -690,10 +691,22 @@ export default function FastDiff({
                       }
                     />
                   }
-                  onResolve={(id) => onCommentAction(id, { status: "resolved" })}
-                  onReopen={(id) => onCommentAction(id, { status: "open" })}
-                  onDelete={(id) => onCommentAction(id, { delete: true })}
-                  onReply={(id, body) => onCommentAction(id, { reply: { author: "user", body } })}
+                  onResolve={(id) =>
+                    void Promise.resolve(onCommentAction(id, { status: "resolved" })).catch(
+                      () => {},
+                    )
+                  }
+                  onReopen={(id) =>
+                    void Promise.resolve(onCommentAction(id, { status: "open" })).catch(() => {})
+                  }
+                  onDelete={(id) =>
+                    void Promise.resolve(onCommentAction(id, { delete: true })).catch(() => {})
+                  }
+                  onReply={(id, body) =>
+                    void Promise.resolve(
+                      onCommentAction(id, { reply: { author: "user", body } }),
+                    ).catch(() => {})
+                  }
                 />
               </div>
             )}
@@ -710,13 +723,15 @@ export default function FastDiff({
                 <CommentComposer
                   onCancel={() => setComposing(null)}
                   onSubmit={(body) => {
-                    onAddComment({
-                      file: composing.file,
-                      side: composing.side,
-                      line: composing.line,
-                      lineContent: composing.text,
-                      body,
-                    });
+                    void Promise.resolve(
+                      onAddComment({
+                        file: composing.file,
+                        side: composing.side,
+                        line: composing.line,
+                        lineContent: composing.text,
+                        body,
+                      }),
+                    ).catch(() => {});
                     setComposing(null);
                   }}
                 />

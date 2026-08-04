@@ -4,8 +4,9 @@ import { mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 
 const ROOT = process.argv[2];
+if (!ROOT) throw new Error("Expected repository path argument");
 const N = Number(process.argv[3] || 20000);
-const git = (...args) => execFileSync("git", args, { cwd: ROOT, encoding: "utf8" });
+const git = (...args: string[]) => execFileSync("git", args, { cwd: ROOT, encoding: "utf8" });
 
 rmSync(ROOT, { recursive: true, force: true });
 mkdirSync(ROOT, { recursive: true });

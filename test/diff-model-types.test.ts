@@ -13,6 +13,8 @@ function rowSummary(row: DiffRow): string {
       return row.text;
     case "comment":
       return row.comments[0]?.body ?? "";
+    default:
+      return "";
   }
 }
 

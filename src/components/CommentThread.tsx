@@ -161,7 +161,7 @@ function CommentPreview({ comment, lines }: { comment: ThreadComment; lines: num
 }
 
 function Comment({ comment, startReplying, onResolve, onReopen, onDelete, onReply }: CommentProps) {
-  const [replying, setReplying] = useState(Boolean(startReplying));
+  const [replying, setReplying] = useState(startReplying);
   const [reply, setReply] = useState("");
   const resolved = comment.status === "resolved";
   const replies = comment.replies ?? [];

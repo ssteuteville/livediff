@@ -6,7 +6,7 @@ import { readState, writeState, probeMeta, acquireLock, releaseLock } from "../s
 import { ensureHub, resetEnsuredHub } from "../server/ensure-hub.js";
 
 // Own this file's port band so a parallel test file never spawns a hub onto the same port.
-process.env.LIVEDIFF_PORT = "4193";
+process.env["LIVEDIFF_PORT"] = "4193";
 
 /**
  * /api/shutdown responds before the process exits, so a teardown that only awaits the response
@@ -29,7 +29,8 @@ test("spawns a hub when none is running", async () => {
     try {
       const url = await ensureHub();
       assert.match(url, /^http:\/\/127\.0\.0\.1:\d+$/);
-      const meta = await probeMeta(new URL(url).port);
+      const meta = await probeMeta(Number(new URL(url).port));
+      assert.ok(meta);
       assert.equal(meta.name, "livediff");
     } finally {
       await stopHub();
@@ -43,7 +44,9 @@ test("reuses a healthy hub without spawning another", async () => {
     try {
       const url = await ensureHub();
       assert.equal(url, "http://127.0.0.1:4194");
-      assert.equal((await readState()).pid, hub.pid);
+      const state = await readState();
+      assert.ok(state);
+      assert.equal(state.pid, hub.pid);
     } finally {
       hub.stop();
       resetEnsuredHub();
@@ -62,7 +65,9 @@ test("cleans up a state file whose pid is dead and spawns fresh", async () => {
     try {
       const url = await ensureHub();
       assert.notEqual(new URL(url).port, "4195");
-      assert.equal((await probeMeta(new URL(url).port)).name, "livediff");
+      const meta = await probeMeta(Number(new URL(url).port));
+      assert.ok(meta);
+      assert.equal(meta.name, "livediff");
     } finally {
       await stopHub();
     }
@@ -87,7 +92,7 @@ test("replaces a hub reporting a different version", async () => {
       }
       res.end(JSON.stringify({ name: "livediff", version: "0.0.1-stale", port: 4196 }));
     });
-    await new Promise((r) => stale.listen(4196, "127.0.0.1", r));
+    await new Promise<void>((resolve) => stale.listen(4196, "127.0.0.1", resolve));
     await writeState({
       pid: process.pid,
       port: 4196,
@@ -99,7 +104,9 @@ test("replaces a hub reporting a different version", async () => {
       const url = await ensureHub();
       assert.equal(shutdownCalled, true);
       assert.notEqual(new URL(url).port, "4196");
-      assert.equal((await probeMeta(new URL(url).port)).name, "livediff");
+      const meta = await probeMeta(Number(new URL(url).port));
+      assert.ok(meta);
+      assert.equal(meta.name, "livediff");
     } finally {
       stale.closeAllConnections();
       stale.close();
@@ -114,7 +121,9 @@ test("a caller that loses the spawn lock still gets a working hub", async () => 
     const spawner = startHub({ port: 4193 });
     try {
       const [url] = await Promise.all([ensureHub(), spawner]);
-      assert.equal((await probeMeta(new URL(url).port)).name, "livediff");
+      const meta = await probeMeta(Number(new URL(url).port));
+      assert.ok(meta);
+      assert.equal(meta.name, "livediff");
     } finally {
       await releaseLock();
       await stopHub();

@@ -6,9 +6,10 @@ import { withTempXdg, makeRepo } from "./helpers.js";
 import { writeJsonAtomic } from "../server/atomic.js";
 import { registryPath, idFor } from "../server/registry.js";
 import { writeState } from "../server/hub-state.js";
-import { diagnose } from "../server/doctor.js";
+import { diagnose, type Finding } from "../server/doctor.js";
 
-const find = (findings, title) => findings.find((f) => f.title.includes(title));
+const find = (findings: readonly Finding[], title: string): Finding | undefined =>
+  findings.find((finding) => finding.title.includes(title));
 
 test("a clean install reports no errors", async () => {
   await withTempXdg(async () => {
@@ -81,6 +82,7 @@ test("a leftover pre-0.5 skill directory is an error", async () => {
     const legacy = find(findings, "legacy skill directory");
     assert.ok(legacy, `expected a legacy-skill finding, got ${JSON.stringify(findings)}`);
     assert.equal(legacy.level, "error");
+    assert.ok(legacy.fix);
     assert.match(legacy.fix, /rm -rf/);
   });
 });
@@ -136,7 +138,9 @@ test("a matching plugin version is clean", async () => {
       findings.some((f) => f.level === "error"),
       false,
     );
-    assert.match(find(findings, "claude plugin").detail, /0\.5\.0/);
+    const plugin = find(findings, "claude plugin");
+    assert.ok(plugin);
+    assert.match(plugin.detail, /0\.5\.0/);
   });
 });
 
@@ -161,7 +165,9 @@ test("the newest cached plugin version wins", async () => {
       );
     }
     const findings = await diagnose("0.10.0");
-    assert.match(find(findings, "claude plugin").detail, /0\.10\.0/);
+    const plugin = find(findings, "claude plugin");
+    assert.ok(plugin);
+    assert.match(plugin.detail, /0\.10\.0/);
   });
 });
 
@@ -196,18 +202,24 @@ test("a populated archive suggests a prune command", async () => {
       aaaaaaaa: {
         id: "aaaaaaaa",
         file: "a.js",
+        side: "new",
         line: 1,
+        lineContent: "",
         body: "x",
+        author: "user",
         status: "resolved",
         replies: [],
         branch: "main",
         archivedAt: new Date(Date.now() - 10 * 86_400_000).toISOString(),
+        createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       },
     });
 
     const finding = find(await diagnose("0.6.0"), "comment archive");
+    assert.ok(finding);
     assert.match(finding.detail, /1 archived comment/);
+    assert.ok(finding.fix);
     assert.match(finding.fix, /livediff prune/);
   });
 });

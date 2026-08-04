@@ -22,7 +22,9 @@ export default function ReviewBanner({ openCount, total, onDone }: ReviewBannerP
 
   const click = () => {
     setBusy(true);
-    Promise.resolve(onDone()).finally(() => setBusy(false));
+    void Promise.resolve(onDone())
+      .finally(() => setBusy(false))
+      .catch(() => {});
   };
 
   return (

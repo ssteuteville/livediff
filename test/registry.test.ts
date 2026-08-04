@@ -55,8 +55,12 @@ test("a worktree reached through a symlink resolves to the same workspace", asyn
     await symlink(repo, link);
 
     const ws = await addWorkspace(repo);
-    assert.equal((await resolveWorkspace({ path: link })).id, ws.id);
-    assert.equal((await resolveWorkspace({ path: join(link, "src") })).id, ws.id);
+    const linkedWorkspace = await resolveWorkspace({ path: link });
+    const linkedSubdirectory = await resolveWorkspace({ path: join(link, "src") });
+    assert.ok(linkedWorkspace);
+    assert.ok(linkedSubdirectory);
+    assert.equal(linkedWorkspace.id, ws.id);
+    assert.equal(linkedSubdirectory.id, ws.id);
     assert.equal(await removeWorkspace(link), true);
   });
 });

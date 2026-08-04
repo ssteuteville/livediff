@@ -99,7 +99,7 @@ function byAnchor(comments: readonly Comment[]): CommentGroup[] {
       });
     }
   }
-  return [...groups.values()].sort((a, b) => a.file.localeCompare(b.file) || a.line - b.line);
+  return [...groups.values()].toSorted((a, b) => a.file.localeCompare(b.file) || a.line - b.line);
 }
 
 /** `path` names one file, or is null for every comment in the worktree. */

@@ -9,15 +9,21 @@ const PORT = 4198;
 const base = `http://127.0.0.1:${PORT}`;
 
 const meta = () => fetch(`${base}/api/meta`).then((r) => r.json());
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+interface Stream {
+  frames: string[];
+  close: () => void;
+}
 
 /** Open a raw SSE connection and return a closer. Node 18 has no EventSource. */
-async function openStream() {
+async function openStream(): Promise<Stream> {
   const ac = new AbortController();
   const res = await fetch(`${base}/api/events`, { signal: ac.signal });
+  assert.ok(res.body);
   const reader = res.body.getReader();
-  const frames = [];
-  (async () => {
+  const frames: string[] = [];
+  void (async () => {
     const decoder = new TextDecoder();
     let buf = "";
     try {
@@ -25,7 +31,7 @@ async function openStream() {
         const { done, value } = await reader.read();
         if (done) break;
         buf += decoder.decode(value, { stream: true });
-        let i;
+        let i: number;
         while ((i = buf.indexOf("\n\n")) !== -1) {
           frames.push(buf.slice(0, i));
           buf = buf.slice(i + 2);
@@ -38,7 +44,10 @@ async function openStream() {
   return { frames, close: () => ac.abort() };
 }
 
-async function until(predicate, timeoutMs = 5000) {
+async function until(
+  predicate: () => boolean | Promise<boolean>,
+  timeoutMs = 5000,
+): Promise<boolean> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     if (await predicate()) return true;
@@ -72,7 +81,7 @@ test("a hand-edited comments file broadcasts without a client attached", async (
   await withTempXdg(async ({ root, config }) => {
     const repo = await makeRepo(join(root, "handedit"));
     const hub = await startHub({ port: PORT });
-    let stream;
+    let stream: Stream | undefined;
     try {
       const ws = await fetch(`${base}/api/workspaces`, {
         method: "POST",
@@ -80,7 +89,8 @@ test("a hand-edited comments file broadcasts without a client attached", async (
         body: JSON.stringify({ path: repo }),
       }).then((r) => r.json());
 
-      stream = await openStream();
+      const activeStream = await openStream();
+      stream = activeStream;
       // Bypass the API entirely, the way a curious user with an editor would.
       await writeJsonAtomic(join(config, "livediff", "comments", `${ws.id}.json`), {
         comments: [
@@ -97,9 +107,9 @@ test("a hand-edited comments file broadcasts without a client attached", async (
       });
 
       const sawComments = await until(() =>
-        stream.frames.some((f) => f.includes("event: comments")),
+        activeStream.frames.some((frame) => frame.includes("event: comments")),
       );
-      assert.ok(sawComments, `no comments frame; saw: ${JSON.stringify(stream.frames)}`);
+      assert.ok(sawComments, `no comments frame; saw: ${JSON.stringify(activeStream.frames)}`);
     } finally {
       stream?.close();
       hub.stop();
@@ -111,7 +121,7 @@ test("a workspace whose directory is deleted is pruned while a client watches", 
   await withTempXdg(async ({ root }) => {
     const repo = await makeRepo(join(root, "doomed"));
     const hub = await startHub({ port: PORT });
-    let stream;
+    let stream: Stream | undefined;
     try {
       await fetch(`${base}/api/workspaces`, {
         method: "POST",

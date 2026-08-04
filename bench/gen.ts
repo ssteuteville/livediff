@@ -5,13 +5,20 @@
 import { execFileSync } from "node:child_process";
 import { mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
+import type { WorkingTreeDiff } from "../server/git.ts";
 
-const ROOT = process.argv[2];
-const SHAPE = process.argv[3];
+function requiredArg(index: number, name: string): string {
+  const value = process.argv[index];
+  if (!value) throw new Error(`Expected ${name} argument`);
+  return value;
+}
 
-const git = (...args) => execFileSync("git", args, { cwd: ROOT, encoding: "utf8" });
+const ROOT = requiredArg(2, "repository path");
+const SHAPE = requiredArg(3, "shape");
 
-function line(i) {
+const git = (...args: string[]) => execFileSync("git", args, { cwd: ROOT, encoding: "utf8" });
+
+function line(i: number): string {
   return `  const value${i} = compute(${i}, "some string payload here", { flag: true });`;
 }
 
@@ -26,7 +33,7 @@ function reset() {
   git("commit", "-qm", "init");
 }
 
-const SHAPES = {
+const SHAPES: Record<string, () => void> = {
   // One enormous file — a generated client, a migration, a lockfile.
   "one-huge-file"() {
     const body = Array.from({ length: 20000 }, (_, i) => line(i)).join("\n");
@@ -73,9 +80,15 @@ const SHAPES = {
 };
 
 reset();
-SHAPES[SHAPE]();
+const shape = SHAPES[SHAPE];
+if (!shape) throw new Error(`Unknown shape: ${SHAPE}`);
+shape();
 
-const { getDiff } = await import("../dist-server/server/git.js");
+type GetDiff = (cwd: string, base?: string | null) => Promise<WorkingTreeDiff>;
+const compiledGitModulePath = "../dist-server/server/git.js";
+const module: unknown = await import(compiledGitModulePath);
+if (!hasGetDiff(module)) throw new Error("compiled git module does not export getDiff");
+const { getDiff } = module;
 
 const t0 = performance.now();
 const diff = await getDiff(ROOT, null);
@@ -84,7 +97,7 @@ const elapsed = performance.now() - t0;
 const json = JSON.stringify(diff);
 const patchBytes = diff.files.reduce((n, f) => n + (f.patch?.length ?? 0), 0);
 const patchLines = diff.files.reduce((n, f) => n + (f.patch?.split("\n").length ?? 0), 0);
-const biggest = [...diff.files].sort((a, b) => (b.patch?.length ?? 0) - (a.patch?.length ?? 0))[0];
+const biggest = diff.files.toSorted((a, b) => (b.patch?.length ?? 0) - (a.patch?.length ?? 0))[0];
 
 console.log(
   JSON.stringify(
@@ -104,3 +117,12 @@ console.log(
     2,
   ),
 );
+
+function hasGetDiff(value: unknown): value is { getDiff: GetDiff } {
+  return (
+    value !== null &&
+    typeof value === "object" &&
+    "getDiff" in value &&
+    typeof value.getDiff === "function"
+  );
+}

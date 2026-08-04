@@ -4,9 +4,10 @@ import { mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 
 const ROOT = process.argv[2];
+if (!ROOT) throw new Error("Expected repository path argument");
 const FILES = Number(process.argv[3] || 500);
 const LINES = Number(process.argv[4] || 40);
-const git = (...a) => execFileSync("git", a, { cwd: ROOT, encoding: "utf8" });
+const git = (...args: string[]) => execFileSync("git", args, { cwd: ROOT, encoding: "utf8" });
 
 rmSync(ROOT, { recursive: true, force: true });
 mkdirSync(ROOT, { recursive: true });
@@ -14,7 +15,7 @@ git("init", "-q", "-b", "main");
 git("config", "user.email", "t@example.com");
 git("config", "user.name", "T");
 
-const write = (rewritten) => {
+const write = (rewritten: boolean): void => {
   for (let f = 0; f < FILES; f++) {
     const dir = join(ROOT, "packages", `pkg-${f % 20}`, "src");
     mkdirSync(dir, { recursive: true });

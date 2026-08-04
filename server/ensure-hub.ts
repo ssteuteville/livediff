@@ -28,10 +28,7 @@ try {
   const packageData: unknown = JSON.parse(
     await readFile(join(projectRoot, "package.json"), "utf8"),
   );
-  const version =
-    packageData && typeof packageData === "object"
-      ? (packageData as Record<string, unknown>)["version"]
-      : undefined;
+  const version = isRecord(packageData) ? packageData["version"] : undefined;
   if (typeof version === "string") {
     VERSION = version;
   }
@@ -41,6 +38,10 @@ try {
 
 export function hubVersion() {
   return VERSION;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 let ensured: string | null = null;

@@ -13,6 +13,8 @@ import {
   nextHit,
   anchoredCommentIds,
 } from "../src/diff-model.js";
+import type { DiffMetrics, DiffRow, SplitLineRow, CommentRow } from "../src/diff-model.js";
+import type { Comment, DiffFile, Reply } from "../shared/types.js";
 
 const PATCH = [
   "diff --git a/a.ts b/a.ts",
@@ -27,29 +29,32 @@ const PATCH = [
   "",
 ].join("\n");
 
-const file = (over = {}) => ({
+const file = (over: Partial<DiffFile> = {}): DiffFile => ({
   path: "a.ts",
+  oldPath: "a.ts",
   status: "modified",
   additions: 2,
   deletions: 1,
   binary: false,
+  lang: "typescript",
   patch: PATCH,
   ...over,
 });
 
-const metrics = (over = {}) => ({
+const metrics = (over: Partial<DiffMetrics> = {}): DiffMetrics => ({
   lineHeight: 20,
   charsPerLine: 80,
   fileHeaderHeight: 36,
   hunkHeaderHeight: 24,
   wrap: true,
   mode: "split",
-  measured: new Map(),
+  measured: new Map<string, number>(),
   ...over,
 });
 
 test("parsePatch reads hunk headers and numbers every line", () => {
-  const [hunk] = parsePatch(PATCH);
+  const hunk = parsePatch(PATCH)[0];
+  assert.ok(hunk);
   assert.equal(hunk.context, "function demo()");
   assert.deepEqual(
     hunk.lines.map((l) => [l.type, l.oldNo, l.newNo, l.text]),
@@ -65,14 +70,18 @@ test("parsePatch reads hunk headers and numbers every line", () => {
 
 test("parsePatch ignores the no-newline marker and returns nothing for an empty patch", () => {
   const hunks = parsePatch("@@ -1 +1 @@\n+x\n\\ No newline at end of file\n");
-  assert.equal(hunks[0].lines.length, 1);
+  assert.equal(hunks[0]?.lines.length, 1);
   assert.deepEqual(parsePatch(""), []);
 });
 
 test("unified mode emits one row per line", () => {
   const rows = buildRows([file()], "unified");
-  assert.equal(rows[0].kind, ROW.FILE);
-  assert.equal(rows[1].kind, ROW.HUNK);
+  const first = rows[0];
+  const second = rows[1];
+  assert.ok(first);
+  assert.ok(second);
+  assert.equal(first.kind, ROW.FILE);
+  assert.equal(second.kind, ROW.HUNK);
   assert.equal(rows.filter((r) => r.kind === ROW.LINE).length, 5);
 });
 
@@ -83,6 +92,10 @@ test("split mode pairs a deletion with its addition, producing fewer rows", () =
   assert.equal(split.length, 4, "the -two/+TWO pair should occupy one row");
 
   const modified = split.find((r) => r.type === "mod");
+  assert.ok(modified);
+  assert.ok("left" in modified);
+  assert.ok(modified.left);
+  assert.ok(modified.right);
   assert.equal(modified.left.text, "two");
   assert.equal(modified.right.text, "TWO");
 });
@@ -90,6 +103,9 @@ test("split mode pairs a deletion with its addition, producing fewer rows", () =
 test("an unpaired addition keeps an empty left side", () => {
   const split = buildRows([file()], "split").filter((r) => r.kind === ROW.LINE);
   const added = split.find((r) => r.type === "add");
+  assert.ok(added);
+  assert.ok("left" in added);
+  assert.ok(added.right);
   assert.equal(added.left, null);
   assert.equal(added.right.text, "four");
 });
@@ -109,30 +125,25 @@ test("every row key is unique across files", () => {
 
 test("row height wraps by character count, exactly", () => {
   const m = metrics({ charsPerLine: 10 });
-  const row = { kind: ROW.LINE, key: "x", left: { text: "x".repeat(25) }, right: null };
+  const row = splitRow({ text: "x".repeat(25) }, null);
   assert.equal(rowHeight(row, m), 60, "25 chars over 10 per line is 3 display lines");
 });
 
 test("row height uses the wider of the two sides", () => {
   const m = metrics({ charsPerLine: 10 });
-  const row = {
-    kind: ROW.LINE,
-    key: "x",
-    left: { text: "short" },
-    right: { text: "y".repeat(30) },
-  };
+  const row = splitRow({ text: "short" }, { text: "y".repeat(30) });
   assert.equal(rowHeight(row, m), 60);
 });
 
 test("wrapping off gives every line row a single line height", () => {
   const m = metrics({ charsPerLine: 10, wrap: false });
-  const row = { kind: ROW.LINE, key: "x", left: { text: "x".repeat(500) }, right: null };
+  const row = splitRow({ text: "x".repeat(500) }, null);
   assert.equal(rowHeight(row, m), 20);
 });
 
 test("a measured height overrides the computed one", () => {
   const m = metrics({ measured: new Map([["x", 137]]) });
-  const row = { kind: ROW.LINE, key: "x", left: { text: "short" }, right: null };
+  const row = splitRow({ text: "short" }, null);
   assert.equal(rowHeight(row, m), 137);
 });
 
@@ -167,7 +178,9 @@ test("visibleRange covers the viewport plus overscan and never leaves bounds", (
   const top = visibleRange(offsets, 0, 400, 8);
   assert.equal(top.start, 0);
 
-  const bottom = visibleRange(offsets, offsets[rows.length], 400, 8);
+  const totalHeight = offsets.at(-1);
+  assert.ok(totalHeight);
+  const bottom = visibleRange(offsets, totalHeight, 400, 8);
   assert.equal(bottom.end, rows.length);
 });
 
@@ -188,8 +201,8 @@ test("search finds matches in both sides of a split row", () => {
 
 test("search matches file paths and hunk context, not just code", () => {
   const rows = buildRows([file()], "split");
-  assert.ok(searchRows(rows, "a.ts").some((h) => rows[h.index].kind === ROW.FILE));
-  assert.ok(searchRows(rows, "function demo").some((h) => rows[h.index].kind === ROW.HUNK));
+  assert.ok(searchRows(rows, "a.ts").some((h) => rows[h.index]?.kind === ROW.FILE));
+  assert.ok(searchRows(rows, "function demo").some((h) => rows[h.index]?.kind === ROW.HUNK));
 });
 
 test("scope narrows to added or removed lines — something find-in-page cannot do", () => {
@@ -219,7 +232,11 @@ test("counts are grouped per file", () => {
 });
 
 test("navigation moves forward and backward, wrapping at both ends", () => {
-  const hits = [{ index: 5 }, { index: 12 }, { index: 30 }];
+  const hits = [
+    { index: 5, path: "a.ts" },
+    { index: 12, path: "a.ts" },
+    { index: 30, path: "a.ts" },
+  ];
   assert.equal(nextHit(hits, 0, 1), 0);
   assert.equal(nextHit(hits, 5, 1), 1);
   assert.equal(nextHit(hits, 30, 1), 0, "forward past the last hit wraps to the first");
@@ -229,7 +246,7 @@ test("navigation moves forward and backward, wrapping at both ends", () => {
   assert.equal(nextHit([], 0, 1), null);
 });
 
-const comment = (over = {}) => ({
+const comment = (over: Partial<Comment> = {}): Comment => ({
   id: "c1",
   file: "a.ts",
   side: "new",
@@ -238,30 +255,39 @@ const comment = (over = {}) => ({
   author: "user",
   status: "open",
   replies: [],
+  lineContent: "",
+  branch: null,
+  archivedAt: null,
+  createdAt: "2026-07-31T00:00:00.000Z",
+  updatedAt: "2026-07-31T00:00:00.000Z",
   ...over,
 });
 
 test("a comment becomes its own row, directly under the line it annotates", () => {
   const rows = buildRows([file()], "split", [comment()]);
   const at = rows.findIndex((r) => r.kind === ROW.COMMENT);
-  assert.ok(at > 0);
-  assert.equal(rows[at].line, 2);
-  assert.equal(rows[at].side, "new");
-  assert.equal(rows[at - 1].kind, ROW.LINE);
-  assert.equal(rows[at - 1].right.newNo, 2, "it sits under the added line, not the deleted one");
+  const thread = rows[at];
+  const preceding = rows[at - 1];
+  assert.ok(thread && thread.kind === ROW.COMMENT);
+  assert.ok(preceding && preceding.kind === ROW.LINE && "right" in preceding);
+  assert.equal(thread.line, 2);
+  assert.equal(thread.side, "new");
+  assert.equal(preceding.right?.newNo, 2, "it sits under the added line, not the deleted one");
 });
 
 test("comments on the deleted side anchor to old line numbers", () => {
   const rows = buildRows([file()], "split", [comment({ side: "old", line: 2 })]);
   const at = rows.findIndex((r) => r.kind === ROW.COMMENT);
-  assert.equal(rows[at - 1].left.oldNo, 2);
+  const preceding = rows[at - 1];
+  assert.ok(preceding && preceding.kind === ROW.LINE && "left" in preceding);
+  assert.equal(preceding.left?.oldNo, 2);
 });
 
 test("several comments on one line share a single row", () => {
   const rows = buildRows([file()], "split", [comment(), comment({ id: "c2", body: "agreed" })]);
   const threads = rows.filter((r) => r.kind === ROW.COMMENT);
   assert.equal(threads.length, 1);
-  assert.equal(threads[0].comments.length, 2);
+  assert.equal(threads[0]?.comments.length, 2);
 });
 
 test("a comment on a line the diff no longer contains emits no row", () => {
@@ -270,11 +296,13 @@ test("a comment on a line the diff no longer contains emits no row", () => {
 });
 
 const slotMetrics = metrics({ commentLines: 7, commentChrome: 96 });
-const slot = (over) =>
-  rowHeight(
-    buildRows([file()], "split", [comment(over)]).find((r) => r.kind === ROW.COMMENT),
-    slotMetrics,
+const slot = (over: Partial<Comment>): number => {
+  const row = buildRows([file()], "split", [comment(over)]).find(
+    (candidate): candidate is CommentRow => candidate.kind === ROW.COMMENT,
   );
+  assert.ok(row);
+  return rowHeight(row, slotMetrics);
+};
 
 test("a collapsed slot is sized from its text, one line at a time", () => {
   assert.equal(slot({ body: "short" }), 20 + 96);
@@ -287,7 +315,7 @@ test("a collapsed slot stops growing at the cap", () => {
   assert.equal(slot({ body: "y\n".repeat(500) }), capped);
 });
 
-const reply = (body) => ({ author: "claude", body, ts: "" });
+const reply = (body: string): Reply => ({ author: "claude", body, ts: "" });
 
 test("a replied-to thread gets one strip, however much was said", () => {
   const body = "one line";
@@ -304,6 +332,7 @@ test("a slot's height ignores everything expanding would reveal", () => {
     comment({ body }),
     comment({ id: "c2", body: "x".repeat(9000), replies: [reply("and again")] }),
   ]).find((r) => r.kind === ROW.COMMENT);
+  assert.ok(many);
   assert.equal(
     rowHeight(many, slotMetrics),
     slot({ body }),
@@ -314,15 +343,29 @@ test("a slot's height ignores everything expanding would reveal", () => {
 test("adding a comment does not change the height of any other row", () => {
   const bare = buildRows([file()], "split");
   const withComment = buildRows([file()], "split", [comment({ body: "short" })]);
-  const heights = (rows) =>
+  const heights = (rows: DiffRow[]) =>
     rows.filter((r) => r.kind !== ROW.COMMENT).map((r) => rowHeight(r, slotMetrics));
   assert.deepEqual(heights(withComment), heights(bare));
-  assert.equal(
-    buildOffsets(withComment, slotMetrics)[withComment.length] -
-      buildOffsets(bare, slotMetrics)[bare.length],
-    20 + 96,
-  );
+  const withCommentTotal = buildOffsets(withComment, slotMetrics).at(-1);
+  const bareTotal = buildOffsets(bare, slotMetrics).at(-1);
+  assert.ok(withCommentTotal);
+  assert.ok(bareTotal);
+  assert.equal(withCommentTotal - bareTotal, 20 + 96);
 });
+
+function splitRow(
+  left: Pick<SplitLineRow["left"] & { text: string }, "text"> | null,
+  right: Pick<SplitLineRow["right"] & { text: string }, "text"> | null,
+): SplitLineRow {
+  return {
+    kind: ROW.LINE,
+    key: "x",
+    file: file(),
+    type: left && right ? "mod" : left ? "del" : "add",
+    left: left ? { type: "ctx", oldNo: 1, newNo: 1, ...left } : null,
+    right: right ? { type: "ctx", oldNo: 1, newNo: 1, ...right } : null,
+  };
+}
 
 test("a narrowed search still finds the comments hanging off those lines", () => {
   const rows = buildRows([file()], "split", [comment({ side: "new", line: 2 })]);

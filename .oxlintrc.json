@@ -16,16 +16,16 @@
     "suspicious": "error"
   },
   "options": {
-    "typeAware": false
+    "typeAware": true
   },
   "rules": {
     "react/react-in-jsx-scope": "off",
     "eslint/no-underscore-dangle": "off",
     "import/no-unassigned-import": "off",
-    "unicorn/no-array-sort": "off",
+    "unicorn/no-array-sort": "error",
     "unicorn/consistent-function-scoping": "off",
-    "promise/always-return": "off",
-    "promise/no-callback-in-promise": "off",
+    "promise/always-return": "error",
+    "promise/no-callback-in-promise": "error",
     "typescript/no-explicit-any": "error",
     "eslint/no-shadow": "error",
     "eslint/no-unmodified-loop-condition": "warn",

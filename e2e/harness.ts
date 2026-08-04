@@ -11,15 +11,31 @@ export function hubUrl(): string {
 }
 
 export function fixturePath(name: FixtureName): string {
-  const path = (JSON.parse(fromEnv("LIVEDIFF_E2E_PATHS")) as Record<string, string>)[name];
+  const path = parseStringRecord(fromEnv("LIVEDIFF_E2E_PATHS"))[name];
   if (!path) throw new Error(`no fixture path for ${name}`);
   return path;
 }
 
 export function workspaceId(name: FixtureName): string {
-  const id = (JSON.parse(fromEnv("LIVEDIFF_E2E_IDS")) as Record<string, string>)[name];
+  const id = parseStringRecord(fromEnv("LIVEDIFF_E2E_IDS"))[name];
   if (!id) throw new Error(`no workspace id for ${name}`);
   return id;
+}
+
+function parseStringRecord(input: string): Record<string, string> {
+  const parsed: unknown = JSON.parse(input);
+  if (!isStringRecord(parsed)) {
+    throw new Error("global setup published invalid fixture data");
+  }
+  return parsed;
+}
+
+function isStringRecord(value: unknown): value is Record<string, string> {
+  return (
+    value !== null &&
+    typeof value === "object" &&
+    Object.values(value).every((entry) => typeof entry === "string")
+  );
 }
 
 export function workspaceUrl(name: FixtureName): string {

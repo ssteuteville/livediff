@@ -148,44 +148,40 @@ export default function App() {
   selectedRef.current = selected;
   baseRef.current = base;
 
-  const loadWorkspaces = useCallback(
-    () =>
-      fetchWorkspaces()
-        .then((next) => {
-          keepIfSame(setWorkspaces)(next);
-          setLoaded(true);
-        })
-        .catch(() => {}),
-    [],
-  );
+  const loadWorkspaces = useCallback(async (): Promise<void> => {
+    try {
+      const next = await fetchWorkspaces();
+      keepIfSame(setWorkspaces)(next);
+      setLoaded(true);
+    } catch {}
+  }, []);
 
   // Saving several files in a row fires several diff events. Only the last answer is worth having,
   // and without this the second-to-last can land after it and put a stale diff on screen.
   const diffRequest = useRef(0);
 
-  const loadDiff = useCallback((ws: string | null, b: string): Promise<void> => {
+  const loadDiff = useCallback(async (ws: string | null, b: string): Promise<void> => {
     if (!ws) {
       setDiff(null);
-      return Promise.resolve();
+      return;
     }
     const request = ++diffRequest.current;
-    return fetchDiff(ws, b || undefined)
-      .then((next) => {
-        if (request === diffRequest.current) keepIfSame(setDiff)(next);
-      })
-      .catch((cause: unknown) => {
-        if (request === diffRequest.current) setError(errorMessage(cause));
-      });
+    try {
+      const next = await fetchDiff(ws, b || undefined);
+      if (request === diffRequest.current) keepIfSame(setDiff)(next);
+    } catch (cause: unknown) {
+      if (request === diffRequest.current) setError(errorMessage(cause));
+    }
   }, []);
 
-  const loadComments = useCallback((ws: string | null): Promise<void> => {
+  const loadComments = useCallback(async (ws: string | null): Promise<void> => {
     if (!ws) {
       setComments([]);
-      return Promise.resolve();
+      return;
     }
-    return fetchComments(ws)
-      .then(keepIfSame(setComments))
-      .catch(() => {});
+    try {
+      keepIfSame(setComments)(await fetchComments(ws));
+    } catch {}
   }, []);
 
   // A save that touches twenty files arrives as twenty events. Coalesce them into one fetch.
@@ -193,25 +189,27 @@ export default function App() {
   const refetchDiffSoon = useCallback(() => {
     clearTimeout(diffTimer.current);
     diffTimer.current = setTimeout(
-      () => loadDiff(selectedRef.current, baseRef.current),
+      () => void loadDiff(selectedRef.current, baseRef.current),
       DIFF_REFETCH_DEBOUNCE_MS,
     );
   }, [loadDiff]);
 
   useEffect(() => () => clearTimeout(diffTimer.current), []);
 
-  const loadReview = useCallback((ws: string | null): Promise<void> => {
+  const loadReview = useCallback(async (ws: string | null): Promise<void> => {
     if (!ws) {
       setReview(null);
-      return Promise.resolve();
+      return;
     }
-    return fetchReview(ws)
-      .then(setReview)
-      .catch(() => setReview(null));
+    try {
+      setReview(await fetchReview(ws));
+    } catch {
+      setReview(null);
+    }
   }, []);
 
   useEffect(() => {
-    loadWorkspaces();
+    void loadWorkspaces();
   }, [loadWorkspaces]);
 
   // Preselect from the URL (?ws=<id> or ?path=<dir>).
@@ -220,9 +218,11 @@ export default function App() {
     const path = urlParams.get("path");
     if (ws) setSelected(ws);
     else if (path)
-      resolvePath(path)
-        .then((workspace) => setSelected(workspace.id))
-        .catch(() => {});
+      void (async () => {
+        try {
+          setSelected((await resolvePath(path)).id);
+        } catch {}
+      })();
   }, [urlParams]);
 
   // Keep a valid selection as the workspace list changes.
@@ -242,9 +242,9 @@ export default function App() {
   }, [workspaces, selected, focused, loaded]);
 
   useEffect(() => {
-    loadDiff(selected, base);
-    loadComments(selected);
-    loadReview(selected);
+    void loadDiff(selected, base);
+    void loadComments(selected);
+    void loadReview(selected);
   }, [selected, base, loadDiff, loadComments, loadReview]);
 
   // Branch list for the compare-against picker. Keyed on the workspace only: branches change far
@@ -254,17 +254,19 @@ export default function App() {
       setRefs([]);
       return;
     }
-    fetchRefs(selected)
-      .then(keepIfSame(setRefs))
-      .catch(() => {});
+    void (async () => {
+      try {
+        keepIfSame(setRefs)(await fetchRefs(selected));
+      } catch {}
+    })();
   }, [selected]);
 
   useEffect(() => {
     return subscribe({
-      onWorkspaces: () => loadWorkspaces(),
+      onWorkspaces: () => void loadWorkspaces(),
       onDiff: (event) => {
         const { ws } = event;
-        loadWorkspaces();
+        void loadWorkspaces();
         if (ws === selectedRef.current) {
           refetchDiffSoon();
           setFlash(true);
@@ -273,14 +275,14 @@ export default function App() {
       },
       onComments: (event) => {
         const { ws } = event;
-        loadWorkspaces();
-        if (ws === selectedRef.current) loadComments(selectedRef.current);
+        void loadWorkspaces();
+        if (ws === selectedRef.current) void loadComments(selectedRef.current);
       },
       onReview: (event) => {
         if (!isReviewEvent(event)) return;
         const { ws, state } = event;
         if (ws !== selectedRef.current) return;
-        if (state === "open") loadReview(selectedRef.current);
+        if (state === "open") void loadReview(selectedRef.current);
         else setReview(null);
       },
     });

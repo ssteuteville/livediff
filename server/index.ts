@@ -213,7 +213,9 @@ const server = createServer(async (req, res) => {
     if (pathname === "/api/shutdown" && req.method === "POST") {
       send(res, 200, { ok: true });
       setTimeout(() => {
-        clearState().finally(() => process.exit(0));
+        void clearState()
+          .catch(() => undefined)
+          .finally(() => process.exit(0));
       }, 50);
       return;
     }
@@ -542,7 +544,7 @@ async function poll() {
  */
 function startPolling() {
   if (pollTimer) return;
-  poll();
+  void poll();
   pollTimer = setInterval(poll, POLL_MS);
 }
 
@@ -616,13 +618,15 @@ async function main() {
 
   for (const signal of ["SIGINT", "SIGTERM"]) {
     process.on(signal, () => {
-      clearState().finally(() => process.exit(0));
+      void clearState()
+        .catch(() => undefined)
+        .finally(() => process.exit(0));
     });
   }
 
   const link = `http://localhost:${port}`;
   console.log(`livediff hub → ${link}  (v${VERSION})`);
-  if (process.env[ENV.OPEN] === "1") openBrowser(link);
+  if (process.env[ENV.OPEN] === "1") void openBrowser(link);
 }
 
-main();
+void main();

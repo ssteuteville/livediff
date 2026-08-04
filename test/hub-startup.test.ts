@@ -11,7 +11,9 @@ test("never binds a port that fetch refuses to connect to", async () => {
     const hub = await startHub({ port: 4190 });
     try {
       assert.notEqual(hub.port, 4190);
-      assert.equal((await probeMeta(hub.port)).name, "livediff");
+      const meta = await probeMeta(hub.port);
+      assert.ok(meta);
+      assert.equal(meta.name, "livediff");
     } finally {
       hub.stop();
     }
@@ -23,10 +25,13 @@ test("hub writes hub.json with its real port and identifies itself", async () =>
     const hub = await startHub({ port: 4187 });
     try {
       const state = await readState();
+      assert.ok(state);
       assert.equal(state.port, 4187);
       assert.equal(state.pid, hub.pid);
       const meta = await probeMeta(4187);
+      assert.ok(meta);
       assert.equal(meta.name, "livediff");
+      assert.ok("port" in meta);
       assert.equal(meta.port, 4187);
       assert.match(meta.version, /^\d+\.\d+\.\d+/);
     } finally {
@@ -41,12 +46,14 @@ test("falls back past a port held by a non-livediff process", async () => {
       res.writeHead(200, { "content-type": "application/json" });
       res.end(JSON.stringify({ name: "something-else" }));
     });
-    await new Promise((r) => squatter.listen(4188, "127.0.0.1", r));
+    await new Promise<void>((resolve) => squatter.listen(4188, "127.0.0.1", resolve));
     try {
       const hub = await startHub({ port: 4188 });
       try {
         assert.notEqual(hub.port, 4188);
-        assert.equal((await probeMeta(hub.port)).name, "livediff");
+        const meta = await probeMeta(hub.port);
+        assert.ok(meta);
+        assert.equal(meta.name, "livediff");
       } finally {
         hub.stop();
       }
@@ -63,7 +70,9 @@ test("a redundant hub on an equivalent hub's port exits instead of binding", asy
     try {
       // The redundant process exits 0 without rewriting hub.json, so startHub times out.
       await assert.rejects(() => startHub({ port: 4192, timeoutMs: 2000 }), /did not start/);
-      assert.equal((await readState()).pid, first.pid);
+      const state = await readState();
+      assert.ok(state);
+      assert.equal(state.pid, first.pid);
     } finally {
       first.stop();
     }

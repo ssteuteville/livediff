@@ -173,7 +173,7 @@ function splitPatches(all: string, knownPaths: Iterable<string>): Map<string, st
   const patches = new Map<string, string>();
   if (!all.trim()) return patches;
 
-  const byLongest = [...knownPaths].sort((a, b) => b.length - a.length);
+  const byLongest = [...knownPaths].toSorted((a, b) => b.length - a.length);
   for (const chunk of all.split(/^(?=diff --git )/m)) {
     if (!chunk.startsWith("diff --git ")) continue;
     const header = chunk.slice(0, chunk.indexOf("\n"));

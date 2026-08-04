@@ -7,7 +7,9 @@ import {
   emptyMessage,
 } from "../server/comment-format.js";
 
-const comment = (over = {}) => ({
+type FormattedComment = Parameters<typeof formatComments>[0][number];
+
+const comment = (over: Partial<FormattedComment> = {}): FormattedComment => ({
   id: "aaaaaaaa",
   file: "src/app.js",
   line: 12,
@@ -15,6 +17,8 @@ const comment = (over = {}) => ({
   body: "rename this",
   status: "open",
   replies: [],
+  archivedAt: null,
+  updatedAt: "2026-07-31T00:00:00.000Z",
   ...over,
 });
 
@@ -44,6 +48,7 @@ test("formatComments truncates a long anchor to 120 characters", () => {
   const long = "x".repeat(300);
   const text = formatComments([comment({ lineContent: long })]);
   const anchorLine = text.split("\n").find((l) => l.startsWith("    | "));
+  assert.ok(anchorLine);
   const anchor = anchorLine.slice("    | ".length);
   assert.equal(anchor.length, 120);
   assert.ok(anchor.endsWith("…"));

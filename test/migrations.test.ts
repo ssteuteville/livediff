@@ -9,7 +9,7 @@ import { migrateRegistry } from "../server/migrations.js";
 import { listComments } from "../server/comments.js";
 
 /** Seed a pre-0.4 registry that recorded literal (un-normalized) paths. */
-async function seedLegacy(entries) {
+async function seedLegacy(entries: readonly string[]): Promise<void> {
   await writeJsonAtomic(registryPath(), {
     workspaces: entries.map((p) => ({
       id: idFor(p),
@@ -29,7 +29,7 @@ test("collapses a subdirectory entry into its worktree root", async () => {
 
     const workspaces = await readRegistry();
     assert.equal(workspaces.length, 1);
-    assert.equal(workspaces[0].path, repo);
+    assert.equal(workspaces[0]?.path, repo);
     assert.equal(result.merged, 1);
   });
 });
@@ -50,7 +50,7 @@ test("moves comments from the collapsed entry onto the surviving one", async () 
     await migrateRegistry();
 
     const comments = await listComments(rootId, repo, { branch: "all" });
-    assert.deepEqual(comments.map((c) => c.id).sort(), ["aaaaaaaa", "bbbbbbbb"]);
+    assert.deepEqual(comments.map((c) => c.id).toSorted(), ["aaaaaaaa", "bbbbbbbb"]);
     await assert.rejects(() => readFile(join(configDir(), "comments", `${subId}.json`), "utf8"));
   });
 });

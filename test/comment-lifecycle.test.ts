@@ -6,12 +6,15 @@ import {
   shouldPurge,
   daysUntilPurge,
 } from "../server/comment-lifecycle.js";
+import type { LifecycleComment } from "../server/comment-lifecycle.js";
 import { ORPHAN_ARCHIVE_DAYS, RESOLVED_ARCHIVE_DAYS, PURGE_DAYS } from "../server/constants.js";
 
 const NOW = Date.parse("2026-07-31T00:00:00.000Z");
-const daysAgo = (n) => new Date(NOW - n * 86_400_000).toISOString();
+const daysAgo = (n: number): string => new Date(NOW - n * 86_400_000).toISOString();
 
-const comment = (over = {}) => ({
+type TestComment = LifecycleComment & { id: string };
+
+const comment = (over: Partial<TestComment> = {}): TestComment => ({
   id: "aaaaaaaa",
   file: "src/app.js",
   status: "open",

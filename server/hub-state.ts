@@ -29,8 +29,8 @@ export interface HubMeta {
 }
 
 function isHubState(value: unknown): value is HubState {
-  if (!value || typeof value !== "object") return false;
-  const state = value as Record<string, unknown>;
+  if (!isRecord(value)) return false;
+  const state = value;
   return (
     typeof state["pid"] === "number" &&
     typeof state["port"] === "number" &&
@@ -40,14 +40,18 @@ function isHubState(value: unknown): value is HubState {
 }
 
 function isHubMeta(value: unknown): value is HubMeta {
-  if (!value || typeof value !== "object") return false;
-  const meta = value as Record<string, unknown>;
+  if (!isRecord(value)) return false;
+  const meta = value;
   return (
     typeof meta["name"] === "string" &&
     typeof meta["version"] === "string" &&
     typeof meta["clients"] === "number" &&
     typeof meta["polling"] === "boolean"
   );
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function isNodeError(error: unknown, code: string): error is NodeJS.ErrnoException {

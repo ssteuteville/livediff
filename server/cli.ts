@@ -227,10 +227,12 @@ async function waitForReview(base: string, ws: Workspace): Promise<boolean> {
 
   const ac = new AbortController();
   const cancel = () => {
-    fetch(`${base}/api/reviews/${review.reviewId}`, { method: "DELETE" }).finally(() => {
-      ac.abort();
-      process.exit(EXIT_ERROR);
-    });
+    void fetch(`${base}/api/reviews/${review.reviewId}`, { method: "DELETE" })
+      .catch(() => undefined)
+      .finally(() => {
+        ac.abort();
+        process.exit(EXIT_ERROR);
+      });
   };
   process.once("SIGINT", cancel);
 
@@ -308,7 +310,7 @@ async function cmdList(): Promise<void> {
   if (JSON_OUT) return out("", { workspaces });
   if (!workspaces.length) return out("no workspaces registered — `livediff .` to add one", {});
   for (const w of workspaces) {
-    console.log(`${w.id}  ${String(w.label).padEnd(20)}  ${w.path}`);
+    console.log(`${w.id}  ${w.label.padEnd(20)}  ${w.path}`);
   }
 }
 
@@ -485,9 +487,7 @@ async function cmdDoctor(): Promise<void> {
   console.log(`livediff doctor — v${hubVersion()}\n`);
   for (const f of findings) {
     console.log(`${MARK[f.level]} ${f.title}`);
-    for (const line of String(f.detail ?? "")
-      .split("\n")
-      .filter(Boolean)) {
+    for (const line of (f.detail ?? "").split("\n").filter(Boolean)) {
       console.log(`    ${line}`);
     }
     if (f.fix) console.log(`    → ${f.fix}`);

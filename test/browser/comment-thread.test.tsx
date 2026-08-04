@@ -14,7 +14,7 @@ const thread = (body: string, replies: { author: string; body: string }[] = []) 
 
 // React 19 commits asynchronously, so the node is not in the DOM the instant render() returns.
 async function renderInSlot(comments: ReturnType<typeof thread>): Promise<HTMLElement> {
-  render(
+  void render(
     <div style={{ height: `${SLOT_PX}px`, width: "600px" }} data-slot>
       <CommentThreadPreview comments={comments} lines={7} file="a.ts" line={2} />
     </div>,
@@ -24,7 +24,8 @@ async function renderInSlot(comments: ReturnType<typeof thread>): Promise<HTMLEl
     slot = document.body.querySelector("[data-slot]");
     expect(slot, "the slot never mounted").toBeTruthy();
   });
-  return slot!;
+  if (!slot) throw new Error("the slot never mounted");
+  return slot;
 }
 
 test("a long body is clipped to the slot rather than growing it", async () => {
@@ -33,8 +34,8 @@ test("a long body is clipped to the slot rather than growing it", async () => {
   );
   const slot = await renderInSlot(thread(long));
 
-  const card = slot.firstElementChild as HTMLElement;
-  expect(card, "nothing rendered").toBeTruthy();
+  const card = slot.firstElementChild;
+  if (!(card instanceof HTMLElement)) throw new Error("nothing rendered");
 
   // The invariant: a collapsed thread is the expanded card drawn and clipped. However much text it
   // holds, it must not push past the slot the row model budgeted for it.
@@ -50,13 +51,17 @@ test("a long body is clipped to the slot rather than growing it", async () => {
 
 test("a short body occupies the same slot as a long one", async () => {
   const shortSlot = await renderInSlot(thread("short"));
-  const shortHeight = (shortSlot.firstElementChild as HTMLElement).getBoundingClientRect().height;
+  const shortCard = shortSlot.firstElementChild;
+  if (!(shortCard instanceof HTMLElement)) throw new Error("short thread did not render");
+  const shortHeight = shortCard.getBoundingClientRect().height;
   document.body.innerHTML = "";
 
   const longSlot = await renderInSlot(
     thread(Array.from({ length: 60 }, (_, i) => `line ${i}`).join("\n")),
   );
-  const longHeight = (longSlot.firstElementChild as HTMLElement).getBoundingClientRect().height;
+  const longCard = longSlot.firstElementChild;
+  if (!(longCard instanceof HTMLElement)) throw new Error("long thread did not render");
+  const longHeight = longCard.getBoundingClientRect().height;
 
   expect(longHeight).toBe(shortHeight);
 });

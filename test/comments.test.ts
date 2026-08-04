@@ -13,6 +13,7 @@ import {
   sweep,
   restoreComment,
   purgeArchived,
+  type Comment,
 } from "../server/comments.js";
 import { configDir } from "../server/registry.js";
 import { writeJsonAtomic } from "../server/atomic.js";
@@ -53,7 +54,9 @@ test("getComment finds a record by key", async () => {
   await withTempXdg(async ({ root }) => {
     const repo = await makeRepo(join(root, "repo"));
     const c = await addComment("ws1", repo, input);
-    assert.equal((await getComment("ws1", c.id)).id, c.id);
+    const stored = await getComment("ws1", c.id);
+    assert.ok(stored);
+    assert.equal(stored.id, c.id);
     assert.equal(await getComment("ws1", "nosuchid"), null);
   });
 });
@@ -109,26 +112,27 @@ test("a v1 array store is read without loss", async () => {
 const DAY = 86_400_000;
 
 /** Seed one record directly, so aged states are testable without waiting days. */
-async function seed(over = {}) {
+async function seed(over: Partial<Comment> = {}) {
   const { __writeForTest } = await import("../server/comments.js");
   const id = "aaaaaaaa";
+  const comment: Comment = {
+    id,
+    file: "README.md",
+    side: "new",
+    line: 1,
+    lineContent: "# test\n",
+    body: "note",
+    author: "user",
+    status: "open",
+    branch: "main",
+    archivedAt: null,
+    replies: [],
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    ...over,
+  };
   await __writeForTest("ws1", {
-    [id]: {
-      id,
-      file: "README.md",
-      side: "new",
-      line: 1,
-      lineContent: "# test\n",
-      body: "note",
-      author: "user",
-      status: "open",
-      branch: "main",
-      archivedAt: null,
-      replies: [],
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      ...over,
-    },
+    [id]: comment,
   });
   return id;
 }
@@ -139,7 +143,9 @@ test("sweep archives an orphaned comment older than 5 days", async () => {
     const now = Date.now();
     const id = await seed({ updatedAt: new Date(now - 6 * DAY).toISOString() });
     assert.equal((await sweep("ws1", repo, [], { now })).archived, 1);
-    assert.ok((await getComment("ws1", id)).archivedAt);
+    const comment = await getComment("ws1", id);
+    assert.ok(comment);
+    assert.ok(comment.archivedAt);
   });
 });
 
@@ -149,7 +155,9 @@ test("sweep leaves an orphaned comment younger than 5 days alone", async () => {
     const now = Date.now();
     const id = await seed({ updatedAt: new Date(now - 2 * DAY).toISOString() });
     assert.equal((await sweep("ws1", repo, [], { now })).archived, 0);
-    assert.equal((await getComment("ws1", id)).archivedAt, null);
+    const comment = await getComment("ws1", id);
+    assert.ok(comment);
+    assert.equal(comment.archivedAt, null);
   });
 });
 
@@ -159,7 +167,9 @@ test("sweep --stale ignores the age gate", async () => {
     const now = Date.now();
     const id = await seed();
     assert.equal((await sweep("ws1", repo, [], { now, force: { stale: true } })).archived, 1);
-    assert.ok((await getComment("ws1", id)).archivedAt);
+    const comment = await getComment("ws1", id);
+    assert.ok(comment);
+    assert.ok(comment.archivedAt);
   });
 });
 
@@ -169,7 +179,9 @@ test("sweep leaves a comment whose file is still in the diff alone", async () =>
     const now = Date.now();
     const id = await seed({ updatedAt: new Date(now - 90 * DAY).toISOString() });
     assert.equal((await sweep("ws1", repo, ["README.md"], { now })).archived, 0);
-    assert.equal((await getComment("ws1", id)).archivedAt, null);
+    const comment = await getComment("ws1", id);
+    assert.ok(comment);
+    assert.equal(comment.archivedAt, null);
   });
 });
 
@@ -192,7 +204,9 @@ test("sweep does not evaluate another branch's comments", async () => {
       updatedAt: new Date(now - 90 * DAY).toISOString(),
     });
     assert.equal((await sweep("ws1", repo, [], { now })).archived, 0);
-    assert.equal((await getComment("ws1", id)).archivedAt, null);
+    const comment = await getComment("ws1", id);
+    assert.ok(comment);
+    assert.equal(comment.archivedAt, null);
   });
 });
 
@@ -204,9 +218,13 @@ test("restore clears archivedAt and refreshes updatedAt so a sweep does not re-a
       updatedAt: new Date(now - 90 * DAY).toISOString(),
       archivedAt: new Date(now - 10 * DAY).toISOString(),
     });
-    assert.equal((await restoreComment("ws1", id)).archivedAt, null);
+    const restored = await restoreComment("ws1", id);
+    assert.ok(restored);
+    assert.equal(restored.archivedAt, null);
     assert.equal((await sweep("ws1", repo, [], { now })).archived, 0);
-    assert.equal((await getComment("ws1", id)).archivedAt, null);
+    const comment = await getComment("ws1", id);
+    assert.ok(comment);
+    assert.equal(comment.archivedAt, null);
   });
 });
 

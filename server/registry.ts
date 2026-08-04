@@ -18,8 +18,8 @@ interface RegistryFile {
 }
 
 function isWorkspace(value: unknown): value is Workspace {
-  if (!value || typeof value !== "object") return false;
-  const workspace = value as Record<string, unknown>;
+  if (!isRecord(value)) return false;
+  const workspace = value;
   return (
     typeof workspace["id"] === "string" &&
     typeof workspace["path"] === "string" &&
@@ -29,9 +29,13 @@ function isWorkspace(value: unknown): value is Workspace {
 }
 
 function isRegistryFile(value: unknown): value is RegistryFile {
-  if (!value || typeof value !== "object") return false;
-  const workspaces = (value as Record<string, unknown>)["workspaces"];
+  if (!isRecord(value)) return false;
+  const workspaces = value["workspaces"];
   return Array.isArray(workspaces) && workspaces.every(isWorkspace);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 /**
@@ -140,7 +144,7 @@ export async function resolveWorkspace({
     return (
       workspaces
         .filter((w) => abs === w.path || abs.startsWith(w.path + sep))
-        .sort((a, b) => b.path.length - a.path.length)[0] || null
+        .toSorted((a, b) => b.path.length - a.path.length)[0] || null
     );
   }
   return null;

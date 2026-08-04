@@ -232,7 +232,7 @@ async function installedPluginVersion(): Promise<string | null> {
       }
     }
   }
-  return found.sort(compareVersions).pop() ?? null;
+  return found.toSorted(compareVersions).at(-1) ?? null;
 }
 
 /**

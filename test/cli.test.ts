@@ -6,13 +6,30 @@ import { fileURLToPath } from "node:url";
 import { join } from "node:path";
 import { writeFile } from "node:fs/promises";
 import { withTempXdg, makeRepo } from "./helpers.js";
-import { readState, probeMeta } from "../dist-server/server/hub-state.js";
+import { readState, probeMeta } from "../server/hub-state.js";
 
 const exec = promisify(execFile);
 const CLI = fileURLToPath(new URL("../dist-server/server/cli.js", import.meta.url));
 
 /** Run the CLI with the ambient temp XDG env. Never throws — returns the failure for assertions. */
-async function cli(args, opts = {}) {
+type CliOptions = {
+  cwd?: string;
+  env?: NodeJS.ProcessEnv;
+};
+
+type CliResult = {
+  code: number;
+  stderr: string;
+  stdout: string;
+};
+
+function isProcessError(
+  error: unknown,
+): error is { code?: unknown; stderr?: unknown; stdout?: unknown } {
+  return typeof error === "object" && error !== null;
+}
+
+async function cli(args: readonly string[], opts: CliOptions = {}): Promise<CliResult> {
   try {
     const { stdout, stderr } = await exec(process.execPath, [CLI, ...args], {
       env: { ...process.env, LIVEDIFF_PORT: "4197", NO_COLOR: "1", ...opts.env },
@@ -20,7 +37,12 @@ async function cli(args, opts = {}) {
     });
     return { code: 0, stdout, stderr };
   } catch (err) {
-    return { code: err.code ?? 1, stdout: err.stdout ?? "", stderr: err.stderr ?? "" };
+    if (!isProcessError(err)) return { code: 1, stdout: "", stderr: "" };
+    return {
+      code: typeof err.code === "number" ? err.code : 1,
+      stdout: typeof err.stdout === "string" ? err.stdout : "",
+      stderr: typeof err.stderr === "string" ? err.stderr : "",
+    };
   }
 }
 
@@ -28,7 +50,7 @@ async function cli(args, opts = {}) {
  * A repo with an actual working-tree change. A comment is only live while its file is in the
  * diff, so a test that posts one on an untouched committed file would see it hidden as orphaned.
  */
-async function dirtyRepo(root, name = "repo") {
+async function dirtyRepo(root: string, name = "repo") {
   const repo = await makeRepo(join(root, name));
   await writeFile(join(repo, "README.md"), "# test\nedited\n", "utf8");
   return repo;
@@ -44,6 +66,12 @@ async function stopHub() {
   }
 }
 
+async function hubPort(): Promise<number> {
+  const state = await readState();
+  assert.ok(state);
+  return state.port;
+}
+
 test("registering a worktree auto-starts the hub", async () => {
   await withTempXdg(async ({ root }) => {
     const repo = await dirtyRepo(root);
@@ -54,7 +82,9 @@ test("registering a worktree auto-starts the hub", async () => {
       const parsed = JSON.parse(res.stdout);
       assert.equal(parsed.path, repo);
       assert.match(parsed.url, /^http:\/\/localhost:\d+\/\?ws=/);
-      assert.ok((await readState()).pid);
+      const state = await readState();
+      assert.ok(state);
+      assert.ok(state.pid);
     } finally {
       await stopHub();
     }
@@ -92,7 +122,9 @@ test("stop shuts the hub down and clears state", async () => {
   await withTempXdg(async ({ root }) => {
     const repo = await dirtyRepo(root);
     await cli([repo, "--no-open"]);
-    assert.ok((await readState()).pid);
+    const state = await readState();
+    assert.ok(state);
+    assert.ok(state.pid);
     const res = await cli(["stop"]);
     assert.equal(res.code, 0);
     assert.equal(await readState(), null);
@@ -105,6 +137,7 @@ test("comments round-trip through the CLI without touching files", async () => {
     try {
       const ws = JSON.parse((await cli([repo, "--no-open", "--json"])).stdout);
       const state = await readState();
+      assert.ok(state);
       const created = await fetch(`http://127.0.0.1:${state.port}/api/comments?ws=${ws.id}`, {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -156,6 +189,7 @@ test("--wait blocks until the review is marked done, then summarizes", async () 
       assert.ok(review, "CLI never opened a review request");
 
       const state = await readState();
+      assert.ok(state);
       await fetch(`http://127.0.0.1:${state.port}/api/reviews/${review.reviewId}/done`, {
         method: "POST",
       });
@@ -177,7 +211,9 @@ test("bare livediff --no-open starts the hub and prints its URL", async () => {
       const res = await cli(["--no-open", "--json"]);
       assert.equal(res.code, 0);
       assert.match(JSON.parse(res.stdout).url, /^http:\/\/localhost:\d+\/$/);
-      assert.ok((await readState()).pid);
+      const state = await readState();
+      assert.ok(state);
+      assert.ok(state.pid);
     } finally {
       await stopHub();
     }
@@ -190,6 +226,7 @@ test("reply text starting with a dash survives argument parsing", async () => {
     try {
       const ws = JSON.parse((await cli([repo, "--no-open", "--json"])).stdout);
       const state = await readState();
+      assert.ok(state);
       const created = await fetch(`http://127.0.0.1:${state.port}/api/comments?ws=${ws.id}`, {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -330,7 +367,8 @@ test("comments filters by --status and defaults to open", async () => {
     try {
       const ws = JSON.parse((await cli([repo, "--no-open", "--json"])).stdout);
       const state = await readState();
-      const addComment = (body) =>
+      assert.ok(state);
+      const addComment = (body: string) =>
         fetch(`http://127.0.0.1:${state.port}/api/comments?ws=${ws.id}`, {
           method: "POST",
           headers: { "content-type": "application/json" },
@@ -368,6 +406,7 @@ test("comments prints the quoted source line as an anchor", async () => {
       const state = await readState();
       // The server stores lineContent as given and defaults it to "" (server/comments.js) —
       // the browser is what supplies it, so a test posting directly must send it too.
+      assert.ok(state);
       await fetch(`http://127.0.0.1:${state.port}/api/comments?ws=${ws.id}`, {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -393,6 +432,7 @@ test("an empty filter result names the comments it hid", async () => {
     try {
       const ws = JSON.parse((await cli([repo, "--no-open", "--json"])).stdout);
       const state = await readState();
+      assert.ok(state);
       const made = await fetch(`http://127.0.0.1:${state.port}/api/comments?ws=${ws.id}`, {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -440,7 +480,7 @@ test("resolve without an id exits 2 with the command usage", async () => {
 });
 
 /** Post a comment straight to the hub, as the browser would. */
-async function post(port, wsId, body, file = "README.md") {
+async function post(port: number, wsId: string, body: string, file = "README.md") {
   return fetch(`http://127.0.0.1:${port}/api/comments?ws=${wsId}`, {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -453,7 +493,7 @@ test("comments are scoped to the branch they were left on", async () => {
     const repo = await dirtyRepo(root);
     try {
       const ws = JSON.parse((await cli([repo, "--no-open", "--json"])).stdout);
-      await post((await readState()).port, ws.id, "on main");
+      await post(await hubPort(), ws.id, "on main");
       assert.match((await cli(["comments", repo])).stdout, /on main/);
 
       await exec("git", ["checkout", "-qb", "feat"], { cwd: repo });
@@ -470,7 +510,7 @@ test("a comment whose file left the diff is hidden, and --stale shows it", async
     const repo = await dirtyRepo(root);
     try {
       const ws = JSON.parse((await cli([repo, "--no-open", "--json"])).stdout);
-      await post((await readState()).port, ws.id, "orphan me", "gone.txt");
+      await post(await hubPort(), ws.id, "orphan me", "gone.txt");
 
       assert.doesNotMatch((await cli(["comments", repo])).stdout, /orphan me/);
       assert.match((await cli(["comments", repo, "--stale"])).stdout, /orphan me/);
@@ -485,7 +525,7 @@ test("archive then restore round-trips a comment through the archive", async () 
     const repo = await dirtyRepo(root);
     try {
       const ws = JSON.parse((await cli([repo, "--no-open", "--json"])).stdout);
-      const made = await post((await readState()).port, ws.id, "keep me", "gone.txt");
+      const made = await post(await hubPort(), ws.id, "keep me", "gone.txt");
 
       await cli(["archive", repo, "--stale"]);
       assert.match((await cli(["comments", repo, "--archived"])).stdout, /purges in \d+ days/);
@@ -506,7 +546,7 @@ test("archive defaults to every workspace and a path narrows it", async () => {
     try {
       for (const repo of [a, b]) {
         const ws = JSON.parse((await cli([repo, "--no-open", "--json"])).stdout);
-        await post((await readState()).port, ws.id, "note", "gone.txt");
+        await post(await hubPort(), ws.id, "note", "gone.txt");
       }
 
       await cli(["archive", a, "--stale"]);
@@ -526,7 +566,7 @@ test("prune --dry-run reports without deleting and never prompts", async () => {
     const repo = await dirtyRepo(root);
     try {
       const ws = JSON.parse((await cli([repo, "--no-open", "--json"])).stdout);
-      await post((await readState()).port, ws.id, "note", "gone.txt");
+      await post(await hubPort(), ws.id, "note", "gone.txt");
       await cli(["archive", repo, "--stale"]);
 
       const dry = await cli(["prune", repo, "--all", "--dry-run"]);
@@ -544,7 +584,7 @@ test("prune --all refuses to prompt without a terminal", async () => {
     const repo = await dirtyRepo(root);
     try {
       const ws = JSON.parse((await cli([repo, "--no-open", "--json"])).stdout);
-      await post((await readState()).port, ws.id, "note", "gone.txt");
+      await post(await hubPort(), ws.id, "note", "gone.txt");
       await cli(["archive", repo, "--stale"]);
 
       const res = await cli(["prune", repo, "--all"]);
@@ -561,7 +601,7 @@ test("prune --all --yes empties the archive", async () => {
     const repo = await dirtyRepo(root);
     try {
       const ws = JSON.parse((await cli([repo, "--no-open", "--json"])).stdout);
-      await post((await readState()).port, ws.id, "note", "gone.txt");
+      await post(await hubPort(), ws.id, "note", "gone.txt");
       await cli(["archive", repo, "--stale"]);
 
       const res = await cli(["prune", repo, "--all", "--yes"]);

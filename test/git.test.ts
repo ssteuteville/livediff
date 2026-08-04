@@ -2,7 +2,7 @@ import { test } from "vitest";
 import assert from "node:assert/strict";
 import { rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { execFile } from "node:child_process";
+import { execFile, type ExecFileOptions } from "node:child_process";
 import { promisify } from "node:util";
 import { withTempXdg, makeRepo } from "./helpers.js";
 import {
@@ -29,7 +29,7 @@ test("comparing against a branch includes uncommitted work, not just commits", a
     await writeFile(join(repo, "dirty.txt"), "not committed yet\n", "utf8");
 
     const diff = await getDiff(repo, "main");
-    const paths = diff.files.map((f) => f.path).sort();
+    const paths = diff.files.map((f) => f.path).toSorted();
     assert.deepEqual(paths, ["committed.txt", "dirty.txt"]);
   });
 });
@@ -82,7 +82,7 @@ test("branches lists local branches", async () => {
   await withTempXdg(async ({ root }) => {
     const repo = await makeRepo(join(root, "repo"));
     await exec("git", ["branch", "feature"], { cwd: repo });
-    assert.deepEqual((await branches(repo)).sort(), ["feature", "main"]);
+    assert.deepEqual((await branches(repo)).toSorted(), ["feature", "main"]);
   });
 });
 
@@ -127,7 +127,20 @@ test("the signature moves when the branch point itself changes", async () => {
   });
 });
 
-const exec = promisify(execFile);
+const execFileAsync = promisify(execFile);
+const exec = async (command: string, args: string[], options?: ExecFileOptions) => {
+  const result = await execFileAsync(command, args, options);
+  return { stdout: result.stdout.toString(), stderr: result.stderr.toString() };
+};
+
+function isErrorWithStdout(value: unknown): value is { stdout: string | Buffer } {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "stdout" in value &&
+    (typeof value.stdout === "string" || Buffer.isBuffer(value.stdout))
+  );
+}
 
 test("changedPaths reports modified tracked files and untracked ones", async () => {
   await withTempXdg(async ({ root }) => {
@@ -137,7 +150,7 @@ test("changedPaths reports modified tracked files and untracked ones", async () 
     await writeFile(join(repo, "README.md"), "# changed\n", "utf8");
     await writeFile(join(repo, "new.txt"), "hello\n", "utf8");
 
-    const paths = (await changedPaths(repo)).sort();
+    const paths = (await changedPaths(repo)).toSorted();
     assert.deepEqual(paths, ["README.md", "new.txt"]);
   });
 });
@@ -196,6 +209,8 @@ test("a path that is a suffix of another is not mis-attributed", async () => {
     const diff = await getDiff(repo, null);
     const shallow = diff.files.find((f) => f.path === "a.ts");
     const deep = diff.files.find((f) => f.path === "vendor/src/a.ts");
+    assert.ok(shallow);
+    assert.ok(deep);
     assert.match(shallow.patch, /short changed/);
     assert.doesNotMatch(shallow.patch, /long changed/);
     assert.match(deep.patch, /long changed/);
@@ -225,14 +240,21 @@ test("a synthesized untracked patch matches git's own --no-index output", async 
 
     const diff = await getDiff(repo, null);
     const added = diff.files.find((f) => f.path === "new.ts");
+    assert.ok(added);
     assert.equal(added.status, "added");
     assert.equal(added.additions, 3);
 
     // Compare the parts a diff viewer actually renders: the hunk header and the body.
-    const { stdout } = await exec("git", ["diff", "--no-index", "--", "/dev/null", "new.ts"], {
-      cwd: repo,
-    }).catch((e) => ({ stdout: e.stdout }));
-    const hunkOf = (p) => p.slice(p.indexOf("@@"));
+    let stdout: string;
+    try {
+      ({ stdout } = await exec("git", ["diff", "--no-index", "--", "/dev/null", "new.ts"], {
+        cwd: repo,
+      }));
+    } catch (error) {
+      if (!isErrorWithStdout(error)) throw error;
+      stdout = error.stdout.toString();
+    }
+    const hunkOf = (patch: string) => patch.slice(patch.indexOf("@@"));
     assert.equal(hunkOf(added.patch), hunkOf(stdout));
   });
 });
@@ -244,6 +266,7 @@ test("an untracked file with no trailing newline is marked as such", async () =>
 
     const diff = await getDiff(repo, null);
     const added = diff.files.find((f) => f.path === "bare.txt");
+    assert.ok(added);
     assert.equal(added.additions, 1);
     assert.match(added.patch, /\\ No newline at end of file/);
   });
@@ -256,6 +279,7 @@ test("an untracked binary file is reported as binary, not as text", async () => 
 
     const diff = await getDiff(repo, null);
     const added = diff.files.find((f) => f.path === "blob.bin");
+    assert.ok(added);
     assert.equal(added.binary, true);
     assert.equal(added.additions, 0);
   });
@@ -268,6 +292,7 @@ test("an empty untracked file produces a zero-line patch", async () => {
 
     const diff = await getDiff(repo, null);
     const added = diff.files.find((f) => f.path === "empty.txt");
+    assert.ok(added);
     assert.equal(added.additions, 0);
     assert.equal(added.binary, false);
   });

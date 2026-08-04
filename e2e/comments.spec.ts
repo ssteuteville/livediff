@@ -21,7 +21,14 @@ async function seed(
     },
     [hubUrl(), ws, body] as const,
   );
-  return created as { id: string };
+  if (!hasId(created)) throw new Error("comment API did not return an id");
+  return created;
+}
+
+function hasId(value: unknown): value is { id: string } {
+  return (
+    value !== null && typeof value === "object" && "id" in value && typeof value.id === "string"
+  );
 }
 
 async function removeAll(page: Page) {

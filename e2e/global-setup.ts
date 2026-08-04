@@ -29,13 +29,13 @@ export default async function globalSetup() {
   process.env["XDG_STATE_HOME"] = join(root, "state");
 
   const fixtures: Record<string, string> = { tracked20k: join(root, "tracked") };
-  execFileSync(process.execPath, ["bench/tracked.mjs", fixtures["tracked20k"]!, "20000"], {
+  execFileSync(process.execPath, ["bench/tracked.ts", fixtures["tracked20k"]!, "20000"], {
     cwd: repo,
     stdio: "ignore",
   });
   for (const [name, shape] of Object.entries(SHAPES)) {
     fixtures[name] = join(root, name);
-    execFileSync(process.execPath, ["bench/gen.mjs", fixtures[name]!, shape], {
+    execFileSync(process.execPath, ["bench/gen.ts", fixtures[name], shape], {
       cwd: repo,
       stdio: "ignore",
     });
@@ -56,7 +56,9 @@ export default async function globalSetup() {
 
   // Match on pid: an already-running hub's state file would otherwise satisfy this instantly and
   // leak the child we just spawned.
-  const statePath = join(process.env["XDG_STATE_HOME"]!, "livediff", "hub.json");
+  const stateHome = process.env["XDG_STATE_HOME"];
+  if (!stateHome) throw new Error("XDG_STATE_HOME was not configured");
+  const statePath = join(stateHome, "livediff", "hub.json");
   const deadline = Date.now() + 20_000;
   let port = 0;
   while (Date.now() < deadline && !port) {

@@ -12,7 +12,7 @@ Five frontend files have already migrated: `src/api.ts`, `src/syntax.ts`, `src/m
 2. Migrate the remaining frontend consumers, starting with direct model consumers:
    `useVirtualRows`, `DiffSearch`, and `FastDiff`; then the remaining leaf components and `App`.
 3. Migrate the server as one compiled `dist-server/` cutover, including its execution and package entry points. **Done 2026-08-04.**
-4. Migrate the remaining node tests and benchmarks, then enable type-aware linting.
+4. Migrate the remaining node tests and benchmarks, then enable type-aware linting. **Done 2026-08-04.**
 
 ## Completed checkpoint — 2026-08-04
 
@@ -21,6 +21,14 @@ Five frontend files have already migrated: `src/api.ts`, `src/syntax.ts`, `src/m
 - `typescript/no-explicit-any` is enforced as an error; warnings already fail the lint command.
 - `pnpm verify` passed: 174 Node tests, 6 browser tests, and 17 E2E tests.
 - The installer completed its build and `livediff doctor` reported "All good." Its global pnpm install attempt warned about a pre-existing store-version mismatch, but the existing global command remained runnable.
+
+## Completed checkpoint — tests, benchmarks, and type-aware linting — 2026-08-04
+
+- Node tests, helpers, and all benchmark scripts are TypeScript; browser and e2e sources remain in their existing TypeScript forms.
+- Benchmarks run directly as TypeScript under Node 24, including the e2e fixture generators.
+- `tsconfig.test.json` checks tests, e2e, and benchmarks without emitting output; Vitest now collects only `.test.ts` Node tests.
+- Oxlint type-aware analysis is enabled, and its findings were fixed without suppressions or explicit `any`.
+- `pnpm verify` passed after formatting: 174 Node tests, 6 browser tests, and 17 E2E tests.
 
 ## Guardrails
 

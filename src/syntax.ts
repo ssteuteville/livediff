@@ -16,7 +16,11 @@ import { MAX_HIGHLIGHT_LINE_CHARS } from "../shared/constants.ts";
 const CORE = () => import("highlight.js/lib/core");
 
 // hljs ships no grammar under these names; they are dialects of one it does ship.
-const ALIAS = { jsx: "javascript", tsx: "typescript", vue: "xml" };
+const ALIAS = new Map([
+  ["jsx", "javascript"],
+  ["tsx", "typescript"],
+  ["vue", "xml"],
+]);
 
 // Static specifiers so the bundler can see every grammar and split it into its own chunk. A
 // computed import() would make it bundle all of highlight.js or none of it.
@@ -66,7 +70,7 @@ const isGrammar = (name: string): name is GrammarName => name in GRAMMARS;
 /** The grammar name to register, or null when nothing can highlight this file. */
 export function grammarFor(lang: string | undefined | null): GrammarName | null {
   if (!lang) return null;
-  const name = ALIAS[lang as keyof typeof ALIAS] ?? lang;
+  const name = ALIAS.get(lang) ?? lang;
   return isGrammar(name) ? name : null;
 }
 
@@ -91,7 +95,7 @@ export async function loadGrammar(lang: string | undefined | null): Promise<bool
       GRAMMARS[name](),
     ]);
     hljs = core.default;
-    hljs.registerLanguage(name, grammar.default as never);
+    hljs.registerLanguage(name, grammar.default);
     ready.add(name);
     loading.delete(name);
     return true;
@@ -115,8 +119,8 @@ function toTokens(html: string, into: HTMLDivElement): Token[] {
     for (const child of node.childNodes) {
       if (child.nodeType === Node.TEXT_NODE) {
         if (child.nodeValue) tokens.push({ text: child.nodeValue, cls });
-      } else {
-        walk(child, (child as Element).className || cls);
+      } else if (child instanceof Element) {
+        walk(child, child.className || cls);
       }
     }
   };

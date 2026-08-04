@@ -32,15 +32,34 @@ function Probe() {
 }
 
 async function measured(): Promise<Metrics> {
-  render(<Probe />);
+  void render(<Probe />);
   let metrics: Metrics | null = null;
   await vi.waitFor(() => {
     const raw = document.body.querySelector("[data-metrics]")?.getAttribute("data-metrics");
     expect(raw, "probe never rendered").toBeTruthy();
-    metrics = JSON.parse(raw!) as Metrics;
+    if (!raw) throw new Error("probe never rendered");
+    const parsed: unknown = JSON.parse(raw);
+    if (!isMetrics(parsed)) throw new Error("probe emitted invalid metrics");
+    metrics = parsed;
     expect(metrics.width, "the hook has not measured its container yet").not.toBe(0);
   });
-  return metrics!;
+  if (!metrics) throw new Error("the hook did not measure its container");
+  return metrics;
+}
+
+function isMetrics(value: unknown): value is Metrics {
+  return (
+    value !== null &&
+    typeof value === "object" &&
+    "charWidth" in value &&
+    "proseCharWidth" in value &&
+    "lineHeight" in value &&
+    "width" in value &&
+    typeof value.charWidth === "number" &&
+    typeof value.proseCharWidth === "number" &&
+    typeof value.lineHeight === "number" &&
+    typeof value.width === "number"
+  );
 }
 
 test("text metrics come from a real measurement, not the fallback", async () => {

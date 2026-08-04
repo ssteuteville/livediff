@@ -102,7 +102,7 @@ export function useTextMetrics(ref: ElementRef): TextMetrics {
   useLayoutEffect(() => {
     measure();
     const el = ref.current;
-    if (!el) return;
+    if (!el) return undefined;
     const observer = new ResizeObserver(measure);
     observer.observe(el);
     document.fonts?.ready?.then(measure).catch(() => {});
@@ -132,7 +132,7 @@ export function useVirtualRows({ rows, metrics, containerRef, overscan = 8 }: Vi
 
   useEffect(() => {
     const el = containerRef.current;
-    if (!el) return;
+    if (!el) return undefined;
 
     const read = () => {
       setScrollTop(el.scrollTop);
@@ -200,7 +200,7 @@ export function useScrollAnchor({ rows, containerRef, offsets }: ScrollAnchorOpt
   // position the reader was in when the model was last replaced, which is usually the top.
   useEffect(() => {
     const el = containerRef.current;
-    if (!el) return;
+    if (!el) return undefined;
     const remember = () => {
       const { rows: current, offsets: at } = latest.current;
       const index = rowAt(at, el.scrollTop);

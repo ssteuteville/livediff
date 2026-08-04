@@ -42,7 +42,7 @@ export interface Comment extends LifecycleComment {
 type CommentStore = Record<string, Comment>;
 
 interface ListCommentsOptions {
-  branch?: string | "all";
+  branch?: string;
 }
 
 interface SweepOptions {
@@ -256,7 +256,7 @@ export async function addComment(
     side: input["side"] === "old" ? "old" : "new",
     line: input["line"],
     lineContent: stringValue(input["lineContent"]),
-    body: String(input["body"] ?? "").trim(),
+    body: stringValue(input["body"]).trim(),
     author: input["author"] === "claude" ? "claude" : "user",
     status: "open",
     branch: repoPath ? await currentBranch(repoPath).catch(() => null) : null,
@@ -293,7 +293,7 @@ export async function updateComment(
   ) {
     comment.replies.push({
       author: patch["reply"]["author"] === "user" ? "user" : "claude",
-      body: String(patch["reply"]["body"]).trim(),
+      body: patch["reply"]["body"].trim(),
       ts: new Date().toISOString(),
     });
   }
