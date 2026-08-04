@@ -1,10 +1,17 @@
 import { useState } from "react";
 
+interface CommentComposerProps {
+  /** Called with the trimmed body. Never called with an empty string. */
+  onSubmit: (body: string) => void;
+  onCancel: () => void;
+  placeholder?: string;
+}
+
 export default function CommentComposer({
   onSubmit,
   onCancel,
   placeholder = "Leave a comment for the agent…",
-}) {
+}: CommentComposerProps) {
   const [body, setBody] = useState("");
   const submit = () => {
     const trimmed = body.trim();

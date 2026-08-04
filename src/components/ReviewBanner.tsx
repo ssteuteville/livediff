@@ -1,6 +1,13 @@
 import { useState } from "react";
 
-function label(openCount, total) {
+interface ReviewBannerProps {
+  openCount: number;
+  total: number;
+  /** Releases the blocked CLI. May be async; the button stays disabled until it settles. */
+  onDone: () => void | Promise<unknown>;
+}
+
+function label(openCount: number, total: number): string {
   if (total === 0) return "Done reviewing";
   if (openCount === total) return `Done reviewing (${total} comments)`;
   return `Done reviewing (${total} comments, ${openCount} open)`;
@@ -10,7 +17,7 @@ function label(openCount, total) {
  * Shown only while someone is blocked on this workspace — `livediff <path> --wait` opens the
  * request that makes this appear. Clicking it releases the waiting CLI.
  */
-export default function ReviewBanner({ openCount, total, onDone }) {
+export default function ReviewBanner({ openCount, total, onDone }: ReviewBannerProps) {
   const [busy, setBusy] = useState(false);
 
   const click = () => {
