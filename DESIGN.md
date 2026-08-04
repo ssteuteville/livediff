@@ -51,18 +51,18 @@ doing nothing.
 
 ```
 server/
-├── cli.js         argument parsing, command implementations, output   (HTTP client only)
-├── cli-help.js    one command table driving dispatch, help, suggestions
-├── ensure-hub.js  the auto-start state machine
-├── hub-state.js   hub.json, spawn lock, liveness, port blocklist
-├── index.js       HTTP + SSE + routing + the gated poll loop
-├── registry.js    workspaces.json
-├── comments.js    comments/<ws-id>.json
-├── reviews.js     in-memory review requests
-├── migrations.js  one-time data migrations, run at hub startup
-├── doctor.js      install and state diagnostics
-├── git.js         git plumbing → structured diff
-└── atomic.js      write-temp-then-rename
+├── cli.ts         argument parsing, command implementations, output   (HTTP client only)
+├── cli-help.ts    one command table driving dispatch, help, suggestions
+├── ensure-hub.ts  the auto-start state machine
+├── hub-state.ts   hub.json, spawn lock, liveness, port blocklist
+├── index.ts       HTTP + SSE + routing + the gated poll loop
+├── registry.ts    workspaces.json
+├── comments.ts    comments/<ws-id>.json
+├── reviews.ts     in-memory review requests
+├── migrations.ts  one-time data migrations, run at hub startup
+├── doctor.ts      install and state diagnostics
+├── git.ts         git plumbing → structured diff
+└── atomic.ts      write-temp-then-rename
 src/               Vite + React + Tailwind frontend
 test/              node:test suite
 ```
@@ -243,7 +243,7 @@ dormancy transitions, path normalization, the registry migration, and CLI exit c
 
 ## Agent integration
 
-Four skills, shipped by the plugin, with no MCP server. An MCP tool definition costs
+Five skills, shipped by the plugin, with no MCP server. An MCP tool definition costs
 context in every conversation whether or not it is used; livediff is a local binary on
 `PATH` with no auth, so MCP would charge permanently to wrap a 240ms subprocess — and would
 drop every agent that speaks shell but not MCP.

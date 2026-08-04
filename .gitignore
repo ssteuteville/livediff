@@ -11,8 +11,12 @@ __screenshots__/
 .vitest-attachments/
 .vitest/
 *.tgz
-tsconfig.tsbuildinfo
 *.tsbuildinfo
 
-# Another agent directory.
+# Local environment files may contain machine-specific configuration or secrets.
+.env
+.env.*
+!.env.example
+
+# Local Codex state.
 .codex/
