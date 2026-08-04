@@ -48,17 +48,29 @@ const GRAMMARS = {
   yaml: () => import("highlight.js/lib/languages/yaml"),
 };
 
-let hljs = null;
-const ready = new Set();
-const loading = new Map();
-
-/** The grammar name to register, or null when nothing can highlight this file. */
-export function grammarFor(lang) {
-  const name = ALIAS[lang] || lang;
-  return GRAMMARS[name] ? name : null;
+/** One coloured run of a line. `cls` is a highlight.js token class, or "" for plain text. */
+export interface Token {
+  text: string;
+  cls: string;
 }
 
-export function isReady(lang) {
+type GrammarName = keyof typeof GRAMMARS;
+type Hljs = Awaited<ReturnType<typeof CORE>>["default"];
+
+let hljs: Hljs | null = null;
+const ready = new Set<GrammarName>();
+const loading = new Map<GrammarName, Promise<boolean>>();
+
+const isGrammar = (name: string): name is GrammarName => name in GRAMMARS;
+
+/** The grammar name to register, or null when nothing can highlight this file. */
+export function grammarFor(lang: string | undefined | null): GrammarName | null {
+  if (!lang) return null;
+  const name = ALIAS[lang as keyof typeof ALIAS] ?? lang;
+  return isGrammar(name) ? name : null;
+}
+
+export function isReady(lang: string | undefined | null): boolean {
   const name = grammarFor(lang);
   return name !== null && ready.has(name);
 }
@@ -67,10 +79,11 @@ export function isReady(lang) {
  * Fetch and register a grammar. Resolves true if the caller should re-render because something
  * newly became highlightable, false if there was nothing to do.
  */
-export async function loadGrammar(lang) {
+export async function loadGrammar(lang: string | undefined | null): Promise<boolean> {
   const name = grammarFor(lang);
   if (!name || ready.has(name)) return false;
-  if (loading.has(name)) return loading.get(name);
+  const inFlight = loading.get(name);
+  if (inFlight) return inFlight;
 
   const task = (async () => {
     const [core, grammar] = await Promise.all([
@@ -78,7 +91,7 @@ export async function loadGrammar(lang) {
       GRAMMARS[name](),
     ]);
     hljs = core.default;
-    hljs.registerLanguage(name, grammar.default);
+    hljs.registerLanguage(name, grammar.default as never);
     ready.add(name);
     loading.delete(name);
     return true;
@@ -95,35 +108,35 @@ export async function loadGrammar(lang) {
 // re-parsing. The browser's own parser is the only correct reader of that HTML.
 const scratch = typeof document === "undefined" ? null : document.createElement("div");
 
-function toTokens(html) {
-  scratch.innerHTML = html;
-  const tokens = [];
-  const walk = (node, cls) => {
+function toTokens(html: string, into: HTMLDivElement): Token[] {
+  into.innerHTML = html;
+  const tokens: Token[] = [];
+  const walk = (node: Node, cls: string) => {
     for (const child of node.childNodes) {
-      if (child.nodeType === 3) {
+      if (child.nodeType === Node.TEXT_NODE) {
         if (child.nodeValue) tokens.push({ text: child.nodeValue, cls });
       } else {
-        walk(child, child.className || cls);
+        walk(child, (child as Element).className || cls);
       }
     }
   };
-  walk(scratch, "");
-  scratch.textContent = "";
+  walk(into, "");
+  into.textContent = "";
   return tokens;
 }
 
 // Highlighting the same line twice is common — scrolling back, or a refetch that changed one file.
 // Bounded so a long session cannot grow without limit.
 const CACHE_LIMIT = 4000;
-const cache = new Map();
+const cache = new Map<string, Token[]>();
 
 /**
  * Tokenize one line, or return null when the grammar is not loaded yet and the caller should
  * render plain text. Never throws: a grammar that chokes on a line degrades to plain text.
  */
-export function tokenize(text, lang) {
+export function tokenize(text: string, lang: string | undefined | null): Token[] | null {
   const name = grammarFor(lang);
-  if (!name || !ready.has(name) || !scratch || !text) return null;
+  if (!name || !ready.has(name) || !scratch || !hljs || !text) return null;
   // One row's token count is otherwise unbounded, which is how a single minified line put 40,058
   // nodes on the page. Null here means the caller renders one plain text node.
   if (text.length > MAX_HIGHLIGHT_LINE_CHARS) return null;
@@ -132,14 +145,18 @@ export function tokenize(text, lang) {
   const hit = cache.get(key);
   if (hit) return hit;
 
-  let tokens;
+  let tokens: Token[];
   try {
-    tokens = toTokens(hljs.highlight(text, { language: name, ignoreIllegals: true }).value);
+    tokens = toTokens(
+      hljs.highlight(text, { language: name, ignoreIllegals: true }).value,
+      scratch,
+    );
   } catch {
     return null;
   }
 
-  if (cache.size >= CACHE_LIMIT) cache.delete(cache.keys().next().value);
+  const oldest = cache.keys().next().value;
+  if (cache.size >= CACHE_LIMIT && oldest !== undefined) cache.delete(oldest);
   cache.set(key, tokens);
   return tokens;
 }
