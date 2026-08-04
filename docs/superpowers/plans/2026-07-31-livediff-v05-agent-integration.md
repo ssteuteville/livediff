@@ -25,14 +25,17 @@
 ## File Structure
 
 **Create:**
+
 - `server/comment-format.js` — pure filtering/rendering of comments. No I/O.
 - `test/comment-format.test.js` — unit tests for the above.
 - `skills/open/SKILL.md`, `skills/comments/SKILL.md`, `skills/link/SKILL.md`, `skills/review/SKILL.md`
 
 **Delete:**
+
 - `skills/open-worktree-diff/SKILL.md` (and its directory)
 
 **Modify:**
+
 - `server/cli.js` — `cmdComments` filtering, `cmdOpen`/`cmdHubUi` open reporting
 - `server/cli-help.js` — `VALUE_FLAGS`, `comments` entry, `doctor` details, `ENVIRONMENT`; remove `REMOVED_COMMANDS`
 - `server/open-browser.js` — async, returns success, honours `LIVEDIFF_BROWSER`
@@ -46,10 +49,12 @@
 ### Task 1: Comment filtering and formatting
 
 **Files:**
+
 - Create: `server/comment-format.js`
 - Test: `test/comment-format.test.js`
 
 **Interfaces:**
+
 - Consumes: nothing.
 - Produces:
   - `COMMENT_STATUSES: string[]` — `["open", "resolved", "all"]`
@@ -90,8 +95,14 @@ test("COMMENT_STATUSES lists exactly the accepted values", () => {
 
 test("filterByStatus selects by status, and 'all' passes everything", () => {
   const list = [comment(), comment({ id: "bbbbbbbb", status: "resolved" })];
-  assert.deepEqual(filterByStatus(list, "open").map((c) => c.id), ["aaaaaaaa"]);
-  assert.deepEqual(filterByStatus(list, "resolved").map((c) => c.id), ["bbbbbbbb"]);
+  assert.deepEqual(
+    filterByStatus(list, "open").map((c) => c.id),
+    ["aaaaaaaa"],
+  );
+  assert.deepEqual(
+    filterByStatus(list, "resolved").map((c) => c.id),
+    ["bbbbbbbb"],
+  );
   assert.equal(filterByStatus(list, "all").length, 2);
 });
 
@@ -213,11 +224,13 @@ git commit -m "feat(livediff): add comment filtering and agent-readable formatti
 ### Task 2: Wire `--status` into the CLI
 
 **Files:**
+
 - Modify: `server/cli-help.js:17` (`VALUE_FLAGS`), `server/cli-help.js:89-97` (`comments` entry)
 - Modify: `server/cli.js:179-190` (`cmdComments`)
 - Test: `test/cli.test.js`
 
 **Interfaces:**
+
 - Consumes: `COMMENT_STATUSES`, `filterByStatus`, `formatComments`, `emptyMessage` from `server/comment-format.js`.
 - Produces: `livediff comments [path] [--status open|resolved|all]`, defaulting to `open`.
 
@@ -226,7 +239,7 @@ git commit -m "feat(livediff): add comment filtering and agent-readable formatti
 `test/cli.test.js:110` currently reads a resolved comment back with no filter. With the new default of `open` it would find nothing. Change that one line:
 
 ```js
-      const after = JSON.parse((await cli(["comments", repo, "--json", "--status", "all"])).stdout);
+const after = JSON.parse((await cli(["comments", repo, "--json", "--status", "all"])).stdout);
 ```
 
 Leave the other `comments` calls in that file alone — they read open comments and stay correct.
@@ -382,7 +395,12 @@ Replace the `comments` entry (currently lines 89-97) with:
 In `server/cli.js`, add to the imports near the top:
 
 ```js
-import { COMMENT_STATUSES, filterByStatus, formatComments, emptyMessage } from "./comment-format.js";
+import {
+  COMMENT_STATUSES,
+  filterByStatus,
+  formatComments,
+  emptyMessage,
+} from "./comment-format.js";
 ```
 
 Replace `cmdComments` (currently lines 179-190) with:
@@ -425,12 +443,14 @@ git commit -m "feat(livediff): filter comments by status and print the source an
 ### Task 3: Report browser launch failures honestly
 
 **Files:**
+
 - Modify: `server/open-browser.js` (whole file)
 - Modify: `server/cli.js:120-155` (`cmdOpen`, `cmdHubUi`)
 - Modify: `server/cli-help.js:190-195` (`ENVIRONMENT` block)
 - Test: `test/cli.test.js`
 
 **Interfaces:**
+
 - Produces: `openBrowser(url: string): Promise<boolean>` — resolves `true` when a browser was launched. Replaces the previous synchronous, void version.
 - Produces: `LIVEDIFF_BROWSER` env var overriding the opener command.
 - Produces: `"opened": boolean` in the JSON output of the open and hub commands.
@@ -532,15 +552,15 @@ export async function openBrowser(url) {
 In `server/cli.js`, replace the body of `cmdOpen` between the `url` assignment and the `--wait` check (currently lines 128-131) with:
 
 ```js
-  const url = `http://localhost:${new URL(base).port}/?ws=${ws.id}&focus=1`;
-  const quiet = flags.has("--no-open");
-  const opened = quiet ? false : await openBrowser(url);
-  const human = quiet
-    ? `registered ${ws.label} → ${url}`
-    : opened
-      ? `opened ${ws.label} → ${url}`
-      : `registered ${ws.label} → ${url} (could not open a browser)`;
-  out(human, { ...ws, url, opened });
+const url = `http://localhost:${new URL(base).port}/?ws=${ws.id}&focus=1`;
+const quiet = flags.has("--no-open");
+const opened = quiet ? false : await openBrowser(url);
+const human = quiet
+  ? `registered ${ws.label} → ${url}`
+  : opened
+    ? `opened ${ws.label} → ${url}`
+    : `registered ${ws.label} → ${url} (could not open a browser)`;
+out(human, { ...ws, url, opened });
 ```
 
 In the same file, replace `cmdHubUi` (currently lines 149-155) with:
@@ -559,14 +579,14 @@ async function cmdHubUi() {
 The `--wait` summary further down in `cmdOpen` also spreads `{ ...ws, url, ... }`; add `opened` to it so the JSON shape stays consistent:
 
 ```js
-  out(`review complete ✓ — ${comments.length} ${plural} (${open} open)`, {
-    ...ws,
-    url,
-    opened,
-    review: "done",
-    comments: comments.length,
-    openComments: open,
-  });
+out(`review complete ✓ — ${comments.length} ${plural} (${open} open)`, {
+  ...ws,
+  url,
+  opened,
+  review: "done",
+  comments: comments.length,
+  openComments: open,
+});
 ```
 
 - [ ] **Step 5: Document the variable**
@@ -597,11 +617,13 @@ git commit -m "fix(livediff): report browser launch failures instead of claiming
 ### Task 4: The four plugin skills
 
 **Files:**
+
 - Create: `skills/open/SKILL.md`, `skills/comments/SKILL.md`, `skills/link/SKILL.md`, `skills/review/SKILL.md`
 - Delete: `skills/open-worktree-diff/SKILL.md`
 - Modify: `.claude-plugin/plugin.json`
 
 **Interfaces:**
+
 - Consumes: `livediff comments --status open` from Task 2; the failure wording `could not open a browser` from Task 3.
 - Produces: `/livediff:open`, `/livediff:comments`, `/livediff:link`, `/livediff:review`.
 
@@ -628,12 +650,12 @@ allowed-tools: Bash(livediff *)
 Pick one row. Run it once. Do not check anything first — there is no server to start
 and no state worth inspecting.
 
-| The user wants | Run |
-| --- | --- |
-| to see the diff | `livediff .` |
+| The user wants               | Run                    |
+| ---------------------------- | ---------------------- |
+| to see the diff              | `livediff .`           |
 | a link or URL, not a browser | `livediff . --no-open` |
-| a specific worktree | `livediff <path>` |
-| every registered worktree | `livediff` |
+| a specific worktree          | `livediff <path>`      |
+| every registered worktree    | `livediff`             |
 
 Each prints a URL. Give it to the user.
 
@@ -749,11 +771,13 @@ git commit -m "feat(livediff): replace the copied skill with four plugin skills"
 ### Task 5: `doctor` checks the plugin, not skill contents
 
 **Files:**
+
 - Modify: `server/doctor.js:9` (import), `server/doctor.js:148-172` (`checkSkill`), `server/doctor.js:175-188` (`diagnose`)
 - Modify: `server/cli-help.js:24` (delete `REMOVED_COMMANDS`), `server/cli-help.js:128-142` (`doctor` details)
 - Test: `test/doctor.test.js:67-90`
 
 **Interfaces:**
+
 - Consumes: nothing new.
 - Produces: a `checkPlugin(version)` finding titled `claude plugin`, `legacy skill directory`, or `plugin version differs from the CLI`.
 
@@ -778,9 +802,22 @@ test("a leftover pre-0.5 skill directory is an error", async () => {
 
 test("a plugin at a different version is a warning", async () => {
   await withTempXdg(async ({ home }) => {
-    const dir = join(home, ".claude", "plugins", "cache", "local", "livediff", "0.4.0", ".claude-plugin");
+    const dir = join(
+      home,
+      ".claude",
+      "plugins",
+      "cache",
+      "local",
+      "livediff",
+      "0.4.0",
+      ".claude-plugin",
+    );
     await mkdir(dir, { recursive: true });
-    await writeFile(join(dir, "plugin.json"), JSON.stringify({ name: "livediff", version: "0.4.0" }), "utf8");
+    await writeFile(
+      join(dir, "plugin.json"),
+      JSON.stringify({ name: "livediff", version: "0.4.0" }),
+      "utf8",
+    );
 
     const findings = await diagnose("0.5.0");
     const skew = find(findings, "plugin version differs");
@@ -792,12 +829,28 @@ test("a plugin at a different version is a warning", async () => {
 
 test("a matching plugin version is clean", async () => {
   await withTempXdg(async ({ home }) => {
-    const dir = join(home, ".claude", "plugins", "cache", "local", "livediff", "0.5.0", ".claude-plugin");
+    const dir = join(
+      home,
+      ".claude",
+      "plugins",
+      "cache",
+      "local",
+      "livediff",
+      "0.5.0",
+      ".claude-plugin",
+    );
     await mkdir(dir, { recursive: true });
-    await writeFile(join(dir, "plugin.json"), JSON.stringify({ name: "livediff", version: "0.5.0" }), "utf8");
+    await writeFile(
+      join(dir, "plugin.json"),
+      JSON.stringify({ name: "livediff", version: "0.5.0" }),
+      "utf8",
+    );
 
     const findings = await diagnose("0.5.0");
-    assert.equal(findings.some((f) => f.level === "error"), false);
+    assert.equal(
+      findings.some((f) => f.level === "error"),
+      false,
+    );
     assert.match(find(findings, "claude plugin").detail, /0\.5\.0/);
   });
 });
@@ -805,9 +858,22 @@ test("a matching plugin version is clean", async () => {
 test("the newest cached plugin version wins", async () => {
   await withTempXdg(async ({ home }) => {
     for (const v of ["0.4.0", "0.10.0"]) {
-      const dir = join(home, ".claude", "plugins", "cache", "local", "livediff", v, ".claude-plugin");
+      const dir = join(
+        home,
+        ".claude",
+        "plugins",
+        "cache",
+        "local",
+        "livediff",
+        v,
+        ".claude-plugin",
+      );
       await mkdir(dir, { recursive: true });
-      await writeFile(join(dir, "plugin.json"), JSON.stringify({ name: "livediff", version: v }), "utf8");
+      await writeFile(
+        join(dir, "plugin.json"),
+        JSON.stringify({ name: "livediff", version: v }),
+        "utf8",
+      );
     }
     const findings = await diagnose("0.10.0");
     assert.match(find(findings, "claude plugin").detail, /0\.10\.0/);
@@ -880,7 +946,7 @@ async function checkPlugin(version) {
     return bad(
       "legacy skill directory left by a pre-0.5 install",
       `${legacy} is a stale copy of the skill; the plugin supplies it now.`,
-      `rm -rf ${legacy}`
+      `rm -rf ${legacy}`,
     );
   } catch {
     /* nothing to clean up */
@@ -892,7 +958,7 @@ async function checkPlugin(version) {
     return warn(
       "plugin version differs from the CLI",
       `CLI ${version}, plugin ${installed}`,
-      "Run `/plugin update livediff` in Claude Code."
+      "Run `/plugin update livediff` in Claude Code.",
     );
   }
   return ok("claude plugin", `v${installed}`);
@@ -944,11 +1010,13 @@ git commit -m "feat(livediff): check the plugin version instead of skill content
 ### Task 6: Installer migration, version bump, and docs
 
 **Files:**
+
 - Modify: `install.sh:104-129`
 - Modify: `package.json:5`
 - Modify: `README.md`, `DESIGN.md`
 
 **Interfaces:**
+
 - Consumes: the `doctor` finding from Task 5 (the installer's `livediff doctor` run surfaces it).
 - Produces: an installer that removes the legacy skill copy rather than creating one.
 
@@ -1021,12 +1089,12 @@ Install the plugin once; it supplies the skills and commands:
 /plugin install livediff
 ```
 
-| You say or type | What happens |
-| --- | --- |
-| "show me the diff" | registers this worktree and opens it |
-| "address my comments" | reads your open comments and works through them |
-| `/livediff:link` | prints the URL, opens nothing |
-| `/livediff:review` | opens the diff and waits for you to finish reviewing |
+| You say or type       | What happens                                         |
+| --------------------- | ---------------------------------------------------- |
+| "show me the diff"    | registers this worktree and opens it                 |
+| "address my comments" | reads your open comments and works through them      |
+| `/livediff:link`      | prints the URL, opens nothing                        |
+| `/livediff:review`    | opens the diff and waits for you to finish reviewing |
 
 The last two are typed-only on purpose: both have side effects whose timing you should own.
 ````
@@ -1035,7 +1103,7 @@ The last two are typed-only on purpose: both have side effects whose timing you 
 
 Add this section at the end:
 
-````markdown
+```markdown
 ## Agent integration
 
 Four skills, shipped by the plugin, with no MCP server. An MCP tool definition costs
@@ -1054,7 +1122,7 @@ in 240ms.
 
 The plugin ships skills and no code. The CLI stays a global install, so the agent and the
 human run the same binary; `doctor` reports the two-artifact version skew that buys.
-````
+```
 
 - [ ] **Step 7: Run the full suite one last time**
 

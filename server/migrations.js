@@ -23,7 +23,7 @@ export async function migrateRegistry() {
         return null; // path is gone — drop it
       }
       return toplevel(ws.path);
-    })
+    }),
   );
 
   const byRoot = new Map();

@@ -74,7 +74,10 @@ function pairLines(lines) {
   while (i < lines.length) {
     const line = lines[i];
     if (line.type !== "del") {
-      rows.push({ left: line.type === "add" ? null : line, right: line.type === "del" ? null : line });
+      rows.push({
+        left: line.type === "add" ? null : line,
+        right: line.type === "del" ? null : line,
+      });
       i++;
       continue;
     }
@@ -164,7 +167,13 @@ export function buildRows(files, mode = "split", comments = []) {
     }
 
     for (const [h, hunk] of parsePatch(file.patch).entries()) {
-      rows.push({ kind: ROW.HUNK, file, text: hunk.header, context: hunk.context, key: `h:${file.path}:${h}` });
+      rows.push({
+        kind: ROW.HUNK,
+        file,
+        text: hunk.header,
+        context: hunk.context,
+        key: `h:${file.path}:${h}`,
+      });
 
       if (mode === "unified") {
         for (const [i, line] of hunk.lines.entries()) {
@@ -369,7 +378,11 @@ function inScope(row, scope) {
  * `scope` narrows to added or removed lines only, and matches carry their file, so results can be
  * grouped and counted per file.
  */
-export function searchRows(rows, query, { regex = false, caseSensitive = false, scope = "all" } = {}) {
+export function searchRows(
+  rows,
+  query,
+  { regex = false, caseSensitive = false, scope = "all" } = {},
+) {
   const test = matcher(query, { regex, caseSensitive });
   if (!test) return [];
 

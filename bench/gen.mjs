@@ -51,7 +51,7 @@ const SHAPES = {
     git("commit", "-qm", "base");
     for (let f = 0; f < 40; f++) {
       const body = Array.from({ length: 500 }, (_, i) =>
-        i % 2 === 0 ? line(i) : `  // rewritten ${i}`
+        i % 2 === 0 ? line(i) : `  // rewritten ${i}`,
       ).join("\n");
       writeFileSync(join(ROOT, `mod-${f}.ts`), body + "\n");
     }
@@ -62,11 +62,11 @@ const SHAPES = {
     writeFileSync(join(ROOT, "bundle.min.js"), `!function(){${chunk}}();\n`);
   },
   // A lockfile: huge, uninteresting, and present in a great many real diffs.
-  "lockfile"() {
+  lockfile() {
     const body = Array.from({ length: 20000 }, (_, i) =>
       i % 4 === 0
         ? `  "package-${i}@^1.0.0":`
-        : `    resolved "https://registry.example.com/package-${i}/-/package-${i}-1.0.0.tgz"`
+        : `    resolved "https://registry.example.com/package-${i}/-/package-${i}-1.0.0.tgz"`,
     ).join("\n");
     writeFileSync(join(ROOT, "pnpm-lock.yaml"), body + "\n");
   },
@@ -96,9 +96,11 @@ console.log(
       patchMB: +(patchBytes / 1024 / 1024).toFixed(2),
       patchLines,
       additions: diff.files.reduce((n, f) => n + (f.additions ?? 0), 0),
-      biggestFile: biggest ? { path: biggest.path, kb: Math.round(biggest.patch.length / 1024) } : null,
+      biggestFile: biggest
+        ? { path: biggest.path, kb: Math.round(biggest.patch.length / 1024) }
+        : null,
     },
     null,
-    2
-  )
+    2,
+  ),
 );

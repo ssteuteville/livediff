@@ -12,7 +12,8 @@ const HIDDEN_PROBE = "position:absolute;visibility:hidden;white-space:pre;";
 
 // Comment bodies are proportional text at a different size from the diff's monospace, so one
 // character width cannot answer for both. Matches the card body's `font-sans text-sm`.
-const PROSE_FONT = 'font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;font-size:14px;';
+const PROSE_FONT =
+  'font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;font-size:14px;';
 
 function probeWidth(el, css, sample) {
   const probe = document.createElement("span");
@@ -25,7 +26,12 @@ function probeWidth(el, css, sample) {
 }
 
 export function useTextMetrics(ref) {
-  const [metrics, setMetrics] = useState({ charWidth: 8, proseCharWidth: 7, lineHeight: 20, width: 0 });
+  const [metrics, setMetrics] = useState({
+    charWidth: 8,
+    proseCharWidth: 7,
+    lineHeight: 20,
+    width: 0,
+  });
 
   const measure = useCallback(() => {
     const el = ref.current;
@@ -37,7 +43,7 @@ export function useTextMetrics(ref) {
     const proseCharWidth = probeWidth(
       el,
       PROSE_FONT,
-      "the quick brown fox jumps over the lazy dog, and then it does so again "
+      "the quick brown fox jumps over the lazy dog, and then it does so again ",
     );
 
     const style = getComputedStyle(el);
@@ -122,7 +128,7 @@ export function useVirtualRows({ rows, metrics, containerRef, overscan = 8 }) {
 
   const range = useMemo(
     () => visibleRange(offsets, scrollTop, viewport || 800, overscan),
-    [offsets, scrollTop, viewport, overscan]
+    [offsets, scrollTop, viewport, overscan],
   );
 
   const scrollToRow = useCallback(
@@ -131,11 +137,10 @@ export function useVirtualRows({ rows, metrics, containerRef, overscan = 8 }) {
       if (!el || index < 0 || index >= offsets.length - 1) return;
       const top = offsets[index];
       const height = offsets[index + 1] - top;
-      const target =
-        align === "start" ? top : top - Math.max(0, (el.clientHeight - height) / 2);
+      const target = align === "start" ? top : top - Math.max(0, (el.clientHeight - height) / 2);
       el.scrollTo({ top: Math.max(0, target), behavior: "auto" });
     },
-    [containerRef, offsets]
+    [containerRef, offsets],
   );
 
   /** The row currently at the top of the viewport — the anchor for keeping scroll stable. */

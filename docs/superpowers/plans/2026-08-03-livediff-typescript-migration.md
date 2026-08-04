@@ -25,15 +25,15 @@
 
 ## File Structure
 
-| File | Change |
-| --- | --- |
-| `shared/constants.ts` | Extracted from `server/constants.js` — the values both halves need |
-| `shared/types.ts` | `DiffFile`, `Diff`, `Comment`, `Reply`, `Workspace`, `Review` |
-| `server/*.ts` | Renamed, typed, compiled to `dist-server/` |
-| `src/*.ts`, `src/**/*.tsx` | Renamed, typed |
-| `test/*.test.ts`, `e2e/*.ts`, `bench/*.ts` | Renamed, typed |
-| `package.json` | `bin` → `dist-server/cli.js`, `files` → `["dist-server","dist"]` |
-| `.oxlintrc.json` | `typeAware: true` |
+| File                                       | Change                                                             |
+| ------------------------------------------ | ------------------------------------------------------------------ |
+| `shared/constants.ts`                      | Extracted from `server/constants.js` — the values both halves need |
+| `shared/types.ts`                          | `DiffFile`, `Diff`, `Comment`, `Reply`, `Workspace`, `Review`      |
+| `server/*.ts`                              | Renamed, typed, compiled to `dist-server/`                         |
+| `src/*.ts`, `src/**/*.tsx`                 | Renamed, typed                                                     |
+| `test/*.test.ts`, `e2e/*.ts`, `bench/*.ts` | Renamed, typed                                                     |
+| `package.json`                             | `bin` → `dist-server/cli.js`, `files` → `["dist-server","dist"]`   |
+| `.oxlintrc.json`                           | `typeAware: true`                                                  |
 
 ---
 
@@ -42,6 +42,7 @@
 Three `src/` files import from `../server/constants.js` today. Once the server compiles to `dist-server/`, that import resolves to a different copy than the one the server runs, which is the "which build is authoritative?" trap that cost a full session on the stale tarball.
 
 **Files:**
+
 - Create: `shared/constants.ts`, `shared/types.ts`
 - Modify: `server/constants.js`, `src/App.jsx`, `src/components/CommentThread.jsx`, `src/components/FastDiff.jsx`, `tsconfig.base.json`
 
@@ -68,7 +69,12 @@ Copy the existing explanatory comments across verbatim — they record why each 
 In `server/constants.js`, replace the moved declarations with a re-export so the server keeps one import site:
 
 ```js
-export { RENDERER, RENDERERS, DIFF_REFETCH_DEBOUNCE_MS, COMMENT_REPLY_STRIP_PX } from "../shared/constants.ts";
+export {
+  RENDERER,
+  RENDERERS,
+  DIFF_REFETCH_DEBOUNCE_MS,
+  COMMENT_REPLY_STRIP_PX,
+} from "../shared/constants.ts";
 ```
 
 - [ ] **Step 4: Point the frontend at `shared/`**
@@ -144,6 +150,7 @@ git commit -m "refactor(livediff): give both halves one source of truth in share
 ### Task 2: `server/` to TypeScript, compiled to `dist-server/`
 
 **Files:**
+
 - Rename: all 17 files in `server/` from `.js` to `.ts`
 - Modify: `package.json`, `tsconfig.node.json`, `install.sh`, `e2e/global-setup.ts`
 
@@ -180,6 +187,7 @@ Run: `pnpm typecheck`
 Expected: a large number of errors. Work through them file by file, smallest first (`atomic`, `sse`, `open-browser`, `comment-lifecycle`).
 
 The two that will dominate, both real:
+
 - `JSON.parse` returns `any` in `comments.ts`, `registry.ts`, `migrations.ts`. Type the parse site and validate what you assume, rather than casting: `const data = JSON.parse(raw) as unknown;` then narrow.
 - `noUncheckedIndexedAccess` makes every array and record access possibly-undefined. Prefer a guard over `!`.
 
@@ -231,6 +239,7 @@ git commit -m "refactor(livediff): move the server to TypeScript"
 ### Task 3: `src/` to TypeScript
 
 **Files:**
+
 - Rename: 11 files in `src/` — `.jsx` → `.tsx`, `.js` → `.ts`
 - Modify: `tsconfig.web.json`, `index.html`
 
@@ -262,7 +271,7 @@ export type Row =
   | { kind: "hunk"; key: string; text: string; file: DiffFile }
   | { kind: "spacer"; key: string; text: string }
   | { kind: "comment"; key: string; file: DiffFile; line: number; comments: Comment[] }
-  | { kind: "line"; key: string; /* … the split/unified line shape … */ };
+  | { kind: "line"; key: string /* … the split/unified line shape … */ };
 ```
 
 Read the existing `ROW` constant and `buildRows` before writing this — the real shape is the authority, and the `line` variant differs between split and unified mode.
@@ -284,6 +293,7 @@ git commit -m "refactor(livediff): move the frontend to TypeScript"
 ### Task 4: Tests, e2e and bench to TypeScript
 
 **Files:**
+
 - Rename: 15 files in `test/`, `test/helpers.js`, 6 files in `bench/`
 - Create: `tsconfig.test.json`
 - Modify: `tsconfig.json`, `vitest.config.ts`
@@ -334,6 +344,7 @@ git commit -m "refactor(livediff): move the tests and benchmarks to TypeScript"
 The tree is now TypeScript, so the 59 type-aware rules can finally run — this is the payoff the whole migration was for.
 
 **Files:**
+
 - Modify: `.oxlintrc.json`, plus whatever it flags
 
 - [ ] **Step 1: Enable it**
@@ -397,10 +408,10 @@ In `.github/workflows/ci.yml`, add `- run: pnpm format:check` after `pnpm lint`.
 In `lefthook.yml`, add the formatter now that the tree is clean:
 
 ```yaml
-    format:
-      glob: "*.{js,ts,tsx,json,css,md}"
-      run: pnpm exec oxfmt {staged_files}
-      stage_fixed: true
+format:
+  glob: "*.{js,ts,tsx,json,css,md}"
+  run: pnpm exec oxfmt {staged_files}
+  stage_fixed: true
 ```
 
 - [ ] **Step 5: Commit**
@@ -417,6 +428,7 @@ git commit -m "style(livediff): format the tree with oxfmt"
 Both already have failing tests written, so this is verification-complete before a line is changed: flip `test.fail()` off and make them pass.
 
 **Files:**
+
 - Modify: `src/App.tsx`, `src/syntax.ts`, `shared/constants.ts`, `e2e/navigation.spec.ts`
 
 - [ ] **Step 1: Fix the deep link**

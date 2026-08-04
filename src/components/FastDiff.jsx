@@ -1,5 +1,12 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
-import { ROW, buildRows, searchRows, countByFile, nextHit, anchoredCommentIds } from "../diff-model.js";
+import {
+  ROW,
+  buildRows,
+  searchRows,
+  countByFile,
+  nextHit,
+  anchoredCommentIds,
+} from "../diff-model.js";
 import CommentDrawer from "./CommentDrawer.jsx";
 import { useTextMetrics, useVirtualRows, useScrollAnchor } from "../hooks/useVirtualRows.js";
 import { loadGrammar, tokenize } from "../syntax.js";
@@ -73,7 +80,11 @@ function splitAtMatch(tokens, range) {
 
 function TokenSpan({ token }) {
   if (token.marked) {
-    return <mark className={"rounded-sm bg-amber-300 text-black dark:bg-amber-400 " + token.cls}>{token.text}</mark>;
+    return (
+      <mark className={"rounded-sm bg-amber-300 text-black dark:bg-amber-400 " + token.cls}>
+        {token.text}
+      </mark>
+    );
   }
   return token.cls ? <span className={token.cls}>{token.text}</span> : token.text;
 }
@@ -97,7 +108,9 @@ function Side({ line, lang, kind, query, options, onAdd }) {
   return (
     <div className={"group flex min-w-0 flex-1 " + bg}>
       <span className={GUTTER}>{line?.oldNo ?? line?.newNo ?? ""}</span>
-      <span className="w-4 shrink-0 select-none text-center text-neutral-400">{MARKER[kind] ?? ""}</span>
+      <span className="w-4 shrink-0 select-none text-center text-neutral-400">
+        {MARKER[kind] ?? ""}
+      </span>
       <div className="min-w-0 flex-1 pr-2">
         {line ? <LineText text={line.text} lang={lang} query={query} options={options} /> : null}
       </div>
@@ -149,10 +162,16 @@ function CommentSlot({ row, lines, hidden, onOpen }) {
         }
       }}
       className={
-        "h-full cursor-pointer font-sans transition hover:brightness-[0.98] " + (hidden ? "invisible" : "")
+        "h-full cursor-pointer font-sans transition hover:brightness-[0.98] " +
+        (hidden ? "invisible" : "")
       }
     >
-      <CommentThreadPreview comments={row.comments} lines={lines} file={row.file.path} line={row.line} />
+      <CommentThreadPreview
+        comments={row.comments}
+        lines={lines}
+        file={row.file.path}
+        line={row.line}
+      />
     </div>
   );
 }
@@ -169,8 +188,12 @@ function FileHeader({ file, comments, hidden, onShowComments }) {
         {file.status}
       </span>
       <span className="truncate font-mono text-neutral-800 dark:text-neutral-100">{file.path}</span>
-      {file.additions > 0 && <span className="text-xs text-green-600 dark:text-green-400">+{file.additions}</span>}
-      {file.deletions > 0 && <span className="text-xs text-red-600 dark:text-red-400">−{file.deletions}</span>}
+      {file.additions > 0 && (
+        <span className="text-xs text-green-600 dark:text-green-400">+{file.additions}</span>
+      )}
+      {file.deletions > 0 && (
+        <span className="text-xs text-red-600 dark:text-red-400">−{file.deletions}</span>
+      )}
       {comments > 0 && (
         <button
           type="button"
@@ -199,7 +222,15 @@ function FileHeader({ file, comments, hidden, onShowComments }) {
  * monospace character width rather than measured. Find is in-app for the same reason the DOM is
  * small: the browser's own find cannot see rows that are not there.
  */
-export default function FastDiff({ diff, comments, mode, jump, showAll, onAddComment, onCommentAction }) {
+export default function FastDiff({
+  diff,
+  comments,
+  mode,
+  jump,
+  showAll,
+  onAddComment,
+  onCommentAction,
+}) {
   const scrollRef = useRef(null);
   const surfaceRef = useRef(null);
   const [composing, setComposing] = useState(null);
@@ -235,8 +266,9 @@ export default function FastDiff({ diff, comments, mode, jump, showAll, onAddCom
 
   // A comment card spans the whole width, unlike a diff line, and is set in proportional text.
   const commentCharsPerLine = useMemo(
-    () => Math.max(20, Math.floor((text.width - COMMENT_CARD_INSET_PX) / (text.proseCharWidth || 7))),
-    [text.width, text.proseCharWidth]
+    () =>
+      Math.max(20, Math.floor((text.width - COMMENT_CARD_INSET_PX) / (text.proseCharWidth || 7))),
+    [text.width, text.proseCharWidth],
   );
 
   const metrics = useMemo(
@@ -253,7 +285,7 @@ export default function FastDiff({ diff, comments, mode, jump, showAll, onAddCom
       mode,
       measured,
     }),
-    [text.lineHeight, charsPerLine, commentCharsPerLine, mode, measured]
+    [text.lineHeight, charsPerLine, commentCharsPerLine, mode, measured],
   );
 
   const { range, offsets, totalHeight, scrollToRow } = useVirtualRows({
@@ -315,7 +347,7 @@ export default function FastDiff({ diff, comments, mode, jump, showAll, onAddCom
       const next = nextHit(hits, from, direction);
       if (next !== null) setActive(next);
     },
-    [hits, active]
+    [hits, active],
   );
 
   // Cmd+F is bound deliberately: the browser's find would only see the rows in view and silently
@@ -340,11 +372,11 @@ export default function FastDiff({ diff, comments, mode, jump, showAll, onAddCom
   // expanded thread that jumped to a different line on save would be worse than not having one.
   const expandedIndex = useMemo(
     () => (expanded ? rows.findIndex((r) => r.key === expanded.key) : -1),
-    [expanded, rows]
+    [expanded, rows],
   );
   const composeIndex = useMemo(
     () => (composing ? rows.findIndex((r) => r.key === composing.rowKey) : -1),
-    [composing, rows]
+    [composing, rows],
   );
 
   const activeIndex = hits[active]?.index ?? -1;
@@ -371,95 +403,119 @@ export default function FastDiff({ diff, comments, mode, jump, showAll, onAddCom
       )}
 
       <div className="flex min-h-0 flex-1">
-      <div ref={scrollRef} data-diff-scroll className="min-h-0 flex-1 overflow-auto">
-        <div ref={surfaceRef} className="relative font-mono text-[13px] leading-5" style={{ height: totalHeight }}>
-          {slice.map((i) => {
-            const row = rows[i];
-            const top = offsets[i];
-            const height = offsets[i + 1] - top;
-            const isActive = i === activeIndex;
+        <div ref={scrollRef} data-diff-scroll className="min-h-0 flex-1 overflow-auto">
+          <div
+            ref={surfaceRef}
+            className="relative font-mono text-[13px] leading-5"
+            style={{ height: totalHeight }}
+          >
+            {slice.map((i) => {
+              const row = rows[i];
+              const top = offsets[i];
+              const height = offsets[i + 1] - top;
+              const isActive = i === activeIndex;
 
-            if (row.kind === ROW.FILE) {
-              const forFile = commentsByFile.get(row.file.path) ?? [];
-              return (
-                <div
-                  key={row.key}
-                  data-row
-                  data-row-kind="file"
-                  className="absolute inset-x-0"
-                  style={{ top, height }}
-                >
-                  <FileHeader
-                    file={row.file}
-                    comments={forFile.length}
-                    hidden={forFile.filter((c) => !anchored.has(c.id)).length}
-                    onShowComments={(p) => setDrawer({ path: p })}
-                  />
-                </div>
-              );
-            }
+              if (row.kind === ROW.FILE) {
+                const forFile = commentsByFile.get(row.file.path) ?? [];
+                return (
+                  <div
+                    key={row.key}
+                    data-row
+                    data-row-kind="file"
+                    className="absolute inset-x-0"
+                    style={{ top, height }}
+                  >
+                    <FileHeader
+                      file={row.file}
+                      comments={forFile.length}
+                      hidden={forFile.filter((c) => !anchored.has(c.id)).length}
+                      onShowComments={(p) => setDrawer({ path: p })}
+                    />
+                  </div>
+                );
+              }
 
-            if (row.kind === ROW.HUNK) {
-              return (
-                <div
-                  key={row.key}
-                  data-row
-                  data-row-kind="hunk"
-                  className="absolute inset-x-0 flex items-center bg-blue-50/60 px-3 text-[11px] text-blue-700 dark:bg-blue-500/10 dark:text-blue-300"
-                  style={{ top, height }}
-                >
-                  {row.text}
-                </div>
-              );
-            }
+              if (row.kind === ROW.HUNK) {
+                return (
+                  <div
+                    key={row.key}
+                    data-row
+                    data-row-kind="hunk"
+                    className="absolute inset-x-0 flex items-center bg-blue-50/60 px-3 text-[11px] text-blue-700 dark:bg-blue-500/10 dark:text-blue-300"
+                    style={{ top, height }}
+                  >
+                    {row.text}
+                  </div>
+                );
+              }
 
-            if (row.kind === ROW.SPACER) {
-              return (
-                <div
-                  key={row.key}
-                  data-row
-                  data-row-kind="spacer"
-                  className="absolute inset-x-0 flex items-center justify-center text-sm text-neutral-500"
-                  style={{ top, height }}
-                >
-                  {row.text}
-                </div>
-              );
-            }
+              if (row.kind === ROW.SPACER) {
+                return (
+                  <div
+                    key={row.key}
+                    data-row
+                    data-row-kind="spacer"
+                    className="absolute inset-x-0 flex items-center justify-center text-sm text-neutral-500"
+                    style={{ top, height }}
+                  >
+                    {row.text}
+                  </div>
+                );
+              }
 
-            if (row.kind === ROW.COMMENT) {
-              return (
-                <div
-                  key={row.key}
-                  data-row
-                  data-row-kind="comment"
-                  data-comment-slot
-                  className="absolute inset-x-0"
-                  style={{ top, height }}
-                >
-                  <CommentSlot
-                    row={row}
-                    lines={COMMENT_ROW_LINES}
-                    hidden={expanded?.key === row.key}
-                    onOpen={(toReply) => setExpanded({ key: row.key, reply: toReply })}
-                  />
-                </div>
-              );
-            }
+              if (row.kind === ROW.COMMENT) {
+                return (
+                  <div
+                    key={row.key}
+                    data-row
+                    data-row-kind="comment"
+                    data-comment-slot
+                    className="absolute inset-x-0"
+                    style={{ top, height }}
+                  >
+                    <CommentSlot
+                      row={row}
+                      lines={COMMENT_ROW_LINES}
+                      hidden={expanded?.key === row.key}
+                      onOpen={(toReply) => setExpanded({ key: row.key, reply: toReply })}
+                    />
+                  </div>
+                );
+              }
 
-            const ring = isActive ? "ring-2 ring-inset ring-amber-400" : "";
-            const onAdd = (line) =>
-              setComposing({
-                rowKey: row.key,
-                file: row.file.path,
-                line: line.newNo ?? line.oldNo,
-                side: line.newNo ? "new" : "old",
-                text: line.text,
-              });
+              const ring = isActive ? "ring-2 ring-inset ring-amber-400" : "";
+              const onAdd = (line) =>
+                setComposing({
+                  rowKey: row.key,
+                  file: row.file.path,
+                  line: line.newNo ?? line.oldNo,
+                  side: line.newNo ? "new" : "old",
+                  text: line.text,
+                });
 
-            const lang = row.file?.lang;
+              const lang = row.file?.lang;
 
-            if (mode === "unified") {
+              if (mode === "unified") {
+                return (
+                  <div
+                    key={row.key}
+                    data-row
+                    data-row-kind="line"
+                    className={"absolute inset-x-0 flex " + ring}
+                    style={{ top, height }}
+                  >
+                    <Side
+                      line={row}
+                      lang={lang}
+                      kind={row.type}
+                      query={query}
+                      options={options}
+                      onAdd={onAdd}
+                    />
+                  </div>
+                );
+              }
+
               return (
                 <div
                   key={row.key}
@@ -468,101 +524,88 @@ export default function FastDiff({ diff, comments, mode, jump, showAll, onAddCom
                   className={"absolute inset-x-0 flex " + ring}
                   style={{ top, height }}
                 >
-                  <Side line={row} lang={lang} kind={row.type} query={query} options={options} onAdd={onAdd} />
+                  <Side
+                    line={row.left}
+                    lang={lang}
+                    kind={sideKind(row, "left")}
+                    query={query}
+                    options={options}
+                    onAdd={onAdd}
+                  />
+                  <div className="w-px shrink-0 bg-neutral-200 dark:bg-neutral-800" />
+                  <Side
+                    line={row.right}
+                    lang={lang}
+                    kind={sideKind(row, "right")}
+                    query={query}
+                    options={options}
+                    onAdd={onAdd}
+                  />
                 </div>
               );
-            }
+            })}
 
-            return (
+            {expandedIndex !== -1 && (
               <div
-                key={row.key}
-                data-row
-                data-row-kind="line"
-                className={"absolute inset-x-0 flex " + ring}
-                style={{ top, height }}
+                data-comment-expanded
+                // Opaque: the thread's own tint is translucent, and the rows it covers would
+                // otherwise read through the expanded card.
+                className="absolute inset-x-0 z-20 overflow-auto bg-white font-sans shadow-2xl ring-1 ring-amber-400/60 dark:bg-neutral-900"
+                style={{ top: offsets[expandedIndex], maxHeight: COMMENT_EXPANDED_MAX_PX }}
               >
-                <Side
-                  line={row.left}
-                  lang={lang}
-                  kind={sideKind(row, "left")}
-                  query={query}
-                  options={options}
-                  onAdd={onAdd}
-                />
-                <div className="w-px shrink-0 bg-neutral-200 dark:bg-neutral-800" />
-                <Side
-                  line={row.right}
-                  lang={lang}
-                  kind={sideKind(row, "right")}
-                  query={query}
-                  options={options}
-                  onAdd={onAdd}
+                <CommentThread
+                  comments={rows[expandedIndex].comments}
+                  startReplying={expanded.reply}
+                  header={
+                    <ThreadHeader
+                      comments={rows[expandedIndex].comments}
+                      file={rows[expandedIndex].file.path}
+                      line={rows[expandedIndex].line}
+                      action={
+                        <button
+                          type="button"
+                          onClick={() => setExpanded(null)}
+                          className="rounded px-1 text-[11px] text-neutral-500 hover:bg-neutral-200 dark:hover:bg-neutral-700"
+                        >
+                          collapse
+                        </button>
+                      }
+                    />
+                  }
+                  onResolve={(id) => onCommentAction(id, { status: "resolved" })}
+                  onReopen={(id) => onCommentAction(id, { status: "open" })}
+                  onDelete={(id) => onCommentAction(id, { delete: true })}
+                  onReply={(id, body) => onCommentAction(id, { reply: { author: "user", body } })}
                 />
               </div>
-            );
-          })}
+            )}
 
-          {expandedIndex !== -1 && (
-            <div
-              data-comment-expanded
-              // Opaque: the thread's own tint is translucent, and the rows it covers would
-              // otherwise read through the expanded card.
-              className="absolute inset-x-0 z-20 overflow-auto bg-white font-sans shadow-2xl ring-1 ring-amber-400/60 dark:bg-neutral-900"
-              style={{ top: offsets[expandedIndex], maxHeight: COMMENT_EXPANDED_MAX_PX }}
-            >
-              <CommentThread
-                comments={rows[expandedIndex].comments}
-                startReplying={expanded.reply}
-                header={
-                  <ThreadHeader
-                    comments={rows[expandedIndex].comments}
-                    file={rows[expandedIndex].file.path}
-                    line={rows[expandedIndex].line}
-                    action={
-                      <button
-                        type="button"
-                        onClick={() => setExpanded(null)}
-                        className="rounded px-1 text-[11px] text-neutral-500 hover:bg-neutral-200 dark:hover:bg-neutral-700"
-                      >
-                        collapse
-                      </button>
-                    }
-                  />
-                }
-                onResolve={(id) => onCommentAction(id, { status: "resolved" })}
-                onReopen={(id) => onCommentAction(id, { status: "open" })}
-                onDelete={(id) => onCommentAction(id, { delete: true })}
-                onReply={(id, body) => onCommentAction(id, { reply: { author: "user", body } })}
-              />
-            </div>
-          )}
-
-          {composeIndex !== -1 && (
-            <div
-              data-comment-composer
-              className="absolute inset-x-0 z-20 rounded-md border border-blue-300 bg-white p-2 font-sans shadow-xl dark:border-blue-500/40 dark:bg-neutral-900"
-              style={{ top: offsets[composeIndex + 1] }}
-            >
-              <div className="mb-1 font-mono text-[11px] text-neutral-500">
-                {composing.file}:{composing.line}
+            {composeIndex !== -1 && (
+              <div
+                data-comment-composer
+                className="absolute inset-x-0 z-20 rounded-md border border-blue-300 bg-white p-2 font-sans shadow-xl dark:border-blue-500/40 dark:bg-neutral-900"
+                style={{ top: offsets[composeIndex + 1] }}
+              >
+                <div className="mb-1 font-mono text-[11px] text-neutral-500">
+                  {composing.file}:{composing.line}
+                </div>
+                <CommentComposer
+                  onCancel={() => setComposing(null)}
+                  onSubmit={(body) => {
+                    onAddComment({
+                      file: composing.file,
+                      side: composing.side,
+                      line: composing.line,
+                      lineContent: composing.text,
+                      body,
+                    });
+                    setComposing(null);
+                  }}
+                />
               </div>
-              <CommentComposer
-                onCancel={() => setComposing(null)}
-                onSubmit={(body) => {
-                  onAddComment({
-                    file: composing.file,
-                    side: composing.side,
-                    line: composing.line,
-                    lineContent: composing.text,
-                    body,
-                  });
-                  setComposing(null);
-                }}
-              />
-            </div>
-          )}
+            )}
+          </div>
         </div>
-      </div>
 
         {drawer && (
           <CommentDrawer

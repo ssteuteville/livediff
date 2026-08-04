@@ -13,7 +13,7 @@
 - Package manager is **pnpm**, never npm or yarn.
 - **Never chain shell commands** — no `&&`, `||`, `|`, `;`. One command per invocation.
 - Conventional Commits: `type(scope): subject`, scope is `livediff`.
-- Prefer no comments. A comment explains *why*, never *what*.
+- Prefer no comments. A comment explains _why_, never _what_.
 - `engines.node` is `>=24` and `.node-version` pins 24 (revised 2026-08-03 from `>=18`). Node 24 is the active LTS; 26 is Current until October.
 - Browser tests assert with `expect`, not `node:assert` — Vite externalizes node builtins in the browser. The node project keeps `node:assert/strict`.
 - Browser component tests must `import "../../src/index.css"`, or every Tailwind class is a no-op and layout assertions prove nothing.
@@ -28,27 +28,27 @@
 
 ## File Structure
 
-| File | Responsibility |
-| --- | --- |
-| `tsconfig.base.json` | Shared compiler options — every strict flag lives here, once |
-| `tsconfig.web.json` | DOM + JSX surface: `src/`, `shared/`, `test/browser/` |
-| `tsconfig.node.json` | Node surface: `server/`, `shared/`, `test/`, `e2e/`, `bench/` |
-| `tsconfig.json` | Solution file referencing the two; what `tsc -b` builds |
-| `.oxlintrc.json` | Lint rules, plugins, per-directory overrides |
-| `.oxfmtrc.json` | Format options |
-| `vitest.config.ts` | Two projects: `node` and `browser` |
-| `playwright.config.ts` | E2E runner config, Chromium only |
-| `src/App.jsx`, `src/components/FastDiff.jsx`, `src/components/CommentDrawer.jsx`, `src/components/WorkspaceRail.jsx` | Gain `data-*` test hooks only — no behavior change |
-| `e2e/global-setup.ts` | Builds the UI, starts a hub on temp state, generates fixtures |
-| `e2e/harness.ts` | Shared helpers: workspace URLs, scroll helpers, metric probes |
-| `e2e/renderer.spec.ts` | Renderer identity and the deterministic performance gates |
-| `e2e/navigation.spec.ts` | Jump-to-file, live update, scroll anchoring, search, grammar chunks |
-| `e2e/comments.spec.ts` | Comment slots, truncation, reply badge, drawer |
-| `test/browser/metrics.test.tsx` | `useTextMetrics` against real fonts |
-| `test/browser/rows.test.tsx` | `useVirtualRows` windowing and scroll anchoring |
-| `test/browser/comment-thread.test.tsx` | Collapsed slot rendering and truncation |
-| `.github/workflows/ci.yml` | The gates |
-| `lefthook.yml` | Pre-commit format + lint on staged files |
+| File                                                                                                                 | Responsibility                                                      |
+| -------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
+| `tsconfig.base.json`                                                                                                 | Shared compiler options — every strict flag lives here, once        |
+| `tsconfig.web.json`                                                                                                  | DOM + JSX surface: `src/`, `shared/`, `test/browser/`               |
+| `tsconfig.node.json`                                                                                                 | Node surface: `server/`, `shared/`, `test/`, `e2e/`, `bench/`       |
+| `tsconfig.json`                                                                                                      | Solution file referencing the two; what `tsc -b` builds             |
+| `.oxlintrc.json`                                                                                                     | Lint rules, plugins, per-directory overrides                        |
+| `.oxfmtrc.json`                                                                                                      | Format options                                                      |
+| `vitest.config.ts`                                                                                                   | Two projects: `node` and `browser`                                  |
+| `playwright.config.ts`                                                                                               | E2E runner config, Chromium only                                    |
+| `src/App.jsx`, `src/components/FastDiff.jsx`, `src/components/CommentDrawer.jsx`, `src/components/WorkspaceRail.jsx` | Gain `data-*` test hooks only — no behavior change                  |
+| `e2e/global-setup.ts`                                                                                                | Builds the UI, starts a hub on temp state, generates fixtures       |
+| `e2e/harness.ts`                                                                                                     | Shared helpers: workspace URLs, scroll helpers, metric probes       |
+| `e2e/renderer.spec.ts`                                                                                               | Renderer identity and the deterministic performance gates           |
+| `e2e/navigation.spec.ts`                                                                                             | Jump-to-file, live update, scroll anchoring, search, grammar chunks |
+| `e2e/comments.spec.ts`                                                                                               | Comment slots, truncation, reply badge, drawer                      |
+| `test/browser/metrics.test.tsx`                                                                                      | `useTextMetrics` against real fonts                                 |
+| `test/browser/rows.test.tsx`                                                                                         | `useVirtualRows` windowing and scroll anchoring                     |
+| `test/browser/comment-thread.test.tsx`                                                                               | Collapsed slot rendering and truncation                             |
+| `.github/workflows/ci.yml`                                                                                           | The gates                                                           |
+| `lefthook.yml`                                                                                                       | Pre-commit format + lint on staged files                            |
 
 ---
 
@@ -57,10 +57,12 @@
 Installs everything and proves it runs against today's JavaScript. Nothing in `src/` or `server/` is touched.
 
 **Files:**
+
 - Create: `tsconfig.base.json`, `tsconfig.web.json`, `tsconfig.node.json`, `tsconfig.json`, `.oxlintrc.json`, `.oxfmtrc.json`, `.github/workflows/ci.yml`
 - Modify: `package.json`, `.gitignore`
 
 **Interfaces:**
+
 - Produces: `pnpm typecheck`, `pnpm lint`, `pnpm format`, `pnpm format:check` scripts used by every later task.
 
 - [ ] **Step 1: Install the toolchain**
@@ -148,7 +150,17 @@ Create `.oxlintrc.json`. `typeAware` is **false** here and flips to true in Plan
 ```json
 {
   "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["eslint", "typescript", "react", "unicorn", "promise", "node", "import", "oxc", "vitest"],
+  "plugins": [
+    "eslint",
+    "typescript",
+    "react",
+    "unicorn",
+    "promise",
+    "node",
+    "import",
+    "oxc",
+    "vitest"
+  ],
   "categories": {
     "correctness": "error",
     "suspicious": "error",
@@ -267,10 +279,12 @@ git commit -m "build(livediff): add the TypeScript, oxlint and oxfmt toolchain"
 Fifteen import lines. Every assertion is untouched, because `node:assert/strict` works under Vitest.
 
 **Files:**
+
 - Create: `vitest.config.ts`
 - Modify: all 15 files in `test/*.test.js` (line 1 only), `package.json`
 
 **Interfaces:**
+
 - Consumes: `pnpm typecheck` from Task 1.
 - Produces: `vitest.config.ts` exporting a config whose `test.projects[0].name` is `"node"`. Task 3 appends a second project named `"browser"`.
 
@@ -348,10 +362,12 @@ git commit -m "test(livediff): run the suite on Vitest"
 The analytic row-height model rests entirely on real character-width measurements taken from the DOM. Under jsdom those probes return garbage, so this code is untestable anywhere but a real browser.
 
 **Files:**
+
 - Create: `test/browser/metrics.test.tsx`
 - Modify: `vitest.config.ts`, `package.json`
 
 **Interfaces:**
+
 - Consumes: `vitest.config.ts` from Task 2.
 - Produces: a `browser` Vitest project matching `test/browser/*.test.tsx`; `pnpm test:browser`.
 - Uses from source: `useTextMetrics` exported by `src/hooks/useVirtualRows.js`, returning at least `{ charWidth, lineHeight, proseCharWidth }`.
@@ -425,7 +441,13 @@ function Probe({ onMeasure }: { onMeasure: (m: unknown) => void }) {
 
 test("text metrics measure a real font, not a guess", async () => {
   let measured: any = null;
-  render(<Probe onMeasure={(m) => { measured = m; }} />);
+  render(
+    <Probe
+      onMeasure={(m) => {
+        measured = m;
+      }}
+    />,
+  );
 
   assert.ok(measured, "useTextMetrics returned nothing");
   assert.ok(measured.charWidth > 0, "monospace character width must be positive");
@@ -435,14 +457,20 @@ test("text metrics measure a real font, not a guess", async () => {
 
 test("prose text is measured separately from monospace", async () => {
   let measured: any = null;
-  render(<Probe onMeasure={(m) => { measured = m; }} />);
+  render(
+    <Probe
+      onMeasure={(m) => {
+        measured = m;
+      }}
+    />,
+  );
 
   // The bug this pins: estimating proportional text with monospace metrics. The two must not be
   // the same number, or the comment-slot height math is guessing again.
   assert.notEqual(
     measured.proseCharWidth,
     measured.charWidth,
-    "prose and monospace widths are identical — the prose probe is not measuring proportional text"
+    "prose and monospace widths are identical — the prose probe is not measuring proportional text",
   );
 });
 ```
@@ -472,15 +500,17 @@ git commit -m "test(livediff): measure text metrics in a real browser"
 Pins the two invariants the virtualized renderer is built on.
 
 **Files:**
+
 - Create: `test/browser/rows.test.tsx`, `test/browser/comment-thread.test.tsx`
 
 **Interfaces:**
+
 - Consumes: the `browser` project from Task 3.
 - Uses from source: `buildRows(files, mode, comments)` and `ROW` from `src/diff-model.js`; `CommentThreadPreview` from `src/components/CommentThread.jsx`; `COMMENT_REPLY_STRIP_PX` from `server/constants.js`.
 
 - [ ] **Step 1: Write the row-window test**
 
-Create `test/browser/rows.test.tsx`. The invariant: a slot's height depends on *whether* a thread has replies, never on *how many* it has.
+Create `test/browser/rows.test.tsx`. The invariant: a slot's height depends on _whether_ a thread has replies, never on _how many_ it has.
 
 ```tsx
 import { test } from "vitest";
@@ -541,7 +571,9 @@ import assert from "node:assert/strict";
 import { render } from "vitest-browser-react";
 import { CommentThreadPreview } from "../../src/components/CommentThread.jsx";
 
-const long = Array.from({ length: 60 }, (_, i) => `line ${i} of a very long comment body`).join("\n");
+const long = Array.from({ length: 60 }, (_, i) => `line ${i} of a very long comment body`).join(
+  "\n",
+);
 
 test("a long collapsed body is clipped to its slot, not allowed to overflow", async () => {
   const { container } = render(
@@ -549,19 +581,19 @@ test("a long collapsed body is clipped to its slot, not allowed to overflow", as
       <CommentThreadPreview
         comment={{ id: "a", body: long, replies: [], author: "shane", side: "new", line: 2 }}
       />
-    </div>
+    </div>,
   );
 
   const card = container.firstElementChild as HTMLElement;
   assert.ok(card, "nothing rendered");
   assert.ok(
     card.scrollHeight >= card.clientHeight,
-    "content shorter than its box — the fixture is not exercising truncation"
+    "content shorter than its box — the fixture is not exercising truncation",
   );
   assert.equal(
     card.getBoundingClientRect().height <= 200,
     true,
-    "the collapsed card grew past the slot it was given"
+    "the collapsed card grew past the slot it was given",
   );
 });
 
@@ -576,7 +608,7 @@ test("a collapsed thread with replies shows that it has them", async () => {
         side: "new",
         line: 2,
       }}
-    />
+    />,
   );
 
   // The bug this pins: replies were invisible until the thread was focused, and the badge was
@@ -609,26 +641,28 @@ This task adds attributes and nothing else. It is deliberately its own commit so
 confirm at a glance that no behavior changed.
 
 **Files:**
+
 - Modify: `src/App.jsx:332`, `src/App.jsx:347`, `src/components/FastDiff.jsx` (lines 373, 384, 397, 409, 421, 446, 453, 476, 510), `src/components/CommentDrawer.jsx`, `src/components/WorkspaceRail.jsx:30`
 
 **Interfaces:**
+
 - Produces the selectors every e2e test in Tasks 6–8 depends on:
 
-| Selector | Element |
-| --- | --- |
-| `[data-file-list]` | the file-list `<aside>` |
-| `[data-file-item="<path>"]` | one file entry in that list |
-| `[data-diff-scroll]` | the virtualized scroll container |
-| `[data-row]` | any absolutely-positioned row |
-| `[data-row-kind="file\|hunk\|spacer\|comment\|line"]` | that row's kind |
-| `[data-comment-slot]` | a collapsed comment slot |
-| `[data-comment-expanded]` | the expanded overlay |
-| `[data-comment-composer]` | the new-comment overlay |
-| `[data-comment-drawer]` | the drawer panel |
-| `[data-add-comment]` | the `+` gutter button |
-| `[data-rail-comment-count]` | the workspace open-comment badge |
-| `[data-diff-search]` | the search wrapper in `src/components/DiffSearch.jsx` |
-| `window.__LIVEDIFF_RENDERERS__` | the renderer list the served bundle knows about |
+| Selector                                              | Element                                               |
+| ----------------------------------------------------- | ----------------------------------------------------- |
+| `[data-file-list]`                                    | the file-list `<aside>`                               |
+| `[data-file-item="<path>"]`                           | one file entry in that list                           |
+| `[data-diff-scroll]`                                  | the virtualized scroll container                      |
+| `[data-row]`                                          | any absolutely-positioned row                         |
+| `[data-row-kind="file\|hunk\|spacer\|comment\|line"]` | that row's kind                                       |
+| `[data-comment-slot]`                                 | a collapsed comment slot                              |
+| `[data-comment-expanded]`                             | the expanded overlay                                  |
+| `[data-comment-composer]`                             | the new-comment overlay                               |
+| `[data-comment-drawer]`                               | the drawer panel                                      |
+| `[data-add-comment]`                                  | the `+` gutter button                                 |
+| `[data-rail-comment-count]`                           | the workspace open-comment badge                      |
+| `[data-diff-search]`                                  | the search wrapper in `src/components/DiffSearch.jsx` |
+| `window.__LIVEDIFF_RENDERERS__`                       | the renderer list the served bundle knows about       |
 
 - [ ] **Step 1: Hook the file list**
 
@@ -703,10 +737,12 @@ git commit -m "test(livediff): add stable data hooks for end-to-end selectors"
 ### Task 6: E2E harness and the deterministic performance gates
 
 **Files:**
+
 - Create: `playwright.config.ts`, `e2e/global-setup.ts`, `e2e/harness.ts`, `e2e/renderer.spec.ts`
 - Modify: `package.json`
 
 **Interfaces:**
+
 - Produces: `e2e/harness.ts` exporting `hubUrl(): string` and `workspaceUrl(name: FixtureName): string`, where `FixtureName` is `"tracked20k" | "modfiles" | "minified" | "lockfile"`.
 - Consumes from source: `startHub` and `withTempXdg` patterns from `test/helpers.js`; `addWorkspace(path, label)` from `server/registry.js`.
 
@@ -746,9 +782,15 @@ export default async function globalSetup() {
     lockfile: join(root, "lockfile"),
   };
 
-  execFileSync(process.execPath, ["bench/tracked.mjs", fixtures.tracked20k, "20000"], { cwd: repo });
-  execFileSync(process.execPath, ["bench/gen.mjs", fixtures.modfiles, "modified-not-added"], { cwd: repo });
-  execFileSync(process.execPath, ["bench/gen.mjs", fixtures.minified, "minified-single-line"], { cwd: repo });
+  execFileSync(process.execPath, ["bench/tracked.mjs", fixtures.tracked20k, "20000"], {
+    cwd: repo,
+  });
+  execFileSync(process.execPath, ["bench/gen.mjs", fixtures.modfiles, "modified-not-added"], {
+    cwd: repo,
+  });
+  execFileSync(process.execPath, ["bench/gen.mjs", fixtures.minified, "minified-single-line"], {
+    cwd: repo,
+  });
   execFileSync(process.execPath, ["bench/gen.mjs", fixtures.lockfile, "lockfile"], { cwd: repo });
 
   execFileSync("pnpm", ["run", "build"], { cwd: repo, stdio: "inherit" });
@@ -883,7 +925,9 @@ test("only a window of rows is rendered, wherever you scroll", async ({ page }) 
   const scroller = page.locator("[data-diff-scroll]");
   await scroller.waitFor({ timeout: 30_000 });
 
-  await scroller.evaluate((el) => { el.scrollTop = 250_000; });
+  await scroller.evaluate((el) => {
+    el.scrollTop = 250_000;
+  });
   await page.waitForTimeout(200);
 
   const rendered = await page.locator("[data-row]").count();
@@ -934,9 +978,11 @@ git commit -m "test(livediff): gate renderer identity and DOM node count end to 
 ### Task 7: E2E navigation, live update, and the untested fixture shapes
 
 **Files:**
+
 - Create: `e2e/navigation.spec.ts`
 
 **Interfaces:**
+
 - Consumes: `workspaceUrl`, `fixturePath` from `e2e/harness.ts`.
 
 - [ ] **Step 1: Write the jump-to-file and scroll-anchor tests**
@@ -977,17 +1023,21 @@ test("the last file cannot reach the top, and that is not a bug", async ({ page 
   // scrollTop maxes out at scrollHeight - clientHeight, so the final file lands mid-viewport.
   // This was chased as a 234px bug once. Pinning it stops that happening again.
   const atMax = await scroller.evaluate(
-    (el) => Math.abs(el.scrollTop - (el.scrollHeight - el.clientHeight)) < 2
+    (el) => Math.abs(el.scrollTop - (el.scrollHeight - el.clientHeight)) < 2,
   );
   expect(atMax).toBe(true);
 });
 
-test("an edit to an already-modified file updates the diff and holds the reader's place", async ({ page }) => {
+test("an edit to an already-modified file updates the diff and holds the reader's place", async ({
+  page,
+}) => {
   await page.goto(workspaceUrl("modfiles"));
   const scroller = page.locator("[data-diff-scroll]");
   await scroller.waitFor({ timeout: 30_000 });
 
-  await scroller.evaluate((el) => { el.scrollTop = 12_000; });
+  await scroller.evaluate((el) => {
+    el.scrollTop = 12_000;
+  });
   await page.waitForTimeout(200);
   const before = await scroller.evaluate((el) => ({
     top: el.scrollTop,
@@ -1014,7 +1064,7 @@ test("an edit to an already-modified file updates the diff and holds the reader'
 - [ ] **Step 2: Run them**
 
 Run: `pnpm e2e`
-Expected: PASS. Note that the file list lives in `src/App.jsx:332`, not in `WorkspaceRail.jsx` — the rail lists *workspaces*, the aside lists *files*.
+Expected: PASS. Note that the file list lives in `src/App.jsx:332`, not in `WorkspaceRail.jsx` — the rail lists _workspaces_, the aside lists _files_.
 
 - [ ] **Step 3: Write the untested-shape tests**
 
@@ -1055,7 +1105,7 @@ Expected: PASS. **If either fails, that is a real finding, not a broken test.** 
 
 Append to `e2e/navigation.spec.ts`. Search runs over the row model rather than the DOM, so it must
 find matches that were never rendered. Both diff modes must work — the recorded decision is that
-split and unified are both supported, and unified produces *more* rows (30k against 20k). Grammar
+split and unified are both supported, and unified produces _more_ rows (30k against 20k). Grammar
 chunks are fetched per language as it scrolls into view, which is what keeps first load at 71 KB.
 
 ```ts
@@ -1124,6 +1174,7 @@ git commit -m "test(livediff): cover jump-to-file, live update and the untested 
 ### Task 8: E2E comments, and turn the gates on
 
 **Files:**
+
 - Create: `e2e/comments.spec.ts`, `lefthook.yml`
 - Modify: `.github/workflows/ci.yml`, `package.json`
 
@@ -1135,7 +1186,9 @@ Create `e2e/comments.spec.ts`. Every scenario here is a behavior that was explic
 import { test, expect } from "@playwright/test";
 import { workspaceUrl } from "./harness";
 
-test("expanding a comment overlays the rows below and does not change document height", async ({ page }) => {
+test("expanding a comment overlays the rows below and does not change document height", async ({
+  page,
+}) => {
   await page.goto(workspaceUrl("modfiles"));
   const scroller = page.locator("[data-diff-scroll]");
   await scroller.waitFor({ timeout: 30_000 });
@@ -1217,14 +1270,14 @@ pnpm exec lefthook install
 In `.github/workflows/ci.yml`, add after the `pnpm test` step:
 
 ```yaml
-      - run: pnpm test:browser
-      - run: pnpm exec playwright install --with-deps chromium
-      - run: pnpm e2e
-      - uses: actions/upload-artifact@v4
-        if: failure()
-        with:
-          name: playwright-report
-          path: playwright-report/
+- run: pnpm test:browser
+- run: pnpm exec playwright install --with-deps chromium
+- run: pnpm e2e
+- uses: actions/upload-artifact@v4
+  if: failure()
+  with:
+    name: playwright-report
+    path: playwright-report/
 ```
 
 - [ ] **Step 6: Verify the whole gate**

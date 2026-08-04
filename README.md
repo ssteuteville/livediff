@@ -46,13 +46,13 @@ Install the plugin once; it supplies the skills and commands:
 /plugin install livediff
 ```
 
-| You say or type | What happens |
-| --- | --- |
-| "show me the diff" | registers this worktree and opens it |
-| "address my comments" | reads your open comments and works through them |
-| `/livediff:link` | prints the URL, opens nothing |
-| `/livediff:review` | opens the diff and waits for you to finish reviewing |
-| `/livediff:prune` | previews what would be deleted from the archive, then asks |
+| You say or type       | What happens                                               |
+| --------------------- | ---------------------------------------------------------- |
+| "show me the diff"    | registers this worktree and opens it                       |
+| "address my comments" | reads your open comments and works through them            |
+| `/livediff:link`      | prints the URL, opens nothing                              |
+| `/livediff:review`    | opens the diff and waits for you to finish reviewing       |
+| `/livediff:prune`     | previews what would be deleted from the archive, then asks |
 
 The typed-only ones are deliberate: each has side effects whose timing you should own.
 
@@ -60,7 +60,7 @@ The typed-only ones are deliberate: each has side effects whose timing you shoul
 
 A comment records the branch it was left on and is only shown on that branch.
 
-Once its file leaves the diff it is *orphaned* — hidden from the browser and from
+Once its file leaves the diff it is _orphaned_ — hidden from the browser and from
 `livediff comments`, but visible with `--stale`. After 5 days orphaned, or 30 days
 resolved, it is archived: still restorable, no longer in the way. Archived comments are
 deleted after 200 days.
@@ -153,14 +153,14 @@ See [DESIGN.md](DESIGN.md) for architecture and the API surface.
 
 ## Config
 
-| Env | Default | Meaning |
-|---|---|---|
-| `LIVEDIFF_PORT` | `4180` | preferred hub port; the hub takes the next free one if it's busy |
-| `LIVEDIFF_POLL_MS` | `1000` | live-update poll interval |
-| `LIVEDIFF_OPEN` | – | `1` opens the browser when the hub starts |
-| `NO_COLOR` | – | disable colored CLI output |
-| `XDG_CONFIG_HOME` | `~/.config` | where the registry and comments live |
-| `XDG_STATE_HOME` | `~/.local/state` | where hub runtime state lives |
+| Env                | Default          | Meaning                                                          |
+| ------------------ | ---------------- | ---------------------------------------------------------------- |
+| `LIVEDIFF_PORT`    | `4180`           | preferred hub port; the hub takes the next free one if it's busy |
+| `LIVEDIFF_POLL_MS` | `1000`           | live-update poll interval                                        |
+| `LIVEDIFF_OPEN`    | –                | `1` opens the browser when the hub starts                        |
+| `NO_COLOR`         | –                | disable colored CLI output                                       |
+| `XDG_CONFIG_HOME`  | `~/.config`      | where the registry and comments live                             |
+| `XDG_STATE_HOME`   | `~/.local/state` | where hub runtime state lives                                    |
 
 ## Development
 

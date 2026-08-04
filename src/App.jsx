@@ -31,8 +31,7 @@ const FileDiff = lazy(() => import("./components/FileDiff.jsx"));
 // When there is no diff, no comment can be anchored to one.
 const NOTHING_ANCHORED = new Set();
 
-const COMPARE_FIELD =
-  "w-44 rounded border px-2 py-1 font-mono outline-none focus:border-blue-500 ";
+const COMPARE_FIELD = "w-44 rounded border px-2 py-1 font-mono outline-none focus:border-blue-500 ";
 
 /**
  * A chosen ref changes what the whole page means, so the field has to read as active rather than as
@@ -62,7 +61,7 @@ const keepIfSame = (setState) => (next) =>
 
 function useTheme() {
   const [theme, setTheme] = useState(
-    window.matchMedia?.("(prefers-color-scheme: dark)").matches ? "dark" : "light"
+    window.matchMedia?.("(prefers-color-scheme: dark)").matches ? "dark" : "light",
   );
   useEffect(() => {
     const mq = window.matchMedia("(prefers-color-scheme: dark)");
@@ -119,7 +118,7 @@ export default function App() {
           setLoaded(true);
         })
         .catch(() => {}),
-    []
+    [],
   );
 
   // Saving several files in a row fires several diff events. Only the last answer is worth having,
@@ -146,7 +145,9 @@ export default function App() {
       setComments([]);
       return Promise.resolve();
     }
-    return fetchComments(ws).then(keepIfSame(setComments)).catch(() => {});
+    return fetchComments(ws)
+      .then(keepIfSame(setComments))
+      .catch(() => {});
   }, []);
 
   // A save that touches twenty files arrives as twenty events. Coalesce them into one fetch.
@@ -155,7 +156,7 @@ export default function App() {
     clearTimeout(diffTimer.current);
     diffTimer.current = setTimeout(
       () => loadDiff(selectedRef.current, baseRef.current),
-      DIFF_REFETCH_DEBOUNCE_MS
+      DIFF_REFETCH_DEBOUNCE_MS,
     );
   }, [loadDiff]);
 
@@ -166,7 +167,9 @@ export default function App() {
       setReview(null);
       return Promise.resolve();
     }
-    return fetchReview(ws).then(setReview).catch(() => setReview(null));
+    return fetchReview(ws)
+      .then(setReview)
+      .catch(() => setReview(null));
   }, []);
 
   useEffect(() => {
@@ -178,7 +181,10 @@ export default function App() {
     const ws = urlParams.get("ws");
     const path = urlParams.get("path");
     if (ws) setSelected(ws);
-    else if (path) resolvePath(path).then((w) => setSelected(w.id)).catch(() => {});
+    else if (path)
+      resolvePath(path)
+        .then((w) => setSelected(w.id))
+        .catch(() => {});
   }, [urlParams]);
 
   // Keep a valid selection as the workspace list changes.
@@ -209,7 +215,9 @@ export default function App() {
       setRefs([]);
       return;
     }
-    fetchRefs(selected).then(keepIfSame(setRefs)).catch(() => {});
+    fetchRefs(selected)
+      .then(keepIfSame(setRefs))
+      .catch(() => {});
   }, [selected]);
 
   useEffect(() => {
@@ -236,29 +244,38 @@ export default function App() {
   }, [loadWorkspaces, refetchDiffSoon, loadComments, loadReview]);
 
   const onDoneReviewing = useCallback(
-    () => completeReview(review.reviewId).then(() => setReview(null)).catch(() => {}),
-    [review]
+    () =>
+      completeReview(review.reviewId)
+        .then(() => setReview(null))
+        .catch(() => {}),
+    [review],
   );
 
   const onAddWorkspace = useCallback(
-    (path) => addWorkspace(path).then(loadWorkspaces).catch((e) => setError(String(e.message || e))),
-    [loadWorkspaces]
+    (path) =>
+      addWorkspace(path)
+        .then(loadWorkspaces)
+        .catch((e) => setError(String(e.message || e))),
+    [loadWorkspaces],
   );
   const onRemoveWorkspace = useCallback(
-    (id) => removeWorkspace(id).then(loadWorkspaces).catch(() => {}),
-    [loadWorkspaces]
+    (id) =>
+      removeWorkspace(id)
+        .then(loadWorkspaces)
+        .catch(() => {}),
+    [loadWorkspaces],
   );
 
   const onAddComment = useCallback(
     (input) => createComment(selected, input).then(() => loadComments(selected)),
-    [selected, loadComments]
+    [selected, loadComments],
   );
   const onCommentAction = useCallback(
     (id, action) => {
       const p = action.delete ? removeComment(selected, id) : patchComment(selected, id, action);
       return p.then(() => loadComments(selected));
     },
-    [selected, loadComments]
+    [selected, loadComments],
   );
 
   const visibleComments = useMemo(() => {
@@ -364,7 +381,9 @@ export default function App() {
                 onClick={() => setMode(m)}
                 className={
                   "px-2 py-1 " +
-                  (mode === m ? "bg-blue-600 text-white" : "bg-white text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300")
+                  (mode === m
+                    ? "bg-blue-600 text-white"
+                    : "bg-white text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300")
                 }
               >
                 {label}
@@ -425,7 +444,10 @@ export default function App() {
                   onClick={() => scrollToFile(i, f.path)}
                   className="flex w-full items-center gap-1.5 rounded px-2 py-1 text-left text-xs hover:bg-neutral-100 dark:hover:bg-neutral-800"
                 >
-                  <span className="truncate font-mono text-neutral-700 dark:text-neutral-200" title={f.path}>
+                  <span
+                    className="truncate font-mono text-neutral-700 dark:text-neutral-200"
+                    title={f.path}
+                  >
                     {f.path.split("/").pop()}
                   </span>
                   {fc > 0 && (
@@ -434,8 +456,12 @@ export default function App() {
                     </span>
                   )}
                   <span className={"text-[10px] text-neutral-400 " + (fc > 0 ? "" : "ml-auto")}>
-                    {f.additions > 0 && <span className="text-green-600 dark:text-green-400">+{f.additions}</span>}{" "}
-                    {f.deletions > 0 && <span className="text-red-600 dark:text-red-400">−{f.deletions}</span>}
+                    {f.additions > 0 && (
+                      <span className="text-green-600 dark:text-green-400">+{f.additions}</span>
+                    )}{" "}
+                    {f.deletions > 0 && (
+                      <span className="text-red-600 dark:text-red-400">−{f.deletions}</span>
+                    )}
                   </span>
                 </button>
               );
@@ -444,9 +470,7 @@ export default function App() {
         )}
 
         <main
-          className={
-            fast ? "flex min-w-0 flex-1 flex-col" : "min-w-0 flex-1 overflow-y-auto p-4"
-          }
+          className={fast ? "flex min-w-0 flex-1 flex-col" : "min-w-0 flex-1 overflow-y-auto p-4"}
         >
           {error && (
             <div className="mb-3 rounded border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-500/30 dark:bg-red-950/30 dark:text-red-300">
@@ -456,13 +480,17 @@ export default function App() {
           {!selectedWs && focused && (
             <div className="mt-24 text-center text-sm text-neutral-400">
               That workspace isn’t registered. Run{" "}
-              <code className="rounded bg-neutral-200 px-1 dark:bg-neutral-800">livediff &lt;path&gt;</code> first.
+              <code className="rounded bg-neutral-200 px-1 dark:bg-neutral-800">
+                livediff &lt;path&gt;
+              </code>{" "}
+              first.
             </div>
           )}
           {!selectedWs && !focused && (
             <div className="mt-24 text-center text-sm text-neutral-400">
               No workspace selected. Register a worktree to get started — run{" "}
-              <code className="rounded bg-neutral-200 px-1 dark:bg-neutral-800">livediff .</code> in it, or ask Claude.
+              <code className="rounded bg-neutral-200 px-1 dark:bg-neutral-800">livediff .</code> in
+              it, or ask Claude.
             </div>
           )}
           {selectedWs && diff && visibleFiles.length === 0 && (
@@ -504,7 +532,11 @@ export default function App() {
             />
           )}
           {selectedWs && !fast && visibleFiles.length > 0 && (
-            <Suspense fallback={<div className="mt-24 text-center text-sm text-neutral-400">Loading diff view…</div>}>
+            <Suspense
+              fallback={
+                <div className="mt-24 text-center text-sm text-neutral-400">Loading diff view…</div>
+              }
+            >
               {visibleFiles.map((f, i) => (
                 <div key={f.path} ref={(el) => (fileRefs.current[i] = el)}>
                   <FileDiff

@@ -18,7 +18,7 @@ were both inspired by [difit](https://difit.dev/), which is probably why.
 ### Where it differs structurally
 
 **Comments go to a terminal, not through a CLI.** cmux-hub talks to cmux over a Unix domain
-socket (`/tmp/cmux.sock`) via JSON-RPC. It is a diff viewer *for cmux*. livediff's comments go
+socket (`/tmp/cmux.sock`) via JSON-RPC. It is a diff viewer _for cmux_. livediff's comments go
 through `livediff comments`, which any shell-capable agent can call — that was the deliberate
 premise of the v0.4 CLI-first redesign, and it is why Codex, Gemini, and agy can use livediff
 without livediff knowing they exist. Different choice, not a worse one; it buys them a tighter
@@ -66,15 +66,15 @@ not before.**
 livediff already has three integration points and needs no plugin framework for most of what a
 terminal integration would want:
 
-| Need | Answer | Status |
-| --- | --- | --- |
-| Where does the URL open? | `LIVEDIFF_BROWSER`, e.g. `cmux open-window` | Works; fixed to accept arguments in 0.6 |
-| When does livediff fire? | A Claude Code hook running `livediff . --no-open` | Works, no livediff change needed |
-| Push comments out to a terminal | Would need richer SSE payloads | Not built |
+| Need                            | Answer                                            | Status                                  |
+| ------------------------------- | ------------------------------------------------- | --------------------------------------- |
+| Where does the URL open?        | `LIVEDIFF_BROWSER`, e.g. `cmux open-window`       | Works; fixed to accept arguments in 0.6 |
+| When does livediff fire?        | A Claude Code hook running `livediff . --no-open` | Works, no livediff change needed        |
+| Push comments out to a terminal | Would need richer SSE payloads                    | Not built                               |
 
 The third is the only one that needs anything from us. Today the `comments` SSE event carries
 `{reason, ws}` and the browser refetches — deliberate, because it makes the browser the single
-reader. An integration that wants to *forward* a comment needs the comment in the event.
+reader. An integration that wants to _forward_ a comment needs the comment in the event.
 
 If we ever do want outbound integrations, the cheap shape is **hooks that run a command**, mirroring
 Claude Code's own model, rather than a plugin API with a lifecycle to version:

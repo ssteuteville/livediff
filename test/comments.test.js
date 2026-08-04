@@ -66,10 +66,16 @@ test("listComments filters by branch, and 'all' returns everything", async () =>
     const onFeat = await addComment("ws1", repo, input);
 
     const feat = await listComments("ws1", repo, { branch: "feat" });
-    assert.deepEqual(feat.map((c) => c.id), [onFeat.id]);
+    assert.deepEqual(
+      feat.map((c) => c.id),
+      [onFeat.id],
+    );
 
     const main = await listComments("ws1", repo, { branch: "main" });
-    assert.deepEqual(main.map((c) => c.id), [onMain.id]);
+    assert.deepEqual(
+      main.map((c) => c.id),
+      [onMain.id],
+    );
 
     assert.equal((await listComments("ws1", repo, { branch: "all" })).length, 2);
   });
@@ -88,10 +94,15 @@ test("a v1 array store is read without loss", async () => {
   await withTempXdg(async ({ root }) => {
     const repo = await makeRepo(join(root, "repo"));
     await writeJsonAtomic(join(configDir(), "comments", "ws1.json"), {
-      comments: [{ id: "old00001", file: "a.js", line: 1, body: "legacy", status: "open", replies: [] }],
+      comments: [
+        { id: "old00001", file: "a.js", line: 1, body: "legacy", status: "open", replies: [] },
+      ],
     });
     const all = await listComments("ws1", repo, { branch: "all" });
-    assert.deepEqual(all.map((c) => c.id), ["old00001"]);
+    assert.deepEqual(
+      all.map((c) => c.id),
+      ["old00001"],
+    );
   });
 });
 

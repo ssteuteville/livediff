@@ -17,19 +17,18 @@ makes the migration safe, and the CI is what makes any of it matter unattended.
 
 ## What the toolchain is
 
-| Concern | Tool | Version | Note |
-| --- | --- | --- | --- |
-| Types | TypeScript | 7.0.2 | Go-native compiler, GA 2026-07-08 |
-| Lint | oxlint | 1.77.0 | Type-aware mode on |
-| Format | oxfmt | 0.62.0 | Beta; 100% Prettier conformance |
-| Unit + component tests | Vitest | 4.1.10 | Node project + browser project |
-| E2E | @playwright/test | 1.62.1 | Chromium only |
-| Hooks | lefthook | 2.1.10 | |
+| Concern                | Tool             | Version | Note                              |
+| ---------------------- | ---------------- | ------- | --------------------------------- |
+| Types                  | TypeScript       | 7.0.2   | Go-native compiler, GA 2026-07-08 |
+| Lint                   | oxlint           | 1.77.0  | Type-aware mode on                |
+| Format                 | oxfmt            | 0.62.0  | Beta; 100% Prettier conformance   |
+| Unit + component tests | Vitest           | 4.1.10  | Node project + browser project    |
+| E2E                    | @playwright/test | 1.62.1  | Chromium only                     |
+| Hooks                  | lefthook         | 2.1.10  |                                   |
 
 ### Why oxlint rather than ESLint
 
-TypeScript 7.0 ships **no stable programmatic API** — that lands in 7.1, expected around October
-2026. `typescript-eslint@8.65.0` declares `typescript >=4.8.4 <6.1.0`, so it cannot run against the
+TypeScript 7.0 ships **no stable programmatic API** — that lands in 7.1, expected around October 2026. `typescript-eslint@8.65.0` declares `typescript >=4.8.4 <6.1.0`, so it cannot run against the
 current compiler at all. The official workaround is aliasing two compilers in one manifest
 (`"typescript": "npm:@typescript/typescript6"` plus `"typescript-7": "npm:typescript@^7"`).
 
@@ -47,7 +46,7 @@ documented behavioral drift from the official plugin.
 
 **Decision on `exhaustive-deps`: keep it enabled.** Where a dependency genuinely should not be
 tracked, disable that line — `FastDiff.jsx` already carries such a comment on the jump effect. If
-the port proves *wrong* rather than merely noisy, the fallback is adding ESLint for
+the port proves _wrong_ rather than merely noisy, the fallback is adding ESLint for
 `eslint-plugin-react-hooks` on `src/` alone. Oxlint's config is independent, so that fallback costs
 nothing already built. This is a reversible decision, not a fork.
 
@@ -136,7 +135,7 @@ work and also most of its payoff.
 
 The test net comes **first**. The migration is what needs the tests, not the other way around —
 neither Vitest nor Playwright cares whether the source is JS or TS. For a migration whose success
-criterion is *"behavior identical, now type-checked,"* the tests are the executable specification of
+criterion is _"behavior identical, now type-checked,"_ the tests are the executable specification of
 "nothing changed"; writing them afterward would be checking the answer against itself.
 
 New test code is written in TypeScript from birth. That costs one small setup step, avoids writing
@@ -187,14 +186,14 @@ config.
 
 Our metrics split cleanly, and conflating them is how perf suites become flake generators.
 
-| Metric | Nature | Use |
-| --- | --- | --- |
-| DOM nodes at a scroll position | Deterministic | **Hard gate** |
-| Rendered row-window size | Deterministic | **Hard gate** |
-| Bundle size gzip | Deterministic, no browser | **Hard gate** |
-| Document height for N rows | Deterministic (analytic) | **Hard gate** |
-| JS heap after load | GC noise | Generous threshold |
-| FCP, fps, worst frame | Machine-dependent | Recorded artifact, never a gate |
+| Metric                         | Nature                    | Use                             |
+| ------------------------------ | ------------------------- | ------------------------------- |
+| DOM nodes at a scroll position | Deterministic             | **Hard gate**                   |
+| Rendered row-window size       | Deterministic             | **Hard gate**                   |
+| Bundle size gzip               | Deterministic, no browser | **Hard gate**                   |
+| Document height for N rows     | Deterministic (analytic)  | **Hard gate**                   |
+| JS heap after load             | GC noise                  | Generous threshold              |
+| FCP, fps, worst frame          | Machine-dependent         | Recorded artifact, never a gate |
 
 Standard guidance is ±10–15% tolerance on timing and consistent hardware, which a shared GitHub
 runner categorically is not. Timing assertions in CI would buy flake, not safety.
@@ -205,12 +204,12 @@ failure mode with zero flake; the timing benchmark stays a local `pnpm bench:bro
 
 Reference numbers from the 20,000-line fixture, production build:
 
-| | classic | fast |
-| --- | --- | --- |
-| DOM nodes | 500,156 | 1,203 |
-| JS on first load | 413 KB gzip | 71 KB gzip |
-| Rows rendered at scroll 250,000 px | — | 62 |
-| Document height, 20,002 rows | — | 400,066 px |
+|                                    | classic     | fast       |
+| ---------------------------------- | ----------- | ---------- |
+| DOM nodes                          | 500,156     | 1,203      |
+| JS on first load                   | 413 KB gzip | 71 KB gzip |
+| Rows rendered at scroll 250,000 px | —           | 62         |
+| Document height, 20,002 rows       | —           | 400,066 px |
 
 ## E2E scenarios
 
@@ -222,39 +221,39 @@ explicitly requested. Citations are to `docs/superpowers/research/2026-08-03-han
 
 1. **The served bundle is the fast renderer.** The single most expensive mistake of the last stretch
    was measuring a stale tarball whose `RENDERERS` did not contain `"fast"`. Assert a fast-renderer-
-   specific marker is present in what the hub actually serves. *(handoff, "What the handoff got wrong")*
+   specific marker is present in what the hub actually serves. _(handoff, "What the handoff got wrong")_
 2. **DOM node count stays bounded.** 1,203 against classic's 500,156 on the 20k fixture. Hard gate.
 3. **The rendered row window stays small** — ~62 rows at scroll 250,000 px.
 4. **First-load JS stays under budget** — 71 KB gzip, from 413 KB.
 5. **Document height is analytic and stable.** 400,066 px for 20,002 rows, and — the explicit design
    invariant — **expanding a comment overlays the rows below rather than reflowing them, so document
-   height never changes.** *(handoff, "What shipped with it")*
+   height never changes.** _(handoff, "What shipped with it")_
 6. **Scroll position survives a live update.** Verified end to end at scrollTop 12,000 in the 40-file
-   fixture: after an edit, 12,040 with the same top row. *(session)*
+   fixture: after an edit, 12,040 with the same top row. _(session)_
 7. **An edit to an already-modified file is noticed.** The `worktreeSignature` bug — status alone
    never changed, so livediff's core use case silently did not work. Unit-tested now; e2e proves the
-   whole SSE path. *(session)*
+   whole SSE path. _(session)_
 8. **Clicking a file in the rail jumps to it on the right.** Explicitly requested. Pin the known
    inherent limit: the last file cannot reach the top because `scrollTop` maxes at
-   `scrollHeight - clientHeight`. *(handoff, and user request)*
-9. **A collapsed comment slot has a fixed height.** The stated rule: *whether* a thread has replies
-   changes the slot; *how many* it has does not. Assert in both split and unified. *(handoff)*
-10. **Long comment bodies truncate with an ellipsis.** Explicitly requested as a test case. *(user)*
+   `scrollHeight - clientHeight`. _(handoff, and user request)_
+9. **A collapsed comment slot has a fixed height.** The stated rule: _whether_ a thread has replies
+   changes the slot; _how many_ it has does not. Assert in both split and unified. _(handoff)_
+10. **Long comment bodies truncate with an ellipsis.** Explicitly requested as a test case. _(user)_
 11. **A reply badge is visible on a collapsed thread** without focusing it — this was missed entirely
-    in review and called out twice. *(user)*
+    in review and called out twice. _(user)_
 12. **The painted reply box opens the real one, focused.** The collapsed slot is the expanded card
-    drawn and clipped, down to a non-functional reply input. *(user design)*
+    drawn and clipped, down to a non-functional reply input. _(user design)_
 13. **Orphaned comments remain reachable.** The scenario as stated: leave a comment, change the code
     so its anchor line no longer exists, still be able to read whether Claude replied. Assert the
-    rail count matches the drawer, and that the "No longer in the diff" section holds it. *(user)*
-14. **Search reaches comment rows** and respects scope. *(handoff, model-level search)*
+    rail count matches the drawer, and that the "No longer in the diff" section holds it. _(user)_
+14. **Search reaches comment rows** and respects scope. _(handoff, model-level search)_
 15. **Split and unified both render.** Recorded decision: both diff shapes must work. Unified
-    produces more rows than split (30k vs 20k). *(perf research)*
+    produces more rows than split (30k vs 20k). _(perf research)_
 16. **Grammar chunks load per visible language** — not fetched at start, fetched once that language
-    scrolls into view. *(handoff, syntax highlighting)*
+    scrolls into view. _(handoff, syntax highlighting)_
 17. **The untested fixture shapes.** `minified-single-line` and `lockfile` were flagged as never
     exercised against the analytic row-height math. A single 20,000-character line is precisely where
-    that math is stressed. *(session, explicitly logged as the known gap)*
+    that math is stressed. _(session, explicitly logged as the known gap)_
 
 ### Harness rules, learned the expensive way
 
@@ -262,9 +261,9 @@ Not tests, but binding constraints on how tests are written:
 
 - **Never write artifacts into the repo under test.** Screenshots landing in the working tree
   changed the diff mid-run, triggered refetches between assertions, and produced a bogus "comment
-  anchored to the wrong file" result. *(handoff)*
+  anchored to the wrong file" result. _(handoff)_
 - **Match status text case-insensitively.** DOM text is lowercase with `text-transform: uppercase`;
-  an assertion on `MODIFIED` never matches. *(handoff)*
+  an assertion on `MODIFIED` never matches. _(handoff)_
 - **Measure the instrument before believing it about the subject.** Scenario 1 exists for this reason.
 
 ### Best-practice additions, not grounded in anything asked for
@@ -283,7 +282,7 @@ have been cared about. Adopt or drop deliberately.
   the "never write into the repo under test" rule.
 
 **Explicitly not recommended: cross-browser.** Standard practice would say run Firefox and WebKit.
-The recorded decision is *"Safari does not matter, native Cmd+F is not required"*, which is what
+The recorded decision is _"Safari does not matter, native Cmd+F is not required"_, which is what
 unblocked virtualization in the first place. Chromium only.
 
 ## Fixtures

@@ -55,7 +55,6 @@ export function pidAlive(pid) {
   }
 }
 
-
 export async function acquireLock(attempt = 0) {
   await mkdir(stateDir(), { recursive: true });
   try {
@@ -137,7 +136,7 @@ export async function shutdownHub(state) {
   });
   const stopped = await waitUntil(
     async () => !(await probeMeta(state.port, 200)),
-    SHUTDOWN_TIMEOUT_MS
+    SHUTDOWN_TIMEOUT_MS,
   );
   await clearState();
   return stopped;

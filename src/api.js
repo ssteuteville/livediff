@@ -4,7 +4,9 @@ async function json(res) {
 }
 
 export function fetchWorkspaces() {
-  return fetch("/api/workspaces").then(json).then((d) => d.workspaces);
+  return fetch("/api/workspaces")
+    .then(json)
+    .then((d) => d.workspaces);
 }
 
 export function addWorkspace(path, label) {
@@ -31,11 +33,15 @@ export function fetchDiff(ws, base) {
 }
 
 export function fetchRefs(ws) {
-  return fetch(`/api/refs?ws=${ws}`).then(json).then((d) => d.branches);
+  return fetch(`/api/refs?ws=${ws}`)
+    .then(json)
+    .then((d) => d.branches);
 }
 
 export function fetchComments(ws) {
-  return fetch(`/api/comments?ws=${ws}`).then(json).then((d) => d.comments);
+  return fetch(`/api/comments?ws=${ws}`)
+    .then(json)
+    .then((d) => d.comments);
 }
 
 export function createComment(ws, input) {
@@ -60,7 +66,9 @@ export function removeComment(ws, id) {
 
 /** The open review request for a workspace, or null. Set by `livediff <path> --wait`. */
 export function fetchReview(ws) {
-  return fetch(`/api/reviews?ws=${ws}`).then(json).then((d) => d.review);
+  return fetch(`/api/reviews?ws=${ws}`)
+    .then(json)
+    .then((d) => d.review);
 }
 
 export function completeReview(reviewId) {

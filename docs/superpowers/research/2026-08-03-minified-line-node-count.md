@@ -6,13 +6,13 @@
 ## What happens
 
 A repo whose diff is a single 20,000-character line renders **40,058 DOM nodes** and takes ~11s to
-become interactive. The whole 20,000-*line* fixture renders 1,203 nodes in ~0.4s.
+become interactive. The whole 20,000-_line_ fixture renders 1,203 nodes in ~0.4s.
 
-| Fixture | Lines | DOM nodes | Load |
-| --- | --- | --- | --- |
-| `tracked20k` | 20,000 | 1,203 | 0.4s |
-| `lockfile` | 20,000 | 1,203 | 0.3s |
-| `minified-single-line` | 1 | **40,058** | **11.3s** |
+| Fixture                | Lines  | DOM nodes  | Load      |
+| ---------------------- | ------ | ---------- | --------- |
+| `tracked20k`           | 20,000 | 1,203      | 0.4s      |
+| `lockfile`             | 20,000 | 1,203      | 0.3s      |
+| `minified-single-line` | 1      | **40,058** | **11.3s** |
 
 ## Why
 
@@ -49,10 +49,10 @@ and `splitAtMatch` run per token.
 null above it, which is the existing "grammar not ready" path, so the caller already renders one
 plain text node.
 
-| | before | after |
-| --- | --- | --- |
+|           | before | after        |
+| --------- | ------ | ------------ |
 | DOM nodes | 40,058 | under budget |
-| Load | 11.3 s | **0.28 s** |
+| Load      | 11.3 s | **0.28 s**   |
 
 A 40× improvement on load, from a three-line change. The `test.fail()` guards in
 `e2e/navigation.spec.ts` are now ordinary passing tests.

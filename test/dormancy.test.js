@@ -84,11 +84,21 @@ test("a hand-edited comments file broadcasts without a client attached", async (
       // Bypass the API entirely, the way a curious user with an editor would.
       await writeJsonAtomic(join(config, "livediff", "comments", `${ws.id}.json`), {
         comments: [
-          { id: "deadbeef", file: "README.md", side: "new", line: 1, body: "hand edited", status: "open", replies: [] },
+          {
+            id: "deadbeef",
+            file: "README.md",
+            side: "new",
+            line: 1,
+            body: "hand edited",
+            status: "open",
+            replies: [],
+          },
         ],
       });
 
-      const sawComments = await until(() => stream.frames.some((f) => f.includes("event: comments")));
+      const sawComments = await until(() =>
+        stream.frames.some((f) => f.includes("event: comments")),
+      );
       assert.ok(sawComments, `no comments frame; saw: ${JSON.stringify(stream.frames)}`);
     } finally {
       stream?.close();

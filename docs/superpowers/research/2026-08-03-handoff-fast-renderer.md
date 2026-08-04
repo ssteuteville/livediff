@@ -30,13 +30,13 @@ ends. Measure the instrument before believing what it says about the subject.
 
 Same 20,000-line fixture, production build, served by the installed hub:
 
-| | classic | fast |
-| --- | --- | --- |
-| First contentful paint | 5,536 ms | **104 ms** |
-| DOM nodes | 500,156 | **1,203** |
-| JS heap | 597 MB | **73 MB** |
-| Scroll | 14 fps | **96 fps**, worst frame 21 ms |
-| JS on first load | 413 KB gzip | **71 KB gzip** |
+|                        | classic     | fast                          |
+| ---------------------- | ----------- | ----------------------------- |
+| First contentful paint | 5,536 ms    | **104 ms**                    |
+| DOM nodes              | 500,156     | **1,203**                     |
+| JS heap                | 597 MB      | **73 MB**                     |
+| Scroll                 | 14 fps      | **96 fps**, worst frame 21 ms |
+| JS on first load       | 413 KB gzip | **71 KB gzip**                |
 
 `RENDERER` in `server/constants.js` is `"fast"`; `?renderer=classic` overrides it per tab.
 

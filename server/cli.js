@@ -3,16 +3,23 @@ import { stat } from "node:fs/promises";
 import { relative, resolve } from "node:path";
 import { ensureHub, hubVersion } from "./ensure-hub.js";
 import { readState, shutdownHub } from "./hub-state.js";
-import { findCommand, renderCommandHelp, renderMainHelp, suggest, VALUE_FLAGS } from "./cli-help.js";
+import {
+  findCommand,
+  renderCommandHelp,
+  renderMainHelp,
+  suggest,
+  VALUE_FLAGS,
+} from "./cli-help.js";
 import { openBrowser } from "./open-browser.js";
 import { sseEvents } from "./sse.js";
 import { diagnose } from "./doctor.js";
-import { COMMENT_STATUSES, filterByStatus, formatComments, emptyMessage } from "./comment-format.js";
+import {
+  COMMENT_STATUSES,
+  filterByStatus,
+  formatComments,
+  emptyMessage,
+} from "./comment-format.js";
 import { EXIT_ERROR, EXIT_OK, EXIT_USAGE, ID_PATTERN, PURGE_DAYS } from "./constants.js";
-
-
-
-
 
 /**
  * One pass over argv, so "is this flag set" and "what is its value" can't disagree. A flag that
@@ -240,7 +247,7 @@ async function cmdArchive(pathArg) {
   });
   out(
     `archived ${plural(body.archived, "comment")} across ${plural(body.workspaces, "workspace")}`,
-    body
+    body,
   );
 }
 
@@ -282,7 +289,7 @@ async function cmdPrune(pathArg) {
     const preview = await post({ path, keepDays, dryRun: true });
     if (!preview.count) return out("nothing to prune", { count: 0 });
     const ok = await confirm(
-      `Delete ${plural(preview.count, "archived comment")}? This cannot be undone.`
+      `Delete ${plural(preview.count, "archived comment")}? This cannot be undone.`,
     );
     if (!ok) return out("cancelled", { count: 0, cancelled: true });
   }
@@ -291,7 +298,7 @@ async function cmdPrune(pathArg) {
   const verb = dryRun ? "would delete" : "pruned";
   out(
     `${verb} ${plural(body.count, "archived comment")} across ${plural(body.workspaces, "workspace")}`,
-    body
+    body,
   );
 }
 
@@ -299,7 +306,10 @@ async function cmdReplyOrResolve(rest, resolveIt) {
   const [id, ...text] = rest;
   const name = resolveIt ? "resolve" : "reply";
   if (!id) {
-    await die(`usage: ${findCommand(name).usage}\n\nRun \`livediff help ${name}\` for details.`, EXIT_USAGE);
+    await die(
+      `usage: ${findCommand(name).usage}\n\nRun \`livediff help ${name}\` for details.`,
+      EXIT_USAGE,
+    );
   }
   const body = text.join(" ").trim();
   if (!resolveIt && !body) await die("reply text required", EXIT_USAGE);
@@ -338,7 +348,9 @@ async function cmdDoctor() {
   console.log(`livediff doctor — v${hubVersion()}\n`);
   for (const f of findings) {
     console.log(`${MARK[f.level]} ${f.title}`);
-    for (const line of String(f.detail ?? "").split("\n").filter(Boolean)) {
+    for (const line of String(f.detail ?? "")
+      .split("\n")
+      .filter(Boolean)) {
       console.log(`    ${line}`);
     }
     if (f.fix) console.log(`    → ${f.fix}`);
@@ -362,7 +374,7 @@ async function cmdHelp(token) {
     const hint = suggest(token);
     await die(
       `unknown command: ${token}${hint ? `\n\nDid you mean \`livediff ${hint}\`?` : ""}\n\nRun \`livediff --help\` to see available commands.`,
-      EXIT_USAGE
+      EXIT_USAGE,
     );
   }
   console.log(text);

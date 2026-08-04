@@ -18,7 +18,7 @@
 - Server binds `127.0.0.1` only. Never `0.0.0.0`.
 - Config (`workspaces.json`, `comments/`) stays in `$XDG_CONFIG_HOME/livediff` (default `~/.config/livediff`). Runtime state (`hub.json`, `hub.lock`, `hub.log`) goes in `$XDG_STATE_HOME/livediff` (default `~/.local/state/livediff`).
 - Every JSON write to disk must be atomic (temp file + `rename`).
-- Prefer no comments; when one is needed it explains *why*, not *what*.
+- Prefer no comments; when one is needed it explains _why_, not _what_.
 - Commit messages use Conventional Commits: `type(scope): subject`.
 - Tests must not touch the real `~/.config/livediff` or `~/.local/state/livediff`. Every test sets `XDG_CONFIG_HOME` and `XDG_STATE_HOME` to a temp dir.
 - `node --test` runs test **files** in parallel. Any file that spawns a hub must pin its own `LIVEDIFF_PORT` band at module top so two files never race for the same port — a second hub finding an equivalent hub on its port exits by design, which would hang the other file's test. Assigned bands: `hub-startup.test.js` → 4187–4190, `ensure-hub.test.js` → 4191–4195, `cli.test.js` → 4196–4199.
@@ -28,6 +28,7 @@
 ## File Structure
 
 **Create:**
+
 - `server/atomic.js` — `writeJsonAtomic(file, data)`. Sole owner of durable-write semantics.
 - `server/hub-state.js` — hub runtime state: `hub.json` read/write, spawn lock, liveness, `/api/meta` probing. Knows nothing about spawning.
 - `server/ensure-hub.js` — the `ensureHub()` state machine: probe, version-check, spawn, wait. Depends on `hub-state.js`.
@@ -36,6 +37,7 @@
 - `test/helpers.js` — temp XDG dirs, temp git repos, hub spawning for integration tests.
 
 **Modify:**
+
 - `server/registry.js` — lazy path resolution, atomic writes, toplevel normalization in `addWorkspace`.
 - `server/comments.js` — atomic writes, add `mergeInto(fromWsId, intoWsId)`.
 - `server/git.js` — add `toplevel(cwd)`.
@@ -48,6 +50,7 @@
 ### Task 1: Test harness and atomic JSON writes
 
 **Files:**
+
 - Create: `server/atomic.js`
 - Create: `test/helpers.js`
 - Create: `test/atomic.test.js`
@@ -56,6 +59,7 @@
 - Modify: `package.json` (scripts)
 
 **Interfaces:**
+
 - Consumes: nothing.
 - Produces:
   - `writeJsonAtomic(file: string, data: unknown): Promise<void>` from `server/atomic.js`
@@ -268,6 +272,7 @@ git commit -m "feat(livediff): atomic JSON writes and lazy config paths"
 ### Task 2: Worktree toplevel normalization
 
 **Files:**
+
 - Modify: `server/git.js` (add export near `isGitRepo`, line 46)
 - Modify: `server/registry.js` (`addWorkspace`, lines 48–64)
 - Modify: `server/index.js` (POST `/api/workspaces` handler, lines 135–143)
@@ -275,6 +280,7 @@ git commit -m "feat(livediff): atomic JSON writes and lazy config paths"
 - Modify: `test/registry.test.js`
 
 **Interfaces:**
+
 - Consumes: `writeJsonAtomic` (Task 1), `registryPath()` (Task 1).
 - Produces:
   - `toplevel(cwd: string): Promise<string | null>` from `server/git.js`
@@ -401,18 +407,18 @@ export async function addWorkspace(path, label) {
 In `server/index.js`, replace the POST `/api/workspaces` handler body (lines 135–143) with:
 
 ```js
-    if (pathname === "/api/workspaces" && req.method === "POST") {
-      const body = await readBody(req);
-      if (!body.path) return send(res, 400, { error: "path required" });
-      let ws;
-      try {
-        ws = await addWorkspace(resolvePath(body.path), body.label);
-      } catch (err) {
-        return send(res, 400, { error: String(err.message || err) });
-      }
-      broadcast("workspaces", { reason: "added", ws: ws.id });
-      return send(res, 201, ws);
-    }
+if (pathname === "/api/workspaces" && req.method === "POST") {
+  const body = await readBody(req);
+  if (!body.path) return send(res, 400, { error: "path required" });
+  let ws;
+  try {
+    ws = await addWorkspace(resolvePath(body.path), body.label);
+  } catch (err) {
+    return send(res, 400, { error: String(err.message || err) });
+  }
+  broadcast("workspaces", { reason: "added", ws: ws.id });
+  return send(res, 201, ws);
+}
 ```
 
 `isGitRepo` is no longer called here — `addWorkspace` subsumes the check. Remove `isGitRepo` from the `./git.js` import on line 7 if nothing else in the file uses it.
@@ -434,11 +440,13 @@ git commit -m "fix(livediff): register the worktree root, not the invoked subdir
 ### Task 3: Registry dedupe migration
 
 **Files:**
+
 - Create: `server/migrations.js`
 - Create: `test/migrations.test.js`
 - Modify: `server/comments.js` (add `mergeInto`)
 
 **Interfaces:**
+
 - Consumes: `toplevel` (Task 2), `readRegistry`/`idFor`/`registryPath` (Tasks 1–2), `writeJsonAtomic` (Task 1).
 - Produces:
   - `mergeInto(fromWsId: string, intoWsId: string): Promise<number>` from `server/comments.js` — appends `from`'s comments onto `into`'s, deletes `from`'s file, returns the number moved.
@@ -640,10 +648,12 @@ git commit -m "feat(livediff): migrate duplicate registry entries onto worktree 
 ### Task 4: Hub state module
 
 **Files:**
+
 - Create: `server/hub-state.js`
 - Create: `test/hub-state.test.js`
 
 **Interfaces:**
+
 - Consumes: `writeJsonAtomic` (Task 1).
 - Produces, all from `server/hub-state.js`:
   - `stateDir(): string`, `statePath(): string`, `lockPath(): string`, `logPath(): string`
@@ -665,8 +675,16 @@ import { join } from "node:path";
 import { utimes } from "node:fs/promises";
 import { withTempXdg } from "./helpers.js";
 import {
-  stateDir, statePath, readState, writeState, clearState,
-  pidAlive, acquireLock, releaseLock, lockPath, probeMeta,
+  stateDir,
+  statePath,
+  readState,
+  writeState,
+  clearState,
+  pidAlive,
+  acquireLock,
+  releaseLock,
+  lockPath,
+  probeMeta,
 } from "../server/hub-state.js";
 
 test("statePath follows XDG_STATE_HOME set after import", async () => {
@@ -693,7 +711,12 @@ test("readState returns null on corrupt JSON rather than throwing", async () => 
 
 test("round-trips state", async () => {
   await withTempXdg(async () => {
-    const state = { pid: 1234, port: 4180, version: "0.4.0", startedAt: "2026-07-31T00:00:00.000Z" };
+    const state = {
+      pid: 1234,
+      port: 4180,
+      version: "0.4.0",
+      startedAt: "2026-07-31T00:00:00.000Z",
+    };
     await writeState(state);
     assert.deepEqual(await readState(), state);
     await clearState();
@@ -842,11 +865,13 @@ git commit -m "feat(livediff): add hub runtime state module"
 ### Task 5: Hub startup — version, port discovery, state file, shutdown
 
 **Files:**
+
 - Modify: `server/index.js` (lines 20–28, 121–123, 209–267)
 - Modify: `test/helpers.js`
 - Create: `test/hub-startup.test.js`
 
 **Interfaces:**
+
 - Consumes: `writeState`/`clearState`/`probeMeta`/`logPath` (Task 4), `migrateRegistry` (Task 3).
 - Produces:
   - `GET /api/meta` → `{ name: "livediff", version: string, port: number }`
@@ -969,7 +994,7 @@ test("POST /api/shutdown exits the hub and clears state", async () => {
 });
 ```
 
-Note: the second test spawns two hubs with the *same* `LIVEDIFF_PORT`. Because both share one temp `XDG_STATE_HOME`, the second overwrites `hub.json` — which is exactly what happens in production when a second hub legitimately takes a different port, so `startHub` returning the newer state is correct here.
+Note: the second test spawns two hubs with the _same_ `LIVEDIFF_PORT`. Because both share one temp `XDG_STATE_HOME`, the second overwrites `hub.json` — which is exactly what happens in production when a second hub legitimately takes a different port, so `startHub` returning the newer state is correct here.
 
 - [ ] **Step 3: Run the test to verify it fails**
 
@@ -981,17 +1006,17 @@ Expected: FAIL — no `hub.json` is written, `startHub` times out
 In `server/index.js`, replace the `/api/meta` handler (lines 121–123):
 
 ```js
-    if (pathname === "/api/meta") {
-      return send(res, 200, { name: "livediff", port: BOUND_PORT, version: VERSION });
-    }
+if (pathname === "/api/meta") {
+  return send(res, 200, { name: "livediff", port: BOUND_PORT, version: VERSION });
+}
 
-    if (pathname === "/api/shutdown" && req.method === "POST") {
-      send(res, 200, { ok: true });
-      setTimeout(() => {
-        clearState().finally(() => process.exit(0));
-      }, 50);
-      return;
-    }
+if (pathname === "/api/shutdown" && req.method === "POST") {
+  send(res, 200, { ok: true });
+  setTimeout(() => {
+    clearState().finally(() => process.exit(0));
+  }, 50);
+  return;
+}
 ```
 
 Add to the imports:
@@ -1015,26 +1040,26 @@ Update the fallback `VERSION` on line 23 from `"0.2.0"` to `"0.0.0"` — a wrong
 In `server/index.js`, replace the `server.listen(...)` block at lines 256–264 with:
 
 ```js
-  const port = await listenWithFallback(server, PREFERRED_PORT);
-  if (port === null) {
-    console.log(`livediff hub already running on ${PREFERRED_PORT} — exiting`);
-    process.exit(0);
-  }
-  BOUND_PORT = port;
-  await writeState({
-    pid: process.pid,
-    port,
-    version: VERSION,
-    startedAt: new Date().toISOString(),
-  });
+const port = await listenWithFallback(server, PREFERRED_PORT);
+if (port === null) {
+  console.log(`livediff hub already running on ${PREFERRED_PORT} — exiting`);
+  process.exit(0);
+}
+BOUND_PORT = port;
+await writeState({
+  pid: process.pid,
+  port,
+  version: VERSION,
+  startedAt: new Date().toISOString(),
+});
 
-  const link = `http://localhost:${port}`;
-  console.log(`livediff hub → ${link}  (v${VERSION})`);
-  if (process.env.LIVEDIFF_OPEN === "1") {
-    const opener =
-      process.platform === "darwin" ? "open" : process.platform === "win32" ? "explorer" : "xdg-open";
-    execFile(opener, [link], () => {});
-  }
+const link = `http://localhost:${port}`;
+console.log(`livediff hub → ${link}  (v${VERSION})`);
+if (process.env.LIVEDIFF_OPEN === "1") {
+  const opener =
+    process.platform === "darwin" ? "open" : process.platform === "win32" ? "explorer" : "xdg-open";
+  execFile(opener, [link], () => {});
+}
 ```
 
 Add `listenWithFallback` above `main()`:
@@ -1072,17 +1097,17 @@ async function listenWithFallback(srv, preferred, tries = 20) {
 Still in `main()`, add as the very first statement:
 
 ```js
-  await migrateRegistry();
+await migrateRegistry();
 ```
 
 And after the `writeState` call, register cleanup:
 
 ```js
-  for (const signal of ["SIGINT", "SIGTERM"]) {
-    process.on(signal, () => {
-      clearState().finally(() => process.exit(0));
-    });
-  }
+for (const signal of ["SIGINT", "SIGTERM"]) {
+  process.on(signal, () => {
+    clearState().finally(() => process.exit(0));
+  });
+}
 ```
 
 - [ ] **Step 7: Run the tests to verify they pass**
@@ -1102,10 +1127,12 @@ git commit -m "feat(livediff): hub port discovery, state file, and graceful shut
 ### Task 6: ensureHub
 
 **Files:**
+
 - Create: `server/ensure-hub.js`
 - Create: `test/ensure-hub.test.js`
 
 **Interfaces:**
+
 - Consumes: everything from `server/hub-state.js` (Task 4); the hub startup behavior from Task 5.
 - Produces:
   - `ensureHub(): Promise<string>` from `server/ensure-hub.js` — resolves to a base URL like `http://127.0.0.1:4180`, spawning or replacing the hub as needed.
@@ -1243,8 +1270,14 @@ import { open, readFile, mkdir } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import {
-  readState, clearState, pidAlive, probeMeta,
-  acquireLock, releaseLock, logPath, stateDir,
+  readState,
+  clearState,
+  pidAlive,
+  probeMeta,
+  acquireLock,
+  releaseLock,
+  logPath,
+  stateDir,
 } from "./hub-state.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -1370,10 +1403,12 @@ git commit -m "feat(livediff): auto-start the hub on first CLI use"
 ### Task 7: Rewrite the CLI as a pure HTTP client
 
 **Files:**
+
 - Modify: `server/cli.js` (full rewrite, 203 lines → ~180)
 - Create: `test/cli.test.js`
 
 **Interfaces:**
+
 - Consumes: `ensureHub`/`hubVersion` (Task 6), `readState`/`clearState`/`pidAlive` (Task 4).
 - Produces: the CLI surface below. `server/registry.js` and `server/comments.js` are no longer imported by `cli.js`.
 
@@ -1542,8 +1577,13 @@ async function api(base, path, init) {
 }
 
 const isId = (s) => /^[0-9a-f]{8}$/.test(s);
-const looksLikePath = (s) => s === "." || s === ".." || s.startsWith("/") || s.startsWith("./") ||
-  s.startsWith("../") || s.startsWith("~");
+const looksLikePath = (s) =>
+  s === "." ||
+  s === ".." ||
+  s.startsWith("/") ||
+  s.startsWith("./") ||
+  s.startsWith("../") ||
+  s.startsWith("~");
 
 function openBrowser(url) {
   const opener =
@@ -1586,7 +1626,9 @@ async function cmdList() {
 async function cmdRemove(target) {
   const base = await ensureHub();
   const arg = target || process.cwd();
-  const id = isId(arg) ? arg : (await api(base, `/api/resolve?path=${encodeURIComponent(resolve(arg))}`)).id;
+  const id = isId(arg)
+    ? arg
+    : (await api(base, `/api/resolve?path=${encodeURIComponent(resolve(arg))}`)).id;
   const body = await api(base, `/api/workspaces/${id}`, { method: "DELETE" });
   out(body.ok ? `removed ${id}` : `not registered: ${id}`, { id, ...body });
 }
@@ -1761,20 +1803,20 @@ git commit -m "feat(livediff): rewrite the CLI as a pure HTTP client"
 
 **Spec coverage for this plan's scope:**
 
-| Spec section | Task |
-|---|---|
-| §1 defect 1 (manual daemon) | 6, 7 |
-| §1 defect 2 (two writers) | 7 |
-| §1 defect 3 (path normalization) | 2, 3 |
-| §4.1 state file | 4, 5 |
-| §4.2 `ensureHub` | 6 |
-| §4.3 spawning + single-flight | 4, 6 |
-| §4.4 port discovery | 5 |
-| §4.5 shutdown | 5, 7 |
-| §6.1 pure HTTP client | 7 |
+| Spec section                                      | Task |
+| ------------------------------------------------- | ---- |
+| §1 defect 1 (manual daemon)                       | 6, 7 |
+| §1 defect 2 (two writers)                         | 7    |
+| §1 defect 3 (path normalization)                  | 2, 3 |
+| §4.1 state file                                   | 4, 5 |
+| §4.2 `ensureHub`                                  | 6    |
+| §4.3 spawning + single-flight                     | 4, 6 |
+| §4.4 port discovery                               | 5    |
+| §4.5 shutdown                                     | 5, 7 |
+| §6.1 pure HTTP client                             | 7    |
 | §6.2 surface, `--json`, exit codes, normalization | 7, 2 |
-| §8 atomic writes | 1 |
-| §10.2 registry dedupe migration | 3 |
+| §8 atomic writes                                  | 1    |
+| §10.2 registry dedupe migration                   | 3    |
 
 **Deferred to Plan 2:** §5 (dormancy, `fs.watch`), §6.3 + §7 (reviews, `--wait`, Done button), §9 (UI), §10.1/10.3 (packaging, `doctor`), §11 (doc rewrites).
 

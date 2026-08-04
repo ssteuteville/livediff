@@ -4,7 +4,12 @@ import { join } from "node:path";
 import { symlink } from "node:fs/promises";
 import { withTempXdg, makeRepo } from "./helpers.js";
 import {
-  registryPath, readRegistry, addWorkspace, idFor, resolveWorkspace, removeWorkspace,
+  registryPath,
+  readRegistry,
+  addWorkspace,
+  idFor,
+  resolveWorkspace,
+  removeWorkspace,
 } from "../server/registry.js";
 
 test("registryPath follows XDG_CONFIG_HOME set after import", async () => {

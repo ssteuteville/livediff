@@ -82,12 +82,12 @@ fallback costs one `||` and removes any path where a record silently vanishes.
 Three states beyond `status`. Only `archivedAt` is stored; orphaning is always computed, so it
 self-heals the moment a file returns to the diff.
 
-| State | Determined by | Visible in |
-| --- | --- | --- |
-| live | file is among the current diff's changed paths | UI, `livediff comments` |
-| orphaned | computed: file is not among changed paths | `livediff comments --stale` |
-| archived | stored `archivedAt` is set | `livediff comments --archived` |
-| purged | record deleted | nowhere |
+| State    | Determined by                                  | Visible in                     |
+| -------- | ---------------------------------------------- | ------------------------------ |
+| live     | file is among the current diff's changed paths | UI, `livediff comments`        |
+| orphaned | computed: file is not among changed paths      | `livediff comments --stale`    |
+| archived | stored `archivedAt` is set                     | `livediff comments --archived` |
+| purged   | record deleted                                 | nowhere                        |
 
 ### Archive triggers
 
@@ -302,16 +302,16 @@ from the same filtered payload.
 
 ## Modules
 
-| File | Responsibility |
-| --- | --- |
-| `server/comment-lifecycle.js` (new) | Pure predicates and thresholds: `isOrphaned`, `shouldArchive`, `shouldPurge`. No I/O, no clock — `now` is a parameter. |
-| `server/comments.js` | Keyed v2 store; `sweep`, `restoreComment`, branch filtering. |
-| `server/git.js` | `changedPaths`, shared with `summaryFor`. |
-| `server/index.js` | Branch filter on the comments route and the SSE payload; calls `sweep` from the poll loop. |
-| `server/cli.js`, `server/cli-help.js` | `--stale`, `--archived`, `--branch`, `restore`, `archive`, `prune`, confirmation and `--dry-run`. |
-| `server/comment-format.js` | Archived countdown in rendered output. |
-| `server/doctor.js` | `checkArchive` — size, count, oldest, suggested prune command. |
-| `skills/prune/SKILL.md` (new) | Typed-only dry-run-then-confirm skill. |
+| File                                  | Responsibility                                                                                                         |
+| ------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `server/comment-lifecycle.js` (new)   | Pure predicates and thresholds: `isOrphaned`, `shouldArchive`, `shouldPurge`. No I/O, no clock — `now` is a parameter. |
+| `server/comments.js`                  | Keyed v2 store; `sweep`, `restoreComment`, branch filtering.                                                           |
+| `server/git.js`                       | `changedPaths`, shared with `summaryFor`.                                                                              |
+| `server/index.js`                     | Branch filter on the comments route and the SSE payload; calls `sweep` from the poll loop.                             |
+| `server/cli.js`, `server/cli-help.js` | `--stale`, `--archived`, `--branch`, `restore`, `archive`, `prune`, confirmation and `--dry-run`.                      |
+| `server/comment-format.js`            | Archived countdown in rendered output.                                                                                 |
+| `server/doctor.js`                    | `checkArchive` — size, count, oldest, suggested prune command.                                                         |
+| `skills/prune/SKILL.md` (new)         | Typed-only dry-run-then-confirm skill.                                                                                 |
 
 Putting the predicates in their own module keeps the decisions — what counts as orphaned, when
 something archives — testable without a hub, a repo, or a fake clock library.
@@ -334,60 +334,60 @@ no pending work is lost.
 
 ### `test/comment-lifecycle.test.js` — pure, no hub
 
-| Test | Asserts |
-| --- | --- |
-| a file in changed paths is not orphaned | `isOrphaned` false |
-| a file absent from changed paths is orphaned | `isOrphaned` true |
-| orphaned at 4 days does not archive | `shouldArchive` false |
-| orphaned at 6 days archives | `shouldArchive` true |
+| Test                                           | Asserts               |
+| ---------------------------------------------- | --------------------- |
+| a file in changed paths is not orphaned        | `isOrphaned` false    |
+| a file absent from changed paths is orphaned   | `isOrphaned` true     |
+| orphaned at 4 days does not archive            | `shouldArchive` false |
+| orphaned at 6 days archives                    | `shouldArchive` true  |
 | resolved at 29 days, in diff, does not archive | `shouldArchive` false |
-| resolved at 31 days, in diff, archives | `shouldArchive` true |
-| open at 31 days, in diff, does not archive | `shouldArchive` false |
-| already archived does not re-archive | `shouldArchive` false |
-| archived 199 days ago does not purge | `shouldPurge` false |
-| archived 201 days ago purges | `shouldPurge` true |
-| a non-archived comment never purges | `shouldPurge` false |
+| resolved at 31 days, in diff, archives         | `shouldArchive` true  |
+| open at 31 days, in diff, does not archive     | `shouldArchive` false |
+| already archived does not re-archive           | `shouldArchive` false |
+| archived 199 days ago does not purge           | `shouldPurge` false   |
+| archived 201 days ago purges                   | `shouldPurge` true    |
+| a non-archived comment never purges            | `shouldPurge` false   |
 
 ### `test/comments.test.js` — store
 
-| Test | Asserts |
-| --- | --- |
-| a new comment records the current branch | `branch` equals the checked-out branch |
-| a detached HEAD records "(detached)" | `branch` is `"(detached)"` |
-| lookup by id is a key access | `comments[id]` resolves without scanning |
-| sweep archives an orphaned aged comment | `archivedAt` set |
-| sweep purges a long-archived comment | record absent |
-| sweep leaves another branch's comments alone | untouched after checkout |
-| restore clears archivedAt | comment returns to live |
-| restore refreshes updatedAt | a sweep run immediately afterwards does not re-archive it |
+| Test                                         | Asserts                                                   |
+| -------------------------------------------- | --------------------------------------------------------- |
+| a new comment records the current branch     | `branch` equals the checked-out branch                    |
+| a detached HEAD records "(detached)"         | `branch` is `"(detached)"`                                |
+| lookup by id is a key access                 | `comments[id]` resolves without scanning                  |
+| sweep archives an orphaned aged comment      | `archivedAt` set                                          |
+| sweep purges a long-archived comment         | record absent                                             |
+| sweep leaves another branch's comments alone | untouched after checkout                                  |
+| restore clears archivedAt                    | comment returns to live                                   |
+| restore refreshes updatedAt                  | a sweep run immediately afterwards does not re-archive it |
 
 ### `test/cli.test.js` — surface
 
-| Test | Asserts |
-| --- | --- |
-| comments are scoped to the current branch | a comment made on `main` is absent after checkout |
-| `--branch all` returns both branches | both ids appear |
-| default output hides orphaned comments | absent after its file leaves the diff |
-| `--stale` shows exactly the orphaned ones | present under `--stale` |
-| `--archived` prints a purge countdown | output matches `purges in \d+ days` |
-| `--stale --archived` together exit 2 | exit code 2 with a usage message |
-| `restore <id>` returns a comment to live | visible in default output afterwards |
-| `archive` defaults to every workspace | a comment in an unrelated workspace is archived too |
-| `archive .` narrows to the current worktree | the unrelated workspace is untouched |
-| `archive --stale` ignores the age gate | an orphaned comment updated today is archived |
-| `prune` bare applies the 200-day rule | a 201-day-old archived record goes, a 199-day one stays |
-| `prune --keep-days 10 --yes` deletes older | an 11-day-old archived record goes |
-| `prune --all --yes` empties the archive | no archived records remain |
-| `prune --all` without `--yes`, non-TTY | exit 2, message names `--yes` |
-| `prune --keep-days 10 --all` | exit 2, mutually exclusive |
-| `--dry-run` writes nothing | counts reported, store byte-identical afterwards |
+| Test                                        | Asserts                                                 |
+| ------------------------------------------- | ------------------------------------------------------- |
+| comments are scoped to the current branch   | a comment made on `main` is absent after checkout       |
+| `--branch all` returns both branches        | both ids appear                                         |
+| default output hides orphaned comments      | absent after its file leaves the diff                   |
+| `--stale` shows exactly the orphaned ones   | present under `--stale`                                 |
+| `--archived` prints a purge countdown       | output matches `purges in \d+ days`                     |
+| `--stale --archived` together exit 2        | exit code 2 with a usage message                        |
+| `restore <id>` returns a comment to live    | visible in default output afterwards                    |
+| `archive` defaults to every workspace       | a comment in an unrelated workspace is archived too     |
+| `archive .` narrows to the current worktree | the unrelated workspace is untouched                    |
+| `archive --stale` ignores the age gate      | an orphaned comment updated today is archived           |
+| `prune` bare applies the 200-day rule       | a 201-day-old archived record goes, a 199-day one stays |
+| `prune --keep-days 10 --yes` deletes older  | an 11-day-old archived record goes                      |
+| `prune --all --yes` empties the archive     | no archived records remain                              |
+| `prune --all` without `--yes`, non-TTY      | exit 2, message names `--yes`                           |
+| `prune --keep-days 10 --all`                | exit 2, mutually exclusive                              |
+| `--dry-run` writes nothing                  | counts reported, store byte-identical afterwards        |
 
 ### `test/doctor.test.js`
 
-| Test | Asserts |
-| --- | --- |
-| an empty archive reports ok with no suggestion | finding is `ok`, no `fix` |
-| a populated archive suggests a prune command | `fix` matches `livediff prune` |
+| Test                                           | Asserts                        |
+| ---------------------------------------------- | ------------------------------ |
+| an empty archive reports ok with no suggestion | finding is `ok`, no `fix`      |
+| a populated archive suggests a prune command   | `fix` matches `livediff prune` |
 
 Time-dependent behavior is tested through `comment-lifecycle` with an explicit `now`, so the
 store and CLI tests never sleep or manipulate clocks.

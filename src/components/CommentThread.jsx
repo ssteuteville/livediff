@@ -65,7 +65,9 @@ function ReplyStrip({ replies }) {
       {replies.length > 1 && (
         <span className="shrink-0 text-[11px] text-neutral-400">+{replies.length - 1}</span>
       )}
-      <span className="truncate text-[13px] text-neutral-700 dark:text-neutral-200">{last.body}</span>
+      <span className="truncate text-[13px] text-neutral-700 dark:text-neutral-200">
+        {last.body}
+      </span>
     </div>
   );
 }
@@ -143,7 +145,9 @@ function Comment({ comment, startReplying, onResolve, onReopen, onDelete, onRepl
         </div>
       </div>
 
-      <div className="whitespace-pre-wrap px-3 py-2 text-neutral-800 dark:text-neutral-100">{comment.body}</div>
+      <div className="whitespace-pre-wrap px-3 py-2 text-neutral-800 dark:text-neutral-100">
+        {comment.body}
+      </div>
 
       {comment.replies?.length > 0 && (
         <div className="space-y-1.5 border-t border-neutral-100 px-3 py-2 dark:border-neutral-800">
@@ -153,7 +157,9 @@ function Comment({ comment, startReplying, onResolve, onReopen, onDelete, onRepl
                 <AuthorBadge author={r.author} />
                 <span className="text-[11px] text-neutral-400">{timeAgo(r.ts)}</span>
               </div>
-              <div className="whitespace-pre-wrap text-neutral-700 dark:text-neutral-200">{r.body}</div>
+              <div className="whitespace-pre-wrap text-neutral-700 dark:text-neutral-200">
+                {r.body}
+              </div>
             </div>
           ))}
         </div>
@@ -222,13 +228,21 @@ const BADGE = "rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase trackin
 function ReplyBadge({ comments }) {
   if (claudeReplied(comments)) {
     return (
-      <span className={BADGE + "bg-violet-100 text-violet-700 dark:bg-violet-500/20 dark:text-violet-300"}>
+      <span
+        className={
+          BADGE + "bg-violet-100 text-violet-700 dark:bg-violet-500/20 dark:text-violet-300"
+        }
+      >
         Claude replied
       </span>
     );
   }
   return (
-    <span className={BADGE + "bg-neutral-200 text-neutral-600 dark:bg-neutral-700 dark:text-neutral-300"}>
+    <span
+      className={
+        BADGE + "bg-neutral-200 text-neutral-600 dark:bg-neutral-700 dark:text-neutral-300"
+      }
+    >
       No reply
     </span>
   );

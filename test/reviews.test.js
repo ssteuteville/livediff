@@ -7,7 +7,8 @@ import { openReview, reviewFor, closeReview, resetReviews } from "../server/revi
 const PORT = 4199;
 const base = `http://127.0.0.1:${PORT}`;
 
-const json = (path, init) => fetch(`${base}${path}`, init).then(async (r) => [r.status, await r.json()]);
+const json = (path, init) =>
+  fetch(`${base}${path}`, init).then(async (r) => [r.status, await r.json()]);
 
 test("a second open for the same workspace attaches to the existing request", () => {
   resetReviews();
@@ -87,11 +88,11 @@ test("review lifecycle over HTTP broadcasts open and done", async () => {
       }
       assert.ok(
         frames.some((f) => f.includes("event: review") && f.includes('"state":"open"')),
-        `no open frame: ${JSON.stringify(frames)}`
+        `no open frame: ${JSON.stringify(frames)}`,
       );
       assert.ok(
         frames.some((f) => f.includes('"state":"done"')),
-        `no done frame: ${JSON.stringify(frames)}`
+        `no done frame: ${JSON.stringify(frames)}`,
       );
 
       const [doneAgain] = await json(`/api/reviews/${request.reviewId}/done`, { method: "POST" });

@@ -59,7 +59,7 @@ test("parsePatch reads hunk headers and numbers every line", () => {
       ["add", null, 2, "TWO"],
       ["ctx", 3, 3, "three"],
       ["add", null, 4, "four"],
-    ]
+    ],
   );
 });
 
@@ -96,7 +96,10 @@ test("an unpaired addition keeps an empty left side", () => {
 
 test("a binary file contributes a header and a placeholder, not lines", () => {
   const rows = buildRows([file({ binary: true, patch: "" })], "split");
-  assert.deepEqual(rows.map((r) => r.kind), [ROW.FILE, ROW.SPACER]);
+  assert.deepEqual(
+    rows.map((r) => r.kind),
+    [ROW.FILE, ROW.SPACER],
+  );
 });
 
 test("every row key is unique across files", () => {
@@ -112,7 +115,12 @@ test("row height wraps by character count, exactly", () => {
 
 test("row height uses the wider of the two sides", () => {
   const m = metrics({ charsPerLine: 10 });
-  const row = { kind: ROW.LINE, key: "x", left: { text: "short" }, right: { text: "y".repeat(30) } };
+  const row = {
+    kind: ROW.LINE,
+    key: "x",
+    left: { text: "short" },
+    right: { text: "y".repeat(30) },
+  };
   assert.equal(rowHeight(row, m), 60);
 });
 
@@ -265,7 +273,7 @@ const slotMetrics = metrics({ commentLines: 7, commentChrome: 96 });
 const slot = (over) =>
   rowHeight(
     buildRows([file()], "split", [comment(over)]).find((r) => r.kind === ROW.COMMENT),
-    slotMetrics
+    slotMetrics,
   );
 
 test("a collapsed slot is sized from its text, one line at a time", () => {
@@ -299,7 +307,7 @@ test("a slot's height ignores everything expanding would reveal", () => {
   assert.equal(
     rowHeight(many, slotMetrics),
     slot({ body }),
-    "only the first comment is previewed, so the rest cannot resize the slot"
+    "only the first comment is previewed, so the rest cannot resize the slot",
   );
 });
 
@@ -312,7 +320,7 @@ test("adding a comment does not change the height of any other row", () => {
   assert.equal(
     buildOffsets(withComment, slotMetrics)[withComment.length] -
       buildOffsets(bare, slotMetrics)[bare.length],
-    20 + 96
+    20 + 96,
   );
 });
 

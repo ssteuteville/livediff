@@ -40,12 +40,14 @@ exists for when you want it now.
 ## File Structure
 
 **Create:**
+
 - `server/comment-lifecycle.js` — pure predicates and thresholds. No I/O, no clock.
 - `test/comment-lifecycle.test.js`
 - `test/comments.test.js`
 - `skills/prune/SKILL.md`
 
 **Modify:**
+
 - `server/git.js` — export `currentBranch`, add `changedPaths`, refactor `summary` onto it
 - `server/comments.js` — v2 keyed store, `branch` stamping, `getComment`, `sweep`, `restoreComment`, `listComments`
 - `server/index.js` — branch filter on the comments GET, throttled sweep, rename internal `prune`
@@ -59,10 +61,12 @@ exists for when you want it now.
 ### Task 1: Lifecycle predicates
 
 **Files:**
+
 - Create: `server/comment-lifecycle.js`
 - Test: `test/comment-lifecycle.test.js`
 
 **Interfaces:**
+
 - Produces:
   - `ORPHAN_ARCHIVE_DAYS = 5`, `RESOLVED_ARCHIVE_DAYS = 30`, `PURGE_DAYS = 200`
   - `isOrphaned(comment, changedPaths: Set<string>): boolean`
@@ -226,10 +230,12 @@ git commit -m "feat(livediff): add comment lifecycle predicates"
 ### Task 2: `changedPaths` in git.js
 
 **Files:**
+
 - Modify: `server/git.js:68-71` (export `currentBranch`), `server/git.js:198-217` (`summary`)
 - Test: `test/git.test.js` (create if absent)
 
 **Interfaces:**
+
 - Produces:
   - `currentBranch(cwd): Promise<string>` — now exported; `"(detached)"` for detached HEAD
   - `changedPaths(cwd): Promise<string[]>` — tracked changes vs HEAD plus untracked files
@@ -315,7 +321,9 @@ export async function changedPaths(cwd) {
       .filter(Boolean);
     paths.push(...tracked);
   }
-  const untracked = (await git(cwd, ["ls-files", "--others", "--exclude-standard", "-z", ...EXCLUDE]))
+  const untracked = (
+    await git(cwd, ["ls-files", "--others", "--exclude-standard", "-z", ...EXCLUDE])
+  )
     .split("\0")
     .filter(Boolean);
   paths.push(...untracked);
@@ -358,10 +366,12 @@ git commit -m "feat(livediff): add changedPaths and share it with the rail summa
 ### Task 3: The v2 keyed store
 
 **Files:**
+
 - Modify: `server/comments.js` (whole file)
 - Test: `test/comments.test.js`
 
 **Interfaces:**
+
 - Consumes: `currentBranch` from `server/git.js`.
 - Produces:
   - `listComments(wsId, repoPath, { branch }): Promise<Comment[]>` — `branch` may be a name or `"all"`
@@ -438,10 +448,16 @@ test("listComments filters by branch, and 'all' returns everything", async () =>
     const onFeat = await addComment("ws1", repo, input);
 
     const feat = await listComments("ws1", repo, { branch: "feat" });
-    assert.deepEqual(feat.map((c) => c.id), [onFeat.id]);
+    assert.deepEqual(
+      feat.map((c) => c.id),
+      [onFeat.id],
+    );
 
     const main = await listComments("ws1", repo, { branch: "main" });
-    assert.deepEqual(main.map((c) => c.id), [onMain.id]);
+    assert.deepEqual(
+      main.map((c) => c.id),
+      [onMain.id],
+    );
 
     assert.equal((await listComments("ws1", repo, { branch: "all" })).length, 2);
   });
@@ -461,10 +477,15 @@ test("a v1 array store is read without loss", async () => {
     const repo = await makeRepo(join(root, "repo"));
     const { writeJsonAtomic } = await import("../server/atomic.js");
     await writeJsonAtomic(join(configDir(), "comments", "ws1.json"), {
-      comments: [{ id: "old00001", file: "a.js", line: 1, body: "legacy", status: "open", replies: [] }],
+      comments: [
+        { id: "old00001", file: "a.js", line: 1, body: "legacy", status: "open", replies: [] },
+      ],
     });
     const all = await listComments("ws1", repo, { branch: "all" });
-    assert.deepEqual(all.map((c) => c.id), ["old00001"]);
+    assert.deepEqual(
+      all.map((c) => c.id),
+      ["old00001"],
+    );
   });
 });
 ```
@@ -673,10 +694,12 @@ git commit -m "feat(livediff): key the comment store by id and stamp the branch"
 ### Task 4: Sweep and restore
 
 **Files:**
+
 - Modify: `server/comments.js` (append)
 - Test: `test/comments.test.js` (append)
 
 **Interfaces:**
+
 - Consumes: `shouldArchive`, `shouldPurge`, `isOrphaned` from `server/comment-lifecycle.js`.
 - Produces:
   - `sweep(wsId, repoPath, changed: string[], { now, force }): Promise<{archived: number, purged: number}>`
@@ -698,7 +721,10 @@ async function seed(repo, over = {}) {
   await updateComment("ws1", repo, c.id, {});
   const store = await import("../server/comments.js");
   const all = await store.listComments("ws1", repo, { branch: "all" });
-  Object.assign(all.find((x) => x.id === c.id), over);
+  Object.assign(
+    all.find((x) => x.id === c.id),
+    over,
+  );
   await store.__writeForTest("ws1", Object.fromEntries(all.map((x) => [x.id, x])));
   return c.id;
 }
@@ -885,11 +911,13 @@ git commit -m "feat(livediff): add the archive sweep, restore and explicit purge
 ### Task 5: Wire the hub
 
 **Files:**
+
 - Modify: `server/index.js:9` (import), `:182-186` (comments GET), `:303-312` (rename `prune`), `:314-344` (poll)
 - Modify: `server/migrations.js` if it imports `readComments`
 - Test: `test/cli.test.js` (existing suites must pass again)
 
 **Interfaces:**
+
 - Consumes: `listComments`, `sweep` from `server/comments.js`; `changedPaths` from `server/git.js`.
 - Produces: `GET /api/comments?ws=<id>&branch=<name|all>` filtered to the current branch by default.
 
@@ -898,7 +926,14 @@ git commit -m "feat(livediff): add the archive sweep, restore and explicit purge
 In `server/index.js`, change line 8 and 9 to:
 
 ```js
-import { getDiff, summary, worktreeSignature, isGitRepo, currentBranch, changedPaths } from "./git.js";
+import {
+  getDiff,
+  summary,
+  worktreeSignature,
+  isGitRepo,
+  currentBranch,
+  changedPaths,
+} from "./git.js";
 import { listComments, addComment, updateComment, deleteComment, sweep } from "./comments.js";
 ```
 
@@ -907,13 +942,13 @@ import { listComments, addComment, updateComment, deleteComment, sweep } from ".
 Replace the comments GET handler (currently lines 182-186) with:
 
 ```js
-    if (pathname === "/api/comments" && req.method === "GET") {
-      const ws = await resolveWs(url);
-      if (!ws) return send(res, 404, { error: "unknown workspace" });
-      const requested = url.searchParams.get("branch");
-      const branch = requested || (await currentBranch(ws.path).catch(() => "all"));
-      return send(res, 200, { comments: await listComments(ws.id, ws.path, { branch }) });
-    }
+if (pathname === "/api/comments" && req.method === "GET") {
+  const ws = await resolveWs(url);
+  if (!ws) return send(res, 404, { error: "unknown workspace" });
+  const requested = url.searchParams.get("branch");
+  const branch = requested || (await currentBranch(ws.path).catch(() => "all"));
+  return send(res, 200, { comments: await listComments(ws.id, ws.path, { branch }) });
+}
 ```
 
 - [ ] **Step 3: Rename the internal workspace prune**
@@ -927,7 +962,7 @@ async function pruneWorkspaces(registered) {
 ```
 
 ```js
-    registered = await pruneWorkspaces(await readRegistry());
+registered = await pruneWorkspaces(await readRegistry());
 ```
 
 - [ ] **Step 4: Add the throttled sweep to the poll loop**
@@ -947,18 +982,16 @@ let lastSweep = 0;
 Then append this to the end of the `poll()` function, after the `registered.forEach(...)` block:
 
 ```js
-  if (Date.now() - lastSweep < SWEEP_INTERVAL_MS) return;
-  lastSweep = Date.now();
-  const changed = await Promise.all(
-    registered.map((w) => changedPaths(w.path).catch(() => null))
-  );
-  await Promise.all(
-    registered.map(async (w, i) => {
-      if (changed[i] === null) return; // transient git state
-      const { archived, purged } = await sweep(w.id, w.path, changed[i], {});
-      if (archived || purged) broadcast("comments", { reason: "swept", ws: w.id });
-    })
-  );
+if (Date.now() - lastSweep < SWEEP_INTERVAL_MS) return;
+lastSweep = Date.now();
+const changed = await Promise.all(registered.map((w) => changedPaths(w.path).catch(() => null)));
+await Promise.all(
+  registered.map(async (w, i) => {
+    if (changed[i] === null) return; // transient git state
+    const { archived, purged } = await sweep(w.id, w.path, changed[i], {});
+    if (archived || purged) broadcast("comments", { reason: "swept", ws: w.id });
+  }),
+);
 ```
 
 - [ ] **Step 5: Fix any remaining `readComments` importers**
@@ -987,12 +1020,14 @@ git commit -m "feat(livediff): scope the comments API to the current branch and 
 ### Task 6: CLI reading — `--branch`, `--stale`, `--archived`, `restore`
 
 **Files:**
+
 - Modify: `server/cli-help.js` (`VALUE_FLAGS`, `comments` entry, new `restore` entry)
 - Modify: `server/cli.js` (`cmdComments`, new `cmdRestore`, dispatch)
 - Modify: `server/comment-format.js` (archived countdown)
 - Test: `test/cli.test.js`
 
 **Interfaces:**
+
 - Consumes: `daysUntilPurge` from `server/comment-lifecycle.js`.
 - Produces: `formatComments(comments, { now })` — now takes an options object.
 
@@ -1207,23 +1242,23 @@ And add the dispatch case in `main`, after the `reply` case:
 In `server/index.js`, add these before the `/api/reviews` routes:
 
 ```js
-    if (pathname === "/api/stale" && req.method === "GET") {
-      const ws = await resolveWs(url);
-      if (!ws) return send(res, 404, { error: "unknown workspace" });
-      const changed = new Set(await changedPaths(ws.path).catch(() => []));
-      const all = await listComments(ws.id, ws.path, { branch: "all" });
-      return send(res, 200, { stale: all.filter((c) => !changed.has(c.file)).map((c) => c.id) });
-    }
+if (pathname === "/api/stale" && req.method === "GET") {
+  const ws = await resolveWs(url);
+  if (!ws) return send(res, 404, { error: "unknown workspace" });
+  const changed = new Set(await changedPaths(ws.path).catch(() => []));
+  const all = await listComments(ws.id, ws.path, { branch: "all" });
+  return send(res, 200, { stale: all.filter((c) => !changed.has(c.file)).map((c) => c.id) });
+}
 
-    const restoreMatch = pathname.match(/^\/api\/comments\/([\w-]+)\/restore$/);
-    if (restoreMatch && req.method === "POST") {
-      const ws = await resolveWs(url);
-      if (!ws) return send(res, 404, { error: "unknown workspace" });
-      const comment = await restoreComment(ws.id, restoreMatch[1]);
-      if (!comment) return send(res, 404, { error: "unknown comment" });
-      broadcast("comments", { reason: "restored", ws: ws.id });
-      return send(res, 200, comment);
-    }
+const restoreMatch = pathname.match(/^\/api\/comments\/([\w-]+)\/restore$/);
+if (restoreMatch && req.method === "POST") {
+  const ws = await resolveWs(url);
+  if (!ws) return send(res, 404, { error: "unknown workspace" });
+  const comment = await restoreComment(ws.id, restoreMatch[1]);
+  if (!comment) return send(res, 404, { error: "unknown comment" });
+  broadcast("comments", { reason: "restored", ws: ws.id });
+  return send(res, 200, comment);
+}
 ```
 
 Add `restoreComment` to the `./comments.js` import list in `server/index.js`.
@@ -1248,12 +1283,14 @@ git commit -m "feat(livediff): add branch, stale and archived views plus restore
 ### Task 7: `archive` and `prune` commands
 
 **Files:**
+
 - Modify: `server/cli-help.js` (two new `COMMANDS` entries)
 - Modify: `server/cli.js` (`cmdArchive`, `cmdPrune`, dispatch)
 - Modify: `server/index.js` (two routes)
 - Test: `test/cli.test.js`
 
 **Interfaces:**
+
 - Consumes: `sweep`, `purgeArchived` from `server/comments.js`; `PURGE_DAYS` from `server/comment-lifecycle.js`.
 - Produces: `POST /api/sweep`, `POST /api/purge`.
 
@@ -1369,39 +1406,37 @@ Expected: FAIL — `archive` and `prune` are unknown commands.
 In `server/index.js`, add before the `/api/reviews` routes:
 
 ```js
-    if (pathname === "/api/sweep" && req.method === "POST") {
-      const { path, force } = await readBody(req);
-      const targets = await targetWorkspaces(path);
-      let archived = 0;
-      let purged = 0;
-      for (const w of targets) {
-        const changed = await changedPaths(w.path).catch(() => []);
-        const result = await sweep(w.id, w.path, changed, { force: force ?? {} });
-        archived += result.archived;
-        purged += result.purged;
-      }
-      if (archived || purged) broadcast("comments", { reason: "swept" });
-      return send(res, 200, { archived, purged, workspaces: targets.length });
-    }
+if (pathname === "/api/sweep" && req.method === "POST") {
+  const { path, force } = await readBody(req);
+  const targets = await targetWorkspaces(path);
+  let archived = 0;
+  let purged = 0;
+  for (const w of targets) {
+    const changed = await changedPaths(w.path).catch(() => []);
+    const result = await sweep(w.id, w.path, changed, { force: force ?? {} });
+    archived += result.archived;
+    purged += result.purged;
+  }
+  if (archived || purged) broadcast("comments", { reason: "swept" });
+  return send(res, 200, { archived, purged, workspaces: targets.length });
+}
 
-    if (pathname === "/api/purge" && req.method === "POST") {
-      const { path, keepDays, dryRun } = await readBody(req);
-      const targets = await targetWorkspaces(path);
-      let count = 0;
-      for (const w of targets) {
-        if (dryRun) {
-          const all = await listComments(w.id, w.path, { branch: "all" });
-          const cutoff = Date.now() - keepDays * 86_400_000;
-          count += all.filter(
-            (c) => c.archivedAt && Date.parse(c.archivedAt) <= cutoff
-          ).length;
-        } else {
-          count += await purgeArchived(w.id, { olderThanDays: keepDays });
-        }
-      }
-      if (count && !dryRun) broadcast("comments", { reason: "pruned" });
-      return send(res, 200, { count, workspaces: targets.length, dryRun: Boolean(dryRun) });
+if (pathname === "/api/purge" && req.method === "POST") {
+  const { path, keepDays, dryRun } = await readBody(req);
+  const targets = await targetWorkspaces(path);
+  let count = 0;
+  for (const w of targets) {
+    if (dryRun) {
+      const all = await listComments(w.id, w.path, { branch: "all" });
+      const cutoff = Date.now() - keepDays * 86_400_000;
+      count += all.filter((c) => c.archivedAt && Date.parse(c.archivedAt) <= cutoff).length;
+    } else {
+      count += await purgeArchived(w.id, { olderThanDays: keepDays });
     }
+  }
+  if (count && !dryRun) broadcast("comments", { reason: "pruned" });
+  return send(res, 200, { count, workspaces: targets.length, dryRun: Boolean(dryRun) });
+}
 ```
 
 Add this helper next to `resolveWs` in `server/index.js`:
@@ -1573,12 +1608,14 @@ git commit -m "feat(livediff): add the archive and prune maintenance commands"
 ### Task 8: doctor, the prune skill, docs and the wipe
 
 **Files:**
+
 - Modify: `server/doctor.js` (add `checkArchive`)
 - Create: `skills/prune/SKILL.md`
 - Modify: `package.json`, `.claude-plugin/plugin.json`, `README.md`, `DESIGN.md`
 - Test: `test/doctor.test.js`
 
 **Interfaces:**
+
 - Consumes: `listComments` from `server/comments.js`; `daysUntilPurge` from `server/comment-lifecycle.js`.
 
 - [ ] **Step 1: Write the failing test**
@@ -1599,7 +1636,9 @@ test("a populated archive suggests a prune command", async () => {
   await withTempXdg(async ({ root }) => {
     const repo = await makeRepo(join(root, "repo"));
     await writeJsonAtomic(registryPath(), {
-      workspaces: [{ id: idFor(repo), path: repo, label: "repo", addedAt: "2026-01-01T00:00:00.000Z" }],
+      workspaces: [
+        { id: idFor(repo), path: repo, label: "repo", addedAt: "2026-01-01T00:00:00.000Z" },
+      ],
     });
     const { __writeForTest } = await import("../server/comments.js");
     await __writeForTest(idFor(repo), {
@@ -1687,7 +1726,7 @@ already imported.
 
 Create `skills/prune/SKILL.md`:
 
-```markdown
+````markdown
 ---
 name: prune
 description: Show what livediff would delete from its comment archive, then clean it up.
@@ -1708,7 +1747,9 @@ Once they answer, run one of:
 livediff prune --keep-days <n> --yes
 livediff prune --all --yes
 ```
-```
+````
+
+````
 
 - [ ] **Step 5: Verify the skills still name no forbidden commands**
 
@@ -1727,7 +1768,7 @@ In `package.json`, set `"version": "0.6.0"`. In `.claude-plugin/plugin.json`, se
 
 ```bash
 cp -R "$HOME/.config/livediff/comments" "/private/tmp/claude-501/-Users-shanesteuteville-shane-dev-livediff/26e85cd3-8023-496a-8130-4f27296bd115/scratchpad/comments-backup-v05"
-```
+````
 
 ```bash
 rm -rf "$HOME/.config/livediff/comments"
@@ -1755,7 +1796,7 @@ Add this section after the Claude Code table:
 
 A comment records the branch it was left on and is only shown on that branch.
 
-Once its file leaves the diff it is *orphaned* — hidden from the browser and from
+Once its file leaves the diff it is _orphaned_ — hidden from the browser and from
 `livediff comments`, but visible with `--stale`. After 5 days orphaned, or 30 days
 resolved, it is archived: still restorable, no longer in the way. Archived comments are
 deleted after 200 days.
@@ -1781,7 +1822,7 @@ Add a `/livediff:prune` row to the Claude Code table:
 
 Append:
 
-````markdown
+```markdown
 ## Comment lifecycle
 
 A comment used to store nothing tying it to the change it was about — no branch, no commit,
@@ -1805,7 +1846,7 @@ prune` do the same work on demand, since the loop only runs while a browser is a
 The store is keyed by comment id. Secondary indexes were rejected: the file is rewritten
 wholesale on every write, so an index is state that can desync, and the failure mode is
 comments silently disappearing — a poor trade against a scan over dozens of records.
-````
+```
 
 - [ ] **Step 10: Run the full suite**
 

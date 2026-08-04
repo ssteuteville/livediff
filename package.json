@@ -1,8 +1,7 @@
 {
   "name": "livediff",
-  "private": true,
-  "type": "module",
   "version": "0.6.0",
+  "private": true,
   "description": "Local, live-updating git worktree diff hub with agent-readable review comments",
   "license": "MIT",
   "bin": {
@@ -12,9 +11,7 @@
     "server",
     "dist"
   ],
-  "engines": {
-    "node": ">=24"
-  },
+  "type": "module",
   "scripts": {
     "dev": "concurrently -k -n web,api -c cyan,magenta \"vite\" \"node --watch server/index.js\"",
     "build": "vite build",
@@ -57,6 +54,9 @@
     "vite": "^6.4.3",
     "vitest": "4.1.10",
     "vitest-browser-react": "2.2.0"
+  },
+  "engines": {
+    "node": ">=24"
   },
   "pnpm": {
     "onlyBuiltDependencies": [

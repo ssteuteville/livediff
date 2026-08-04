@@ -7,7 +7,7 @@ import { focusUrl, hubUrl, workspaceId } from "./harness.js";
  */
 async function seed(
   page: Page,
-  body: { file: string; side: string; line: number; body: string; replies?: unknown[] }
+  body: { file: string; side: string; line: number; body: string; replies?: unknown[] },
 ) {
   const ws = workspaceId("modfiles");
   const created = await page.evaluate(
@@ -19,7 +19,7 @@ async function seed(
       });
       return res.json();
     },
-    [hubUrl(), ws, body] as const
+    [hubUrl(), ws, body] as const,
   );
   return created as { id: string };
 }
@@ -33,7 +33,7 @@ async function removeAll(page: Page) {
         await fetch(`${url}/api/comments/${c.id}?ws=${id}`, { method: "DELETE" });
       }
     },
-    [hubUrl(), ws] as const
+    [hubUrl(), ws] as const,
   );
 }
 
@@ -46,7 +46,12 @@ test("expanding a comment overlays the rows below and does not change document h
 }) => {
   await page.goto(focusUrl("modfiles"));
   await page.waitForSelector("[data-diff-scroll]", { timeout: 30_000 });
-  await seed(page, { file: "mod-0.ts", side: "new", line: 3, body: "a comment for the overlay test" });
+  await seed(page, {
+    file: "mod-0.ts",
+    side: "new",
+    line: 3,
+    body: "a comment for the overlay test",
+  });
   await page.reload();
 
   const scroller = page.locator("[data-diff-scroll]");

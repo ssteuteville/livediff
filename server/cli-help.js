@@ -28,7 +28,7 @@ export const COMMANDS = [
       "registers twice — the subdirectory becomes a view filter instead, showing\n" +
       "only files under it. The hub is started automatically if it is not running.\n" +
       "\n" +
-      "With --wait, the command blocks until you click \"Done reviewing\" in the\n" +
+      'With --wait, the command blocks until you click "Done reviewing" in the\n' +
       "browser, then prints a summary. Open comments are expected at that point —\n" +
       "they are the output of the review, not a failure.",
     flags: [
@@ -84,7 +84,8 @@ export const COMMANDS = [
   {
     id: "comments",
     name: "comments",
-    usage: "livediff comments [path] [--status open|resolved|all] [--branch <name>] [--stale|--archived]",
+    usage:
+      "livediff comments [path] [--status open|resolved|all] [--branch <name>] [--stale|--archived]",
     summary: "print review comments for a worktree",
     details:
       "Defaults to the worktree containing the current directory, to the branch that is\n" +
@@ -217,7 +218,9 @@ export const COMMANDS = [
 
 /** Every name a user could type to reach a command. */
 export function commandNames() {
-  return COMMANDS.flatMap((c) => (c.name.startsWith("<") || c.name.startsWith("(") ? [] : [c.name, ...(c.aliases ?? [])]));
+  return COMMANDS.flatMap((c) =>
+    c.name.startsWith("<") || c.name.startsWith("(") ? [] : [c.name, ...(c.aliases ?? [])],
+  );
 }
 
 export function findCommand(token) {
@@ -270,7 +273,14 @@ export function renderCommandHelp(cmd) {
     bold("USAGE"),
     `  ${cmd.usage}`,
   ];
-  if (cmd.details) out.push("", cmd.details.split("\n").map((l) => `  ${l}`).join("\n"));
+  if (cmd.details)
+    out.push(
+      "",
+      cmd.details
+        .split("\n")
+        .map((l) => `  ${l}`)
+        .join("\n"),
+    );
   if (cmd.aliases?.length) out.push("", bold("ALIASES"), `  ${cmd.aliases.join(", ")}`);
   if (cmd.flags.length) out.push("", bold("OPTIONS"), pad([...cmd.flags, ...GLOBAL_FLAGS]));
   else out.push("", bold("OPTIONS"), pad(GLOBAL_FLAGS));
@@ -286,7 +296,7 @@ function distance(a, b) {
       rows[i][j] = Math.min(
         rows[i - 1][j] + 1,
         rows[i][j - 1] + 1,
-        rows[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1)
+        rows[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1),
       );
     }
   }

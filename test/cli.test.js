@@ -140,7 +140,7 @@ test("--wait blocks until the review is marked done, then summarizes", async () 
         const state = await readState();
         if (state) {
           const ws = await fetch(
-            `http://127.0.0.1:${state.port}/api/resolve?path=${encodeURIComponent(repo)}`
+            `http://127.0.0.1:${state.port}/api/resolve?path=${encodeURIComponent(repo)}`,
           )
             .then((r) => (r.ok ? r.json() : null))
             .catch(() => null);
@@ -196,7 +196,9 @@ test("reply text starting with a dash survives argument parsing", async () => {
         body: JSON.stringify({ file: "README.md", side: "new", line: 1, body: "check offset" }),
       }).then((r) => r.json());
 
-      const res = await cli(["reply", created.id, "-1", "is", "the", "right", "offset"], { cwd: repo });
+      const res = await cli(["reply", created.id, "-1", "is", "the", "right", "offset"], {
+        cwd: repo,
+      });
       assert.equal(res.code, 0);
 
       const after = JSON.parse((await cli(["comments", repo, "--json"])).stdout);
@@ -594,9 +596,7 @@ test("a subdirectory registers the worktree root and scopes the view with dir", 
   await withTempXdg(async ({ root }) => {
     const repo = await makeRepo(join(root, "repo"), ["apps/expo"]);
     try {
-      const res = JSON.parse(
-        (await cli([join(repo, "apps/expo"), "--no-open", "--json"])).stdout
-      );
+      const res = JSON.parse((await cli([join(repo, "apps/expo"), "--no-open", "--json"])).stdout);
       assert.equal(res.path, repo, "should register the worktree root, not the subdirectory");
       assert.equal(res.dir, "apps/expo");
       assert.match(res.url, /&dir=apps%2Fexpo$/);

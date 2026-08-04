@@ -49,7 +49,7 @@ test("text metrics come from a real measurement, not the fallback", async () => 
   expect(metrics.width, "container width was not observed").toBe(800);
   expect(
     metrics.charWidth,
-    "charWidth is still the hardcoded fallback — nothing was measured"
+    "charWidth is still the hardcoded fallback — nothing was measured",
   ).not.toBe(FALLBACK.charWidth);
   expect(metrics.charWidth).toBeGreaterThan(0);
   expect(metrics.lineHeight).toBeGreaterThan(0);
@@ -62,9 +62,9 @@ test("prose is measured separately from monospace", async () => {
   // half-width metrics, which produced dead space in some slots and clipping in others.
   expect(
     metrics.proseCharWidth,
-    "prose and monospace widths are identical — the prose probe is not measuring proportional text"
+    "prose and monospace widths are identical — the prose probe is not measuring proportional text",
   ).not.toBe(metrics.charWidth);
   expect(metrics.proseCharWidth, "proseCharWidth is still the hardcoded fallback").not.toBe(
-    FALLBACK.proseCharWidth
+    FALLBACK.proseCharWidth,
   );
 });

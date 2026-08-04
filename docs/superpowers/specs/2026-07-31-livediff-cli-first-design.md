@@ -11,8 +11,8 @@ livediff v0.3 has two disjoint lifecycles: a long-lived hub the user must rememb
 and a CLI that probes for it and silently degrades when it is absent.
 
 `server/cli.js:12` defines `hubRunning()`, and nearly every command branches on it. `add` falls
-back to writing the registry directly; `open` hard-fails with *"hub isn't running — start it with
-`livediff`"*. The CLI detects the problem and reports it instead of fixing it.
+back to writing the registry directly; `open` hard-fails with _"hub isn't running — start it with
+`livediff`"_. The CLI detects the problem and reports it instead of fixing it.
 
 Three defects follow from that structure:
 
@@ -23,7 +23,7 @@ Three defects follow from that structure:
    Concurrent CLI calls, or a CLI call racing the hub, silently lose updates.
 3. **Path normalization is inconsistent.** `addWorkspace` (`server/registry.js:48`) hashes the
    literal path, while `resolveWorkspace` (`:83`) walks up to ancestors. So `cd repo/src &&
-   livediff add .` registers a *second* workspace for the same worktree — duplicate rail entry,
+livediff add .` registers a _second_ workspace for the same worktree — duplicate rail entry,
    separate comments file. Reads are subdirectory-tolerant; writes are not.
 
 ## 2. Goals
@@ -38,18 +38,18 @@ what the new surface requires.
 
 ## 3. Decisions
 
-| Decision | Choice |
-|---|---|
-| Hub scope | One global hub, shared across all repos |
-| Hub lifecycle | Auto-starts on first CLI use; never self-exits; `livediff stop` is the escape hatch |
-| Idle behavior | Dormant — worktree polling suspends when no SSE client is attached |
-| CLI ↔ hub | Pure HTTP client. The hub is the single writer to all state |
-| CLI surface | Path-first flat verbs; `add` merges into `livediff . --no-open` |
-| `--wait` completion | Explicit "Done reviewing" button in the UI |
-| Storage | JSON files with atomic renames; SQLite deferred |
-| Rail lifecycle | Auto-prune dead paths; explicit `rm` for everything live |
-| Watching | In-process events primary; `fs.watch` as a safety net; 1s worktree poll gated on clients |
-| Packaging | npm semantics via `pnpm pack` + global tarball install; publishing deferred |
+| Decision            | Choice                                                                                   |
+| ------------------- | ---------------------------------------------------------------------------------------- |
+| Hub scope           | One global hub, shared across all repos                                                  |
+| Hub lifecycle       | Auto-starts on first CLI use; never self-exits; `livediff stop` is the escape hatch      |
+| Idle behavior       | Dormant — worktree polling suspends when no SSE client is attached                       |
+| CLI ↔ hub           | Pure HTTP client. The hub is the single writer to all state                              |
+| CLI surface         | Path-first flat verbs; `add` merges into `livediff . --no-open`                          |
+| `--wait` completion | Explicit "Done reviewing" button in the UI                                               |
+| Storage             | JSON files with atomic renames; SQLite deferred                                          |
+| Rail lifecycle      | Auto-prune dead paths; explicit `rm` for everything live                                 |
+| Watching            | In-process events primary; `fs.watch` as a safety net; 1s worktree poll gated on clients |
+| Packaging           | npm semantics via `pnpm pack` + global tarball install; publishing deferred              |
 
 ---
 
@@ -136,7 +136,7 @@ sufficient for that shape.
 
 ### 5.3 Worktree polling, gated on clients
 
-Detecting changes *inside* a worktree still requires `git status --porcelain`, because a
+Detecting changes _inside_ a worktree still requires `git status --porcelain`, because a
 filesystem event is not a git-status change: `node_modules` writes, `dist/` output, editor swap
 files, and `.git` lock churn would all fire spuriously, and a hot build loop would trigger a
 `git status` storm worse than the current 1s poll.
@@ -227,7 +227,7 @@ $ _
 1. `--wait` opens a **review request** on the hub: `{ reviewId, ws, startedAt }`, held in memory.
    The hub no longer dies, so there is nothing to persist.
 2. The UI renders a **"Done reviewing"** button in the header **only** while the selected workspace
-   has an open review request, labelled with the comment count — *Done reviewing (3 comments)*.
+   has an open review request, labelled with the comment count — _Done reviewing (3 comments)_.
    It never appears during ordinary browsing.
 3. Clicking it `POST`s to the hub, which broadcasts a `review-done` frame carrying the `reviewId`.
 4. The CLI does not poll. It holds an SSE connection to `/api/events` and exits on the matching
@@ -246,12 +246,12 @@ for the agent. The summary reports both counts.
 
 Additions to the surface in `DESIGN.md` §5:
 
-| Method | Path | Purpose |
-|---|---|---|
-| POST | `/api/shutdown` | graceful exit; used by `ensureHub` on version mismatch |
-| POST | `/api/reviews` | `{ws}` → open a review request, returns `{reviewId}` |
-| DELETE | `/api/reviews/:reviewId` | cancel (CLI `Ctrl-C`) |
-| POST | `/api/reviews/:reviewId/done` | the Done button; broadcasts `review-done` |
+| Method | Path                          | Purpose                                                |
+| ------ | ----------------------------- | ------------------------------------------------------ |
+| POST   | `/api/shutdown`               | graceful exit; used by `ensureHub` on version mismatch |
+| POST   | `/api/reviews`                | `{ws}` → open a review request, returns `{reviewId}`   |
+| DELETE | `/api/reviews/:reviewId`      | cancel (CLI `Ctrl-C`)                                  |
+| POST   | `/api/reviews/:reviewId/done` | the Done button; broadcasts `review-done`              |
 
 `GET /api/meta` gains `version`, read from `package.json` at startup, for the handshake in §4.2.
 
@@ -330,14 +330,14 @@ The dangerous leftover is the v0.3 `pnpm link --global` symlink into the clone. 
 alongside an npm-style package, which `livediff` runs depends on PATH ordering between pnpm's and
 npm's global bin directories — so an "upgrade" can silently keep running old code.
 
-| Leftover | Handling |
-|---|---|
-| `pnpm link --global` symlink | `install.sh` removes it first, then verifies `which -a livediff` resolves to exactly one path |
-| Old hub running on 4180 | Free — the §4.2 version handshake shuts it down and respawns |
-| Duplicate registry entries from subdirectory `add`s | Hub-side migration on startup: normalize each path to its toplevel, merge collapsed ids, concatenating their comments files |
-| Pre-0.3 `<worktree>/.diff-review/` | Existing lazy migration in `comments.js` is retained |
-| Copied skill at `~/.claude/skills/open-worktree-diff/` | Refreshed by `install.sh` — it references `livediff add`, which no longer exists |
-| Plugin-installed skill | Not reachable from a shell script; `doctor` detects it and prints the `/plugin` command |
+| Leftover                                               | Handling                                                                                                                    |
+| ------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------- |
+| `pnpm link --global` symlink                           | `install.sh` removes it first, then verifies `which -a livediff` resolves to exactly one path                               |
+| Old hub running on 4180                                | Free — the §4.2 version handshake shuts it down and respawns                                                                |
+| Duplicate registry entries from subdirectory `add`s    | Hub-side migration on startup: normalize each path to its toplevel, merge collapsed ids, concatenating their comments files |
+| Pre-0.3 `<worktree>/.diff-review/`                     | Existing lazy migration in `comments.js` is retained                                                                        |
+| Copied skill at `~/.claude/skills/open-worktree-diff/` | Refreshed by `install.sh` — it references `livediff add`, which no longer exists                                            |
+| Plugin-installed skill                                 | Not reachable from a shell script; `doctor` detects it and prints the `/plugin` command                                     |
 
 The registry migration is idempotent and runs inside the hub, consistent with single-writer.
 
@@ -372,6 +372,7 @@ The project currently has **no tests and no test script**. Lifecycle logic is ex
 fails silently, so it gets covered first, using `node:test` — built in, no dependency.
 
 **Unit — `ensureHub` state machine**
+
 - no state file → spawns
 - state file with dead pid → cleans up, spawns
 - version mismatch → shuts old hub down, spawns
@@ -380,17 +381,20 @@ fails silently, so it gets covered first, using `node:test` — built in, no dep
 - abandoned lock (mtime > 30s) → broken and reacquired
 
 **Unit — registry**
+
 - subdirectory path normalizes to worktree toplevel
 - duplicate-entry migration merges comments from collapsed ids
 - atomic write leaves no partial file when interrupted
 
 **Integration — real hub on an ephemeral port**
+
 - poll loop starts on first SSE client and stops when the last disconnects
 - hand-editing `comments/<ws>.json` emits a `comments` frame (the `fs.watch` fallback)
 - review lifecycle: open → Done → `review-done` frame carries the right `reviewId`
 - `--wait` exits 0 on Done and non-zero on cancel
 
 **Manual**
+
 - `pnpm pack` + global tarball install, then `livediff .` in a fresh worktree
 - upgrade over a v0.3 `pnpm link --global` install, verified with `livediff doctor`
 

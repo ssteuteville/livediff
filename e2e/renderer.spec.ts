@@ -50,7 +50,9 @@ test("first-load JS stays under budget", async ({ page }) => {
   await page.waitForSelector("[data-diff-scroll]", { timeout: 30_000 });
 
   const total = bytes.reduce((n, b) => n + b, 0);
-  expect(total, "no JS responses were captured — the budget would pass vacuously").toBeGreaterThan(0);
+  expect(total, "no JS responses were captured — the budget would pass vacuously").toBeGreaterThan(
+    0,
+  );
   // Measured: 71 KB gzip on the fast path, from 413 KB before the split. Uncompressed here, so the
   // budget is loose — its job is to catch the classic renderer being pulled in eagerly again.
   expect(total).toBeLessThan(600_000);

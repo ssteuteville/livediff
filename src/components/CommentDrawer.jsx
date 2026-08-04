@@ -52,14 +52,22 @@ function byAnchor(comments) {
   const groups = new Map();
   for (const c of comments) {
     const key = `c:${c.file}:${c.side}:${c.line}`;
-    if (!groups.has(key)) groups.set(key, { key, file: c.file, side: c.side, line: c.line, comments: [] });
+    if (!groups.has(key))
+      groups.set(key, { key, file: c.file, side: c.side, line: c.line, comments: [] });
     groups.get(key).comments.push(c);
   }
   return [...groups.values()].sort((a, b) => a.file.localeCompare(b.file) || a.line - b.line);
 }
 
 /** `path` names one file, or is null for every comment in the worktree. */
-export default function CommentDrawer({ path, comments, anchored, onClose, onGoTo, onCommentAction }) {
+export default function CommentDrawer({
+  path,
+  comments,
+  anchored,
+  onClose,
+  onGoTo,
+  onCommentAction,
+}) {
   const scoped = path ? comments.filter((c) => c.file === path) : comments;
   const inDiff = byAnchor(scoped.filter((c) => anchored.has(c.id)));
   const gone = byAnchor(scoped.filter((c) => !anchored.has(c.id)));
@@ -70,7 +78,10 @@ export default function CommentDrawer({ path, comments, anchored, onClose, onGoT
       className="flex w-96 shrink-0 flex-col border-l border-neutral-200 bg-white dark:border-neutral-800 dark:bg-neutral-900"
     >
       <header className="flex items-center gap-2 border-b border-neutral-200 px-3 py-2 dark:border-neutral-800">
-        <span className="truncate font-mono text-xs text-neutral-700 dark:text-neutral-200" title={path ?? ""}>
+        <span
+          className="truncate font-mono text-xs text-neutral-700 dark:text-neutral-200"
+          title={path ?? ""}
+        >
           {path ?? `All comments · ${scoped.length}`}
         </span>
         <button

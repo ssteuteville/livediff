@@ -4,8 +4,16 @@ import { join } from "node:path";
 import { mkdir, utimes, writeFile } from "node:fs/promises";
 import { withTempXdg } from "./helpers.js";
 import {
-  stateDir, statePath, readState, writeState, clearState,
-  pidAlive, acquireLock, releaseLock, lockPath, probeMeta,
+  stateDir,
+  statePath,
+  readState,
+  writeState,
+  clearState,
+  pidAlive,
+  acquireLock,
+  releaseLock,
+  lockPath,
+  probeMeta,
 } from "../server/hub-state.js";
 
 test("statePath follows XDG_STATE_HOME set after import", async () => {
@@ -31,7 +39,12 @@ test("readState returns null on corrupt JSON rather than throwing", async () => 
 
 test("round-trips state", async () => {
   await withTempXdg(async () => {
-    const state = { pid: 1234, port: 4180, version: "0.4.0", startedAt: "2026-07-31T00:00:00.000Z" };
+    const state = {
+      pid: 1234,
+      port: 4180,
+      version: "0.4.0",
+      startedAt: "2026-07-31T00:00:00.000Z",
+    };
     await writeState(state);
     assert.deepEqual(await readState(), state);
     await clearState();

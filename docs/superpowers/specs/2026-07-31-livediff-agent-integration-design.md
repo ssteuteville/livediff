@@ -19,13 +19,13 @@ in **240ms**. The latency is model turns, not the subprocess: the current flow c
 activation, a pre-flight check, the real command, and a report — four round trips at seconds
 each. The fix is removing turns, not shaving milliseconds.
 
-Cause of (1) is instructive. The v0.4 skill already says *"There is no server to start first."*
+Cause of (1) is instructive. The v0.4 skill already says _"There is no server to start first."_
 The agent checks anyway. A single negative instruction loses to a strong prior about localhost
 servers, especially when the same document advertises `doctor` and `list` as things one could
 check with.
 
-Cause of (2) is a missing mapping: `--no-open` is documented as *"when the user is not at the
-machine"*, which never matches the phrasing "give me a link".
+Cause of (2) is a missing mapping: `--no-open` is documented as _"when the user is not at the
+machine"_, which never matches the phrasing "give me a link".
 
 Cause of (3) is partly confirmed and partly not. `openBrowser` discards the opener's exit
 status, so `cmdOpen` prints `opened <label>` whether or not a browser launched. That guarantees
@@ -64,12 +64,12 @@ directory and prints the marketplace command.
 Four skills replace the one. Two are model-invocable because they correspond to natural prose
 requests; two are typed-only, which removes them from Claude's context entirely.
 
-| Skill | Command | Invocation | Resting cost |
-| --- | --- | --- | --- |
-| open | `/livediff:open` | Claude or typed | ~40 tokens |
-| comments | `/livediff:comments` | Claude or typed | ~40 tokens |
-| link | `/livediff:link` | typed only | 0 |
-| review | `/livediff:review` | typed only | 0 |
+| Skill    | Command              | Invocation      | Resting cost |
+| -------- | -------------------- | --------------- | ------------ |
+| open     | `/livediff:open`     | Claude or typed | ~40 tokens   |
+| comments | `/livediff:comments` | Claude or typed | ~40 tokens   |
+| link     | `/livediff:link`     | typed only      | 0            |
+| review   | `/livediff:review`   | typed only      | 0            |
 
 Total resting cost is roughly 80 tokens, against ~800 paid on every activation today.
 
@@ -91,12 +91,12 @@ allowed-tools: Bash(livediff *)
 Pick one row. Run it once. Do not check anything first — there is no server to start
 and no state worth inspecting.
 
-| The user wants | Run |
-| --- | --- |
-| to see the diff | `livediff .` |
+| The user wants               | Run                    |
+| ---------------------------- | ---------------------- |
+| to see the diff              | `livediff .`           |
 | a link or URL, not a browser | `livediff . --no-open` |
-| a specific worktree | `livediff <path>` |
-| every registered worktree | `livediff` |
+| a specific worktree          | `livediff <path>`      |
+| every registered worktree    | `livediff`             |
 
 Each prints a URL. Give it to the user.
 
@@ -109,7 +109,7 @@ right, at the top of the body rather than buried in prose.
 
 ### `skills/comments/SKILL.md`
 
-```markdown
+````markdown
 ---
 name: comments
 description: Read the user's inline livediff review comments and act on them.
@@ -133,12 +133,14 @@ Work through them, then close each one:
 livediff resolve <id> <what you did>   # replies and resolves in one call
 livediff reply   <id> <your question>  # replies without resolving
 ```
+````
 
 Use `reply` when you need the user to clarify. The browser updates live.
 
 If nothing is listed above, there are no open comments — say so and stop. If the command
 reported an error instead, the current directory is not a registered worktree; tell the user.
-```
+
+````
 
 The `` !`…` `` line is the fix for failure (4). Output is substituted before Claude reads
 anything, so the flow becomes *activate → work* instead of *activate → call → read → work*.
@@ -156,7 +158,7 @@ allowed-tools: Bash(livediff *)
 !`livediff . --no-open`
 
 Give the user the URL above and nothing else.
-```
+````
 
 ### `skills/review/SKILL.md`
 
@@ -246,7 +248,7 @@ It locates the plugin by globbing `~/.claude/plugins/cache/*/livediff/*/plugin.j
 reading the `version` field, taking the highest version found. If no match exists the plugin
 is simply not installed, which is an **ok** finding, not a problem — the CLI works without it.
 
-The current hedge — *"If it came from the plugin system, run `/plugin update livediff`"* —
+The current hedge — _"If it came from the plugin system, run `/plugin update livediff`"_ —
 is removed. With one delivery path the check no longer has to guess.
 
 ## Versioning
@@ -259,22 +261,22 @@ visible rather than relying on discipline.
 
 `node --test test/*.test.js`, extending the existing helpers.
 
-| Test | Asserts |
-| --- | --- |
-| `--status open` hides resolved | only unresolved ids appear |
-| `--status resolved` hides open | only resolved ids appear |
-| `--status all` shows both | every id appears |
-| default is `open` | bare `comments` matches `--status open` |
-| filtered-empty names the rest | output contains `2 resolved` |
-| no comments at all | output is `no comments`, without a count |
-| bad `--status` value | exit 2, message lists open/resolved/all |
-| text carries the anchor | output contains the `lineContent` text |
-| long `lineContent` truncates | output line is ≤ 120 chars plus prefix, ends `…` |
-| failed open is reported | `LIVEDIFF_BROWSER=false`, output says it could not open, exit 0 |
-| successful open is reported | `LIVEDIFF_BROWSER=true`, output says `opened`, exit 0 |
-| `--json` gains `opened` | field is a boolean |
-| doctor flags the legacy dir | seeded dir under temp `HOME` produces an `error` finding |
-| doctor flags version skew | plugin.json at a different version produces a `warn` finding |
+| Test                           | Asserts                                                         |
+| ------------------------------ | --------------------------------------------------------------- |
+| `--status open` hides resolved | only unresolved ids appear                                      |
+| `--status resolved` hides open | only resolved ids appear                                        |
+| `--status all` shows both      | every id appears                                                |
+| default is `open`              | bare `comments` matches `--status open`                         |
+| filtered-empty names the rest  | output contains `2 resolved`                                    |
+| no comments at all             | output is `no comments`, without a count                        |
+| bad `--status` value           | exit 2, message lists open/resolved/all                         |
+| text carries the anchor        | output contains the `lineContent` text                          |
+| long `lineContent` truncates   | output line is ≤ 120 chars plus prefix, ends `…`                |
+| failed open is reported        | `LIVEDIFF_BROWSER=false`, output says it could not open, exit 0 |
+| successful open is reported    | `LIVEDIFF_BROWSER=true`, output says `opened`, exit 0           |
+| `--json` gains `opened`        | field is a boolean                                              |
+| doctor flags the legacy dir    | seeded dir under temp `HOME` produces an `error` finding        |
+| doctor flags version skew      | plugin.json at a different version produces a `warn` finding    |
 
 The existing `withTempXdg` helper already overrides `HOME`, which the two `doctor` tests
 depend on.

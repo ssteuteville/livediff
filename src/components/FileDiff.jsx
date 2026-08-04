@@ -22,7 +22,7 @@ export default function FileDiff({ file, comments, mode, theme, onAddComment, on
       newFile: { fileName: file.path, fileLang: file.lang },
       hunks: file.patch ? [file.patch] : [],
     }),
-    [file]
+    [file],
   );
 
   const extendData = useMemo(() => {
@@ -40,12 +40,21 @@ export default function FileDiff({ file, comments, mode, theme, onAddComment, on
   return (
     <section className="mb-4 overflow-hidden rounded-lg border border-neutral-200 dark:border-neutral-800">
       <header className="sticky top-0 z-10 flex items-center gap-2 border-b border-neutral-200 bg-neutral-50 px-3 py-2 text-sm dark:border-neutral-800 dark:bg-neutral-900">
-        <span className={"rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase " + (STATUS_STYLES[file.status] || STATUS_STYLES.modified)}>
+        <span
+          className={
+            "rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase " +
+            (STATUS_STYLES[file.status] || STATUS_STYLES.modified)
+          }
+        >
           {file.status}
         </span>
         <span className="font-mono text-neutral-800 dark:text-neutral-100">{file.path}</span>
-        {file.additions > 0 && <span className="text-xs text-green-600 dark:text-green-400">+{file.additions}</span>}
-        {file.deletions > 0 && <span className="text-xs text-red-600 dark:text-red-400">−{file.deletions}</span>}
+        {file.additions > 0 && (
+          <span className="text-xs text-green-600 dark:text-green-400">+{file.additions}</span>
+        )}
+        {file.deletions > 0 && (
+          <span className="text-xs text-red-600 dark:text-red-400">−{file.deletions}</span>
+        )}
         {openCount > 0 && (
           <span className="ml-auto rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-700 dark:bg-amber-500/20 dark:text-amber-300">
             {openCount} open comment{openCount > 1 ? "s" : ""}
@@ -68,7 +77,9 @@ export default function FileDiff({ file, comments, mode, theme, onAddComment, on
             renderWidgetLine={({ diffFile, side, lineNumber, onClose }) => {
               const sideStr = sideToStr(side);
               const plain =
-                sideStr === "old" ? diffFile.getOldPlainLine(lineNumber) : diffFile.getNewPlainLine(lineNumber);
+                sideStr === "old"
+                  ? diffFile.getOldPlainLine(lineNumber)
+                  : diffFile.getNewPlainLine(lineNumber);
               return (
                 <CommentComposer
                   onCancel={onClose}

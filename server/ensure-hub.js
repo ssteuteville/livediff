@@ -3,8 +3,16 @@ import { mkdir, open, readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import {
-  readState, clearState, pidAlive, probeMeta, waitUntil, shutdownHub,
-  acquireLock, releaseLock, logPath, stateDir,
+  readState,
+  clearState,
+  pidAlive,
+  probeMeta,
+  waitUntil,
+  shutdownHub,
+  acquireLock,
+  releaseLock,
+  logPath,
+  stateDir,
 } from "./hub-state.js";
 import { APP_DIR_NAME, SPAWN_WAIT_TIMEOUT_MS } from "./constants.js";
 

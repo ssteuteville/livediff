@@ -135,7 +135,7 @@ async function workspacesView() {
         /* none */
       }
       return { ...w, ...info, openComments };
-    })
+    }),
   );
 }
 
@@ -425,7 +425,8 @@ async function pruneWorkspaces(registered) {
 async function poll() {
   try {
     const sig = await registrySignature();
-    if (registrySig !== null && sig !== registrySig) broadcast("workspaces", { reason: "registry" });
+    if (registrySig !== null && sig !== registrySig)
+      broadcast("workspaces", { reason: "registry" });
     registrySig = sig;
   } catch {
     /* ignore */
@@ -443,7 +444,7 @@ async function poll() {
   // One git spawn per workspace, run concurrently: sequential awaits made a tick cost
   // N × spawn-latency, every second, for as long as a browser was attached.
   const signatures = await Promise.all(
-    registered.map((w) => worktreeSignature(w.path, null).catch(() => null))
+    registered.map((w) => worktreeSignature(w.path, null).catch(() => null)),
   );
   registered.forEach((w, i) => {
     const sig = signatures[i];
@@ -461,7 +462,7 @@ async function poll() {
       if (changed[i] === null) return; // transient git state
       const { archived, purged } = await sweep(w.id, w.path, changed[i], {});
       if (archived || purged) broadcast("comments", { reason: "swept", ws: w.id });
-    })
+    }),
   );
 }
 
@@ -520,7 +521,7 @@ function debounce(fn, ms) {
       setTimeout(() => {
         pending.delete(key);
         fn(key);
-      }, ms)
+      }, ms),
     );
   };
 }

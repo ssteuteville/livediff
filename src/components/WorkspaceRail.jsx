@@ -22,7 +22,9 @@ function WorkspaceRow({ ws, selected, onSelect, onRemove }) {
         <div className="truncate font-medium" title={ws.path}>
           {ws.label}
         </div>
-        <div className={"truncate text-[11px] " + (selected ? "text-blue-100" : "text-neutral-400")}>
+        <div
+          className={"truncate text-[11px] " + (selected ? "text-blue-100" : "text-neutral-400")}
+        >
           {ws.valid ? `${ws.branch}${ws.head ? "@" + ws.head : ""}` : "unavailable"}
         </div>
       </div>
@@ -31,7 +33,9 @@ function WorkspaceRow({ ws, selected, onSelect, onRemove }) {
           data-rail-comment-count
           className={
             "shrink-0 rounded-full px-1.5 text-[10px] font-semibold " +
-            (selected ? "bg-white/25 text-white" : "bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300")
+            (selected
+              ? "bg-white/25 text-white"
+              : "bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300")
           }
           title={`${ws.openComments} open comments`}
         >
@@ -75,7 +79,8 @@ export default function WorkspaceRail({ workspaces, selected, onSelect, onRemove
         {workspaces.length === 0 ? (
           <div className="px-2 py-6 text-xs leading-relaxed text-neutral-400">
             No workspaces yet. Ask Claude to register a worktree, or run{" "}
-            <code className="rounded bg-neutral-100 px-1 dark:bg-neutral-800">livediff .</code> in one.
+            <code className="rounded bg-neutral-100 px-1 dark:bg-neutral-800">livediff .</code> in
+            one.
           </div>
         ) : (
           workspaces.map((ws) => (

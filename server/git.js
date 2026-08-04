@@ -10,17 +10,46 @@ const exec = promisify(execFile);
 const EXCLUDE = ["--", ".", `:(exclude)${LEGACY_COMMENT_DIR}`];
 
 const EXT_LANG = {
-  js: "javascript", jsx: "jsx", mjs: "javascript", cjs: "javascript",
-  ts: "typescript", tsx: "tsx", json: "json",
-  css: "css", scss: "scss", less: "less",
-  html: "xml", xml: "xml", vue: "vue", svg: "xml",
-  md: "markdown", markdown: "markdown",
-  py: "python", rb: "ruby", go: "go", rs: "rust",
-  java: "java", kt: "kotlin", swift: "swift", c: "c", h: "c",
-  cpp: "cpp", cc: "cpp", hpp: "cpp", cs: "csharp",
-  php: "php", sh: "bash", bash: "bash", zsh: "bash",
-  yml: "yaml", yaml: "yaml", sql: "sql", graphql: "graphql",
-  toml: "ini", ini: "ini", dockerfile: "dockerfile",
+  js: "javascript",
+  jsx: "jsx",
+  mjs: "javascript",
+  cjs: "javascript",
+  ts: "typescript",
+  tsx: "tsx",
+  json: "json",
+  css: "css",
+  scss: "scss",
+  less: "less",
+  html: "xml",
+  xml: "xml",
+  vue: "vue",
+  svg: "xml",
+  md: "markdown",
+  markdown: "markdown",
+  py: "python",
+  rb: "ruby",
+  go: "go",
+  rs: "rust",
+  java: "java",
+  kt: "kotlin",
+  swift: "swift",
+  c: "c",
+  h: "c",
+  cpp: "cpp",
+  cc: "cpp",
+  hpp: "cpp",
+  cs: "csharp",
+  php: "php",
+  sh: "bash",
+  bash: "bash",
+  zsh: "bash",
+  yml: "yaml",
+  yaml: "yaml",
+  sql: "sql",
+  graphql: "graphql",
+  toml: "ini",
+  ini: "ini",
+  dockerfile: "dockerfile",
 };
 
 function langFor(path) {
@@ -171,7 +200,9 @@ export async function getDiff(cwd, base) {
       statusByPath.set(path, code);
     }
 
-    const patches = splitPatches(await git(cwd, ["diff", against, ...EXCLUDE]), [...numstat.keys()]);
+    const patches = splitPatches(await git(cwd, ["diff", against, ...EXCLUDE]), [
+      ...numstat.keys(),
+    ]);
     for (const [path, stat] of numstat) {
       const code = statusByPath.get(path) || "M";
       // A path the splitter could not attribute — an exotic quoted name, say — falls back to its
@@ -185,11 +216,13 @@ export async function getDiff(cwd, base) {
   // Untracked files. An added file's patch is fully determined by its contents — every line is an
   // addition — so it is synthesized from a read instead of the two `--no-index` spawns per file
   // this used to cost. 500 untracked files went from ~1000 spawns to none.
-  const untracked = (await git(cwd, ["ls-files", "--others", "--exclude-standard", "-z", ...EXCLUDE]))
+  const untracked = (
+    await git(cwd, ["ls-files", "--others", "--exclude-standard", "-z", ...EXCLUDE])
+  )
     .split("\0")
     .filter(Boolean);
   const added = await Promise.all(
-    untracked.filter((p) => !seen.has(p)).map((path) => readAddedFile(cwd, path))
+    untracked.filter((p) => !seen.has(p)).map((path) => readAddedFile(cwd, path)),
   );
   files.push(...added.filter(Boolean));
 
@@ -230,16 +263,27 @@ async function readAddedFile(cwd, path) {
     `@@ -0,0 +1,${lines.length} @@\n${body}\n` +
     (noTrailingNewline ? "\\ No newline at end of file\n" : "");
 
-  return buildFile(path, path, "added", { additions: lines.length, deletions: 0, binary: false }, patch);
+  return buildFile(
+    path,
+    path,
+    "added",
+    { additions: lines.length, deletions: 0, binary: false },
+    patch,
+  );
 }
 
 function statusName(code) {
   switch (code) {
-    case "A": return "added";
-    case "D": return "deleted";
-    case "R": return "renamed";
-    case "C": return "copied";
-    default: return "modified";
+    case "A":
+      return "added";
+    case "D":
+      return "deleted";
+    case "R":
+      return "renamed";
+    case "C":
+      return "copied";
+    default:
+      return "modified";
   }
 }
 
@@ -288,9 +332,9 @@ export async function worktreeSignature(cwd, base) {
     statusPaths(status).map((path) =>
       stat(join(cwd, path)).then(
         (s) => `${s.size}:${s.mtimeMs}`,
-        () => "-" // deleted between the status and the stat; status already recorded that
-      )
-    )
+        () => "-", // deleted between the status and the stat; status already recorded that
+      ),
+    ),
   );
   return `${status}|${stamps.join(",")}|${against}`;
 }
@@ -307,7 +351,9 @@ export async function changedPaths(cwd) {
       .filter(Boolean);
     paths.push(...tracked);
   }
-  const untracked = (await git(cwd, ["ls-files", "--others", "--exclude-standard", "-z", ...EXCLUDE]))
+  const untracked = (
+    await git(cwd, ["ls-files", "--others", "--exclude-standard", "-z", ...EXCLUDE])
+  )
     .split("\0")
     .filter(Boolean);
   paths.push(...untracked);

@@ -1,9 +1,6 @@
 import { test } from "vitest";
 import assert from "node:assert/strict";
 import {
-
-
-
   isOrphaned,
   shouldArchive,
   shouldPurge,

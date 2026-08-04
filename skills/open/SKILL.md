@@ -10,12 +10,12 @@ allowed-tools: Bash(livediff *)
 Pick one row. Run it once. Do not check anything first — there is no server to start
 and no state worth inspecting.
 
-| The user wants | Run |
-| --- | --- |
-| to see the diff | `livediff .` |
+| The user wants               | Run                    |
+| ---------------------------- | ---------------------- |
+| to see the diff              | `livediff .`           |
 | a link or URL, not a browser | `livediff . --no-open` |
-| a specific worktree | `livediff <path>` |
-| every registered worktree | `livediff` |
+| a specific worktree          | `livediff <path>`      |
+| every registered worktree    | `livediff`             |
 
 Each prints a URL. Give it to the user.
 

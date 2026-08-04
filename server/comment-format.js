@@ -5,8 +5,6 @@ import { MAX_ANCHOR_LENGTH } from "./constants.js";
 
 export const COMMENT_STATUSES = ["open", "resolved", "all"];
 
-
-
 export function filterByStatus(comments, status) {
   return status === "all" ? comments : comments.filter((c) => c.status === status);
 }

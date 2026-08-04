@@ -108,33 +108,33 @@ via `fetch`. Without the skip the hub could listen on a port its own CLI could n
 
 ## 5. Change detection
 
-| Source | Mechanism | Why |
-|---|---|---|
-| Comments, registry (hub's own writes) | in-process `broadcast()` | The hub performed the write; watching for it would be redundant and up to a second late. |
-| Comments, registry (hand edits) | `fs.watch` on the config dir, 50ms debounce | Flat directories, exact semantics, no ignore rules. Degrades to nothing if unsupported. |
-| Worktree contents | `git status --porcelain` every `LIVEDIFF_POLL_MS`, **only while clients > 0** | A filesystem event is not a git-status change: `node_modules` writes, build output, and `.git` lock churn would all fire spuriously, and a hot build loop would trigger a `git status` storm worse than polling. |
+| Source                                | Mechanism                                                                     | Why                                                                                                                                                                                                              |
+| ------------------------------------- | ----------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Comments, registry (hub's own writes) | in-process `broadcast()`                                                      | The hub performed the write; watching for it would be redundant and up to a second late.                                                                                                                         |
+| Comments, registry (hand edits)       | `fs.watch` on the config dir, 50ms debounce                                   | Flat directories, exact semantics, no ignore rules. Degrades to nothing if unsupported.                                                                                                                          |
+| Worktree contents                     | `git status --porcelain` every `LIVEDIFF_POLL_MS`, **only while clients > 0** | A filesystem event is not a git-status change: `node_modules` writes, build output, and `.git` lock churn would all fire spuriously, and a hot build loop would trigger a `git status` storm worse than polling. |
 
 Workspaces whose worktree no longer exists are dropped during a poll tick and broadcast as
 `workspaces` with `reason: "pruned"`, so deleted agent worktrees clean themselves up.
 
 ## 6. HTTP + SSE API
 
-| Method | Path | Purpose |
-|---|---|---|
-| GET | `/api/meta` | `{name, port, version, clients, polling}` — identity, version handshake, liveness |
-| POST | `/api/shutdown` | graceful exit |
-| GET | `/api/workspaces` | list with live `{branch, head, changedFiles, openComments, valid}` |
-| POST | `/api/workspaces` | `{path}` → normalize to worktree root, register |
-| DELETE | `/api/workspaces/:id` | unregister; touches neither repo nor comments |
-| GET | `/api/resolve?path=` | the workspace containing a path |
-| GET | `/api/diff?ws=&base=` | structured diff |
-| GET/POST | `/api/comments?ws=` | read / add |
-| PATCH/DELETE | `/api/comments/:id?ws=` | edit, reply, resolve / delete |
-| GET | `/api/reviews?ws=` | the open review request, or `null` |
-| POST | `/api/reviews` | `{ws}` → open (idempotent per workspace) |
-| POST | `/api/reviews/:id/done` | the Done button |
-| DELETE | `/api/reviews/:id` | cancel (CLI `Ctrl-C`) |
-| GET | `/api/events` | SSE: `diff`, `comments`, `workspaces`, `review` |
+| Method       | Path                    | Purpose                                                                           |
+| ------------ | ----------------------- | --------------------------------------------------------------------------------- |
+| GET          | `/api/meta`             | `{name, port, version, clients, polling}` — identity, version handshake, liveness |
+| POST         | `/api/shutdown`         | graceful exit                                                                     |
+| GET          | `/api/workspaces`       | list with live `{branch, head, changedFiles, openComments, valid}`                |
+| POST         | `/api/workspaces`       | `{path}` → normalize to worktree root, register                                   |
+| DELETE       | `/api/workspaces/:id`   | unregister; touches neither repo nor comments                                     |
+| GET          | `/api/resolve?path=`    | the workspace containing a path                                                   |
+| GET          | `/api/diff?ws=&base=`   | structured diff                                                                   |
+| GET/POST     | `/api/comments?ws=`     | read / add                                                                        |
+| PATCH/DELETE | `/api/comments/:id?ws=` | edit, reply, resolve / delete                                                     |
+| GET          | `/api/reviews?ws=`      | the open review request, or `null`                                                |
+| POST         | `/api/reviews`          | `{ws}` → open (idempotent per workspace)                                          |
+| POST         | `/api/reviews/:id/done` | the Done button                                                                   |
+| DELETE       | `/api/reviews/:id`      | cancel (CLI `Ctrl-C`)                                                             |
+| GET          | `/api/events`           | SSE: `diff`, `comments`, `workspaces`, `review`                                   |
 
 Static `dist/` with SPA fallback. Binds `127.0.0.1` only; no auth, because there is no remote
 surface.
@@ -144,7 +144,11 @@ surface.
 **Registry** — `$XDG_CONFIG_HOME/livediff/workspaces.json`:
 
 ```json
-{ "workspaces": [{ "id": "a1b2c3d4", "path": "/abs/worktree", "label": "feature-x", "addedAt": "…" }] }
+{
+  "workspaces": [
+    { "id": "a1b2c3d4", "path": "/abs/worktree", "label": "feature-x", "addedAt": "…" }
+  ]
+}
 ```
 
 `id` is the first 8 hex of a hash of the path — stable and idempotent. Paths are normalized through

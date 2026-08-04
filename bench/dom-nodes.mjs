@@ -6,7 +6,11 @@ import { execFileSync } from "node:child_process";
 import { DiffFile } from "@git-diff-view/core";
 
 const ROOT = process.argv[2];
-const patch = execFileSync("git", ["diff", "HEAD"], { cwd: ROOT, encoding: "utf8", maxBuffer: 1 << 28 });
+const patch = execFileSync("git", ["diff", "HEAD"], {
+  cwd: ROOT,
+  encoding: "utf8",
+  maxBuffer: 1 << 28,
+});
 
 const file = new DiffFile("f.ts", "", "f.ts", "", [patch], "typescript", "typescript");
 file.init();
@@ -55,6 +59,6 @@ console.log(
       },
     },
     null,
-    2
-  )
+    2,
+  ),
 );

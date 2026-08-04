@@ -21,7 +21,7 @@ const write = (rewritten) => {
     const body = Array.from({ length: LINES }, (_, i) =>
       rewritten && i % 2
         ? `  const value${i} = computeV2(${i}, "rewritten", { flag: false });`
-        : `  const value${i} = compute(${i}, "some string payload here", { flag: true });`
+        : `  const value${i} = compute(${i}, "some string payload here", { flag: true });`,
     ).join("\n");
     writeFileSync(join(dir, `module-${f}.ts`), body + "\n");
   }

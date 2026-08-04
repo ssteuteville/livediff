@@ -1,8 +1,10 @@
-# Formatting is deliberately absent until the Plan 2 sweep: a format hook on an unformatted tree
-# would rewrite every file it touches, scattering that sweep across unrelated commits.
 pre-commit:
   parallel: true
   commands:
+    format:
+      glob: "*.{js,jsx,ts,tsx,mjs,json,css,md}"
+      run: pnpm exec oxfmt {staged_files}
+      stage_fixed: true
     lint:
       glob: "*.{js,jsx,ts,tsx,mjs}"
       run: pnpm exec oxlint {staged_files}

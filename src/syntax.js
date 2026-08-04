@@ -73,7 +73,10 @@ export async function loadGrammar(lang) {
   if (loading.has(name)) return loading.get(name);
 
   const task = (async () => {
-    const [core, grammar] = await Promise.all([hljs ? { default: hljs } : CORE(), GRAMMARS[name]()]);
+    const [core, grammar] = await Promise.all([
+      hljs ? { default: hljs } : CORE(),
+      GRAMMARS[name](),
+    ]);
     hljs = core.default;
     hljs.registerLanguage(name, grammar.default);
     ready.add(name);

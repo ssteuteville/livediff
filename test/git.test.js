@@ -51,7 +51,10 @@ test("comparing against a branch that moved on does not invert its commits into 
     await exec("git", ["checkout", "-q", "feature"], { cwd: repo });
 
     const diff = await getDiff(repo, "main");
-    assert.deepEqual(diff.files.map((f) => f.path), ["mine.txt"]);
+    assert.deepEqual(
+      diff.files.map((f) => f.path),
+      ["mine.txt"],
+    );
   });
 });
 
@@ -116,9 +119,11 @@ test("the signature moves when the branch point itself changes", async () => {
     const againstFirst = await worktreeSignature(repo, "main");
     await exec("git", ["checkout", "-qb", "feature"], { cwd: repo });
     assert.notEqual(await worktreeSignature(repo, "later"), againstFirst + "x");
-    assert.ok((await worktreeSignature(repo, "later")).endsWith(
-      (await exec("git", ["rev-parse", "later"], { cwd: repo })).stdout.trim()
-    ));
+    assert.ok(
+      (await worktreeSignature(repo, "later")).endsWith(
+        (await exec("git", ["rev-parse", "later"], { cwd: repo })).stdout.trim(),
+      ),
+    );
   });
 });
 
@@ -224,11 +229,9 @@ test("a synthesized untracked patch matches git's own --no-index output", async 
     assert.equal(added.additions, 3);
 
     // Compare the parts a diff viewer actually renders: the hunk header and the body.
-    const { stdout } = await exec(
-      "git",
-      ["diff", "--no-index", "--", "/dev/null", "new.ts"],
-      { cwd: repo }
-    ).catch((e) => ({ stdout: e.stdout }));
+    const { stdout } = await exec("git", ["diff", "--no-index", "--", "/dev/null", "new.ts"], {
+      cwd: repo,
+    }).catch((e) => ({ stdout: e.stdout }));
     const hunkOf = (p) => p.slice(p.indexOf("@@"));
     assert.equal(hunkOf(added.patch), hunkOf(stdout));
   });
@@ -295,7 +298,11 @@ test("the worktree signature is stable when nothing changes", async () => {
     const repo = await makeRepo(join(root, "repo"));
     await writeFile(join(repo, "a.txt"), "a\n", "utf8");
     const first = await worktreeSignature(repo, null);
-    assert.equal(await worktreeSignature(repo, null), first, "a poll must not report phantom changes");
+    assert.equal(
+      await worktreeSignature(repo, null),
+      first,
+      "a poll must not report phantom changes",
+    );
   });
 });
 

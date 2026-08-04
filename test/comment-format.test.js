@@ -24,8 +24,14 @@ test("COMMENT_STATUSES lists exactly the accepted values", () => {
 
 test("filterByStatus selects by status, and 'all' passes everything", () => {
   const list = [comment(), comment({ id: "bbbbbbbb", status: "resolved" })];
-  assert.deepEqual(filterByStatus(list, "open").map((c) => c.id), ["aaaaaaaa"]);
-  assert.deepEqual(filterByStatus(list, "resolved").map((c) => c.id), ["bbbbbbbb"]);
+  assert.deepEqual(
+    filterByStatus(list, "open").map((c) => c.id),
+    ["aaaaaaaa"],
+  );
+  assert.deepEqual(
+    filterByStatus(list, "resolved").map((c) => c.id),
+    ["bbbbbbbb"],
+  );
   assert.equal(filterByStatus(list, "all").length, 2);
 });
 
@@ -71,6 +77,6 @@ test("emptyMessage names the comments hidden by the filter", () => {
 test("emptyMessage works symmetrically for the resolved filter", () => {
   assert.equal(
     emptyMessage([comment()], "resolved"),
-    "no resolved comments (1 open — see --status all)"
+    "no resolved comments (1 open — see --status all)",
   );
 });

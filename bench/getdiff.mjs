@@ -8,6 +8,6 @@ console.log(
   JSON.stringify(
     { getDiffMs: Math.round(performance.now() - t0), files: diff.files.length },
     null,
-    2
-  )
+    2,
+  ),
 );

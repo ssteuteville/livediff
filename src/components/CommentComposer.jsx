@@ -1,6 +1,10 @@
 import { useState } from "react";
 
-export default function CommentComposer({ onSubmit, onCancel, placeholder = "Leave a comment for the agent…" }) {
+export default function CommentComposer({
+  onSubmit,
+  onCancel,
+  placeholder = "Leave a comment for the agent…",
+}) {
   const [body, setBody] = useState("");
   const submit = () => {
     const trimmed = body.trim();

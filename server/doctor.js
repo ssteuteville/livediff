@@ -29,8 +29,18 @@ const bad = (title, detail, fix) => ({ level: "error", title, detail, fix });
 async function checkPath() {
   let paths = [];
   try {
-    const { stdout } = await exec("sh", ["-c", "command -v livediff; type -a livediff 2>/dev/null | sed -n 's/.* is //p'"]);
-    paths = [...new Set(stdout.split("\n").map((s) => s.trim()).filter(Boolean))];
+    const { stdout } = await exec("sh", [
+      "-c",
+      "command -v livediff; type -a livediff 2>/dev/null | sed -n 's/.* is //p'",
+    ]);
+    paths = [
+      ...new Set(
+        stdout
+          .split("\n")
+          .map((s) => s.trim())
+          .filter(Boolean),
+      ),
+    ];
   } catch {
     /* not on PATH */
   }
@@ -38,14 +48,14 @@ async function checkPath() {
     return warn(
       "livediff is not on PATH",
       "You are running it by file path.",
-      "Run ./install.sh to install it globally."
+      "Run ./install.sh to install it globally.",
     );
   }
   if (paths.length > 1) {
     return bad(
       "livediff resolves to more than one binary",
       paths.join("\n"),
-      "Remove the stale one — usually `pnpm uninstall --global livediff`."
+      "Remove the stale one — usually `pnpm uninstall --global livediff`.",
     );
   }
   return ok("livediff on PATH", paths[0]);
@@ -66,11 +76,14 @@ async function checkHub(version) {
     return warn(
       "hub is running a different version",
       `CLI ${version}, hub ${meta.version}`,
-      "Any command replaces it automatically; `livediff stop` forces it now."
+      "Any command replaces it automatically; `livediff stop` forces it now.",
     );
   }
   const mode = meta.polling ? "polling" : "dormant";
-  return ok("hub", `running on port ${state.port} (v${meta.version}, ${meta.clients} clients, ${mode})`);
+  return ok(
+    "hub",
+    `running on port ${state.port} (v${meta.version}, ${meta.clients} clients, ${mode})`,
+  );
 }
 
 async function checkLock() {
@@ -82,7 +95,7 @@ async function checkLock() {
       return warn(
         "stale spawn lock",
         `${lockPath()} is ${Math.round(ageMs / 1000)}s old`,
-        `Harmless — it is broken automatically after ${seconds}s. Delete it to silence this.`
+        `Harmless — it is broken automatically after ${seconds}s. Delete it to silence this.`,
       );
     }
     return ok("spawn lock", "held by a starting hub");
@@ -103,7 +116,7 @@ async function checkRegistry() {
         return undefined; // distinct from null: the path itself is gone
       }
       return toplevel(w.path);
-    })
+    }),
   );
 
   const problems = [];
@@ -114,7 +127,8 @@ async function checkRegistry() {
       problems.push(`${w.id}  ${w.path} — path no longer exists`);
       continue;
     }
-    if (root && root !== w.path) problems.push(`${w.id}  ${w.path} — not a worktree root (${root})`);
+    if (root && root !== w.path)
+      problems.push(`${w.id}  ${w.path} — not a worktree root (${root})`);
     const key = root ?? w.path;
     if (seen.has(key)) problems.push(`${w.id}  duplicates ${seen.get(key)} (same worktree)`);
     else seen.set(key, w.id);
@@ -128,7 +142,7 @@ async function checkRegistry() {
   return warn(
     "registry needs migration",
     problems.join("\n"),
-    "Restart the hub (`livediff stop`, then any command) — it migrates on startup."
+    "Restart the hub (`livediff stop`, then any command) — it migrates on startup.",
   );
 }
 
@@ -143,14 +157,14 @@ async function checkLegacyDirs() {
       } catch {
         return null;
       }
-    })
+    }),
   );
   const found = dirs.filter(Boolean);
   if (!found.length) return ok("legacy comment dirs", "none");
   return warn(
     "pre-0.3 .diff-review directories present",
     found.join("\n"),
-    "Reading that workspace's comments migrates and removes it automatically."
+    "Reading that workspace's comments migrates and removes it automatically.",
   );
 }
 
@@ -207,7 +221,7 @@ async function checkPlugin(version) {
     return bad(
       "legacy skill directory left by a pre-0.5 install",
       `${legacy} is a stale copy of the skill; the plugin supplies it now.`,
-      `rm -rf ${legacy}`
+      `rm -rf ${legacy}`,
     );
   } catch {
     /* nothing to clean up */
@@ -219,13 +233,11 @@ async function checkPlugin(version) {
     return warn(
       "plugin version differs from the CLI",
       `CLI ${version}, plugin ${installed}`,
-      "Run `/plugin update livediff` in Claude Code."
+      "Run `/plugin update livediff` in Claude Code.",
     );
   }
   return ok("claude plugin", `v${installed}`);
 }
-
-
 
 /**
  * Archive growth is the one thing doctor would otherwise only describe. Every other finding
@@ -277,6 +289,6 @@ export async function diagnose(version) {
   ];
   const settled = await Promise.allSettled(checks);
   return settled.map((r) =>
-    r.status === "fulfilled" ? r.value : bad("check failed", String(r.reason?.message || r.reason))
+    r.status === "fulfilled" ? r.value : bad("check failed", String(r.reason?.message || r.reason)),
   );
 }

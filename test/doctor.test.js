@@ -13,7 +13,10 @@ const find = (findings, title) => findings.find((f) => f.title.includes(title));
 test("a clean install reports no errors", async () => {
   await withTempXdg(async () => {
     const findings = await diagnose("0.4.0");
-    assert.equal(findings.some((f) => f.level === "error"), false);
+    assert.equal(
+      findings.some((f) => f.level === "error"),
+      false,
+    );
     assert.ok(find(findings, "hub"));
     assert.ok(find(findings, "registry"));
   });
@@ -40,7 +43,9 @@ test("a non-toplevel registry entry is reported as needing migration", async () 
     const repo = await makeRepo(join(root, "repo"), ["src"]);
     const sub = join(repo, "src");
     await writeJsonAtomic(registryPath(), {
-      workspaces: [{ id: idFor(sub), path: sub, label: "src", addedAt: "2026-01-01T00:00:00.000Z" }],
+      workspaces: [
+        { id: idFor(sub), path: sub, label: "src", addedAt: "2026-01-01T00:00:00.000Z" },
+      ],
     });
     const findings = await diagnose("0.4.0");
     const registry = find(findings, "registry needs migration");
@@ -55,7 +60,9 @@ test("a leftover .diff-review directory is reported", async () => {
     await mkdir(join(repo, ".diff-review"), { recursive: true });
     await writeFile(join(repo, ".diff-review", "comments.json"), '{"comments":[]}', "utf8");
     await writeJsonAtomic(registryPath(), {
-      workspaces: [{ id: idFor(repo), path: repo, label: "repo", addedAt: "2026-01-01T00:00:00.000Z" }],
+      workspaces: [
+        { id: idFor(repo), path: repo, label: "repo", addedAt: "2026-01-01T00:00:00.000Z" },
+      ],
     });
     const findings = await diagnose("0.4.0");
     const legacy = find(findings, ".diff-review");
@@ -80,9 +87,22 @@ test("a leftover pre-0.5 skill directory is an error", async () => {
 
 test("a plugin at a different version is a warning", async () => {
   await withTempXdg(async ({ home }) => {
-    const dir = join(home, ".claude", "plugins", "cache", "local", "livediff", "0.4.0", ".claude-plugin");
+    const dir = join(
+      home,
+      ".claude",
+      "plugins",
+      "cache",
+      "local",
+      "livediff",
+      "0.4.0",
+      ".claude-plugin",
+    );
     await mkdir(dir, { recursive: true });
-    await writeFile(join(dir, "plugin.json"), JSON.stringify({ name: "livediff", version: "0.4.0" }), "utf8");
+    await writeFile(
+      join(dir, "plugin.json"),
+      JSON.stringify({ name: "livediff", version: "0.4.0" }),
+      "utf8",
+    );
 
     const findings = await diagnose("0.5.0");
     const skew = find(findings, "plugin version differs");
@@ -94,12 +114,28 @@ test("a plugin at a different version is a warning", async () => {
 
 test("a matching plugin version is clean", async () => {
   await withTempXdg(async ({ home }) => {
-    const dir = join(home, ".claude", "plugins", "cache", "local", "livediff", "0.5.0", ".claude-plugin");
+    const dir = join(
+      home,
+      ".claude",
+      "plugins",
+      "cache",
+      "local",
+      "livediff",
+      "0.5.0",
+      ".claude-plugin",
+    );
     await mkdir(dir, { recursive: true });
-    await writeFile(join(dir, "plugin.json"), JSON.stringify({ name: "livediff", version: "0.5.0" }), "utf8");
+    await writeFile(
+      join(dir, "plugin.json"),
+      JSON.stringify({ name: "livediff", version: "0.5.0" }),
+      "utf8",
+    );
 
     const findings = await diagnose("0.5.0");
-    assert.equal(findings.some((f) => f.level === "error"), false);
+    assert.equal(
+      findings.some((f) => f.level === "error"),
+      false,
+    );
     assert.match(find(findings, "claude plugin").detail, /0\.5\.0/);
   });
 });
@@ -107,9 +143,22 @@ test("a matching plugin version is clean", async () => {
 test("the newest cached plugin version wins", async () => {
   await withTempXdg(async ({ home }) => {
     for (const v of ["0.4.0", "0.10.0"]) {
-      const dir = join(home, ".claude", "plugins", "cache", "local", "livediff", v, ".claude-plugin");
+      const dir = join(
+        home,
+        ".claude",
+        "plugins",
+        "cache",
+        "local",
+        "livediff",
+        v,
+        ".claude-plugin",
+      );
       await mkdir(dir, { recursive: true });
-      await writeFile(join(dir, "plugin.json"), JSON.stringify({ name: "livediff", version: v }), "utf8");
+      await writeFile(
+        join(dir, "plugin.json"),
+        JSON.stringify({ name: "livediff", version: v }),
+        "utf8",
+      );
     }
     const findings = await diagnose("0.10.0");
     assert.match(find(findings, "claude plugin").detail, /0\.10\.0/);
@@ -138,7 +187,9 @@ test("a populated archive suggests a prune command", async () => {
   await withTempXdg(async ({ root }) => {
     const repo = await makeRepo(join(root, "repo"));
     await writeJsonAtomic(registryPath(), {
-      workspaces: [{ id: idFor(repo), path: repo, label: "repo", addedAt: "2026-01-01T00:00:00.000Z" }],
+      workspaces: [
+        { id: idFor(repo), path: repo, label: "repo", addedAt: "2026-01-01T00:00:00.000Z" },
+      ],
     });
     const { __writeForTest } = await import("../server/comments.js");
     await __writeForTest(idFor(repo), {

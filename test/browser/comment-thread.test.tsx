@@ -17,7 +17,7 @@ async function renderInSlot(comments: ReturnType<typeof thread>): Promise<HTMLEl
   render(
     <div style={{ height: `${SLOT_PX}px`, width: "600px" }} data-slot>
       <CommentThreadPreview comments={comments} lines={7} file="a.ts" line={2} />
-    </div>
+    </div>,
   );
   let slot: HTMLElement | null = null;
   await vi.waitFor(() => {
@@ -28,7 +28,9 @@ async function renderInSlot(comments: ReturnType<typeof thread>): Promise<HTMLEl
 }
 
 test("a long body is clipped to the slot rather than growing it", async () => {
-  const long = Array.from({ length: 60 }, (_, i) => `line ${i} of a very long comment body`).join("\n");
+  const long = Array.from({ length: 60 }, (_, i) => `line ${i} of a very long comment body`).join(
+    "\n",
+  );
   const slot = await renderInSlot(thread(long));
 
   const card = slot.firstElementChild as HTMLElement;
@@ -41,7 +43,7 @@ test("a long body is clipped to the slot rather than growing it", async () => {
   // The card itself fills the slot exactly; the clipping happens on whichever inner element holds
   // the body, so look for it there rather than on the outer box.
   const clipped = [...card.querySelectorAll<HTMLElement>("*")].some(
-    (el) => el.scrollHeight > el.clientHeight + 1
+    (el) => el.scrollHeight > el.clientHeight + 1,
   );
   expect(clipped, "nothing inside the card is clipped — the body was not truncated").toBe(true);
 });
@@ -52,7 +54,7 @@ test("a short body occupies the same slot as a long one", async () => {
   document.body.innerHTML = "";
 
   const longSlot = await renderInSlot(
-    thread(Array.from({ length: 60 }, (_, i) => `line ${i}`).join("\n"))
+    thread(Array.from({ length: 60 }, (_, i) => `line ${i}`).join("\n")),
   );
   const longHeight = (longSlot.firstElementChild as HTMLElement).getBoundingClientRect().height;
 

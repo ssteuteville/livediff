@@ -15,7 +15,7 @@ git("config", "user.name", "T");
 
 const before = Array.from(
   { length: N },
-  (_, i) => `  const value${i} = compute(${i}, "some string payload here", { flag: true });`
+  (_, i) => `  const value${i} = compute(${i}, "some string payload here", { flag: true });`,
 ).join("\n");
 writeFileSync(join(ROOT, "generated-client.ts"), before + "\n");
 git("add", ".");
@@ -24,7 +24,7 @@ git("commit", "-qm", "base");
 const after = Array.from({ length: N }, (_, i) =>
   i % 2 === 0
     ? `  const value${i} = compute(${i}, "some string payload here", { flag: true });`
-    : `  const value${i} = computeV2(${i}, "rewritten payload", { flag: false, extra: true });`
+    : `  const value${i} = computeV2(${i}, "rewritten payload", { flag: false, extra: true });`,
 ).join("\n");
 writeFileSync(join(ROOT, "generated-client.ts"), after + "\n");
 console.log("ready");

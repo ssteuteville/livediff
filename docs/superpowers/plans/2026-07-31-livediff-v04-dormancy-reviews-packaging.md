@@ -18,7 +18,7 @@
 - Tests set `XDG_CONFIG_HOME` and `XDG_STATE_HOME` to temp dirs and pin their own `LIVEDIFF_PORT` band — `node --test` runs files in parallel. Bands in use: hub-startup 4187–4192, ensure-hub 4193–4196, cli 4197. **New:** dormancy 4198, reviews 4199, doctor 4201.
 - Port 4190 and the rest of the WHATWG Fetch blocklist must never be used in tests or defaults.
 - React: no render functions (extract components), no nested ternaries (extract a named helper with `if`/`return`), Tailwind utilities over inline styles.
-- Prefer no comments; when one is needed it explains *why*.
+- Prefer no comments; when one is needed it explains _why_.
 - Conventional Commits.
 
 ---
@@ -26,12 +26,14 @@
 ## File Structure
 
 **Create:**
+
 - `server/reviews.js` — in-memory review-request registry. One responsibility: open/complete/cancel/list.
 - `server/doctor.js` — diagnostics, returns structured findings; rendering lives in the CLI.
 - `src/components/ReviewBanner.jsx` — the "Done reviewing" header control.
 - `test/dormancy.test.js`, `test/reviews.test.js`, `test/doctor.test.js`
 
 **Modify:**
+
 - `server/index.js` — client-count gating, auto-prune, in-process events, `fs.watch` safety net, review routes.
 - `server/cli.js` — `--wait`, `doctor` command.
 - `server/cli-help.js` — `doctor` entry, `--wait`/`--timeout` flags.
@@ -58,7 +60,7 @@
 
 **Files:** Modify `server/index.js`.
 
-Because the hub is the sole writer, mutation handlers already `broadcast()` synchronously — the poll loop's comment-file signature check is redundant and adds a up-to-1s delay. Remove comment-signature polling; add a `fs.watch` on the config dir that broadcasts when a *hand edit* changes `workspaces.json` or `comments/*.json`, debounced 50ms, degrading to mtime polling if `fs.watch` throws.
+Because the hub is the sole writer, mutation handlers already `broadcast()` synchronously — the poll loop's comment-file signature check is redundant and adds a up-to-1s delay. Remove comment-signature polling; add a `fs.watch` on the config dir that broadcasts when a _hand edit_ changes `workspaces.json` or `comments/*.json`, debounced 50ms, degrading to mtime polling if `fs.watch` throws.
 
 - [ ] Steps: failing test (hand-edit a comments file, assert a `comments` frame arrives) → implement → pass → commit.
 
@@ -67,9 +69,10 @@ Because the hub is the sole writer, mutation handlers already `broadcast()` sync
 **Files:** Create `server/reviews.js`, `test/reviews.test.js`; modify `server/index.js`.
 
 **Interfaces:**
+
 - `openReview(ws): {reviewId, ws, startedAt}` — returns the existing request if one is open for `ws`.
 - `completeReview(reviewId): request | null`, `cancelReview(reviewId): boolean`, `reviewFor(ws): request | null`
-- Routes: `POST /api/reviews` `{ws}`; `DELETE /api/reviews/:id`; `POST /api/reviews/:id/done`; `GET /api/reviews?ws=` 
+- Routes: `POST /api/reviews` `{ws}`; `DELETE /api/reviews/:id`; `POST /api/reviews/:id/done`; `GET /api/reviews?ws=`
 - SSE frame `review` → `{ws, reviewId, state: "open"|"done"|"cancelled"}`
 
 - [ ] Steps: failing test (open → duplicate open returns same id → done broadcasts → done twice is 404) → implement → pass → commit.
@@ -120,15 +123,15 @@ All three describe a hub started by hand and commands that no longer exist (`liv
 
 ## Self-Review Notes
 
-| Spec section | Task |
-|---|---|
-| §5.1 in-process events | 2 |
-| §5.2 fs.watch safety net | 2 |
-| §5.3 client-gated polling | 1 |
-| §5.4 auto-prune | 1 |
-| §6.3 `--wait` | 4 |
-| §7 review API + SSE | 3 |
-| §9 UI scope | 5 |
-| §10.1 packaging | 7 |
-| §10.3 doctor | 6 |
-| §11 documentation | 8 |
+| Spec section              | Task |
+| ------------------------- | ---- |
+| §5.1 in-process events    | 2    |
+| §5.2 fs.watch safety net  | 2    |
+| §5.3 client-gated polling | 1    |
+| §5.4 auto-prune           | 1    |
+| §6.3 `--wait`             | 4    |
+| §7 review API + SSE       | 3    |
+| §9 UI scope               | 5    |
+| §10.1 packaging           | 7    |
+| §10.3 doctor              | 6    |
+| §11 documentation         | 8    |
