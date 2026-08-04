@@ -13,8 +13,8 @@
 | Task                                  | State                                                   |
 | ------------------------------------- | ------------------------------------------------------- |
 | 1. Extract `shared/`                  | **done** — `2ad1d07`                                    |
-| 2. `server/` to TypeScript            | not started                                             |
-| 3. `src/` to TypeScript               | not started                                             |
+| 2. `server/` to TypeScript            | blocked — see below, do it **after** task 3             |
+| 3. `src/` to TypeScript               | next                                                    |
 | 4. Tests, e2e and bench to TypeScript | not started                                             |
 | 5. Turn on type-aware linting         | blocked on 2–4 — nothing to be type-aware about yet     |
 | 6. The format sweep                   | **done** — `4740819`, run early since it is independent |
@@ -25,6 +25,15 @@ the migration, so they bank value that a half-finished migration would otherwise
 
 Task 7's outcome is worth carrying forward: the minified fixture went from 11.3s to 0.28s, and both
 `test.fail()` guards are now ordinary passing tests. **17 e2e, 0 expected-fail.**
+
+**Task 2 is blocked and the order should change.** Renaming a single 21-line leaf module took the
+suite from 173 passing to 54 failing, because the server is _executed_ by Node — tests spawn
+`node server/index.js`, and `bin` points at `server/cli.js`. Node resolves `./atomic.js` literally,
+so nothing starts. The migration cannot go file by file, and it drags the test harness and packaging
+with it. Full write-up in `docs/superpowers/research/2026-08-03-server-migration-blocker.md`.
+
+Do **task 3 first**: `src/` has none of this. Vite already transforms it, nothing spawns it, and
+`.jsx` can become `.tsx` a few files at a time with the browser and e2e suites verifying each step.
 
 A note for whoever picks up task 2: a working-tree revert of `2ad1d07` was found and discarded on
 2026-08-03 with the user's agreement — `shared/` stays. If it reappears, that is a signal another
