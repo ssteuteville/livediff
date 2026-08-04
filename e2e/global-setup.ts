@@ -28,6 +28,8 @@ export default async function globalSetup() {
   process.env["XDG_CONFIG_HOME"] = join(root, "config");
   process.env["XDG_STATE_HOME"] = join(root, "state");
 
+  execFileSync("pnpm", ["run", "build"], { cwd: repo, stdio: "ignore" });
+
   const fixtures: Record<string, string> = { tracked20k: join(root, "tracked") };
   execFileSync(process.execPath, ["bench/tracked.ts", fixtures["tracked20k"]!, "20000"], {
     cwd: repo,
@@ -40,8 +42,6 @@ export default async function globalSetup() {
       stdio: "ignore",
     });
   }
-
-  execFileSync("pnpm", ["run", "build"], { cwd: repo, stdio: "ignore" });
 
   const { addWorkspace } = await import(join(repo, "dist-server/server/registry.js"));
   const ids: Record<string, string> = {};
