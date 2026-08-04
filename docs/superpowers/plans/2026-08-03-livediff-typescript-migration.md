@@ -14,7 +14,7 @@
 | ------------------------------------- | ------------------------------------------------------- |
 | 1. Extract `shared/`                  | **done** — `2ad1d07`                                    |
 | 2. `server/` to TypeScript            | blocked — see below, do it **after** task 3             |
-| 3. `src/` to TypeScript               | next                                                    |
+| 3. `src/` to TypeScript               | **in progress** — 5 of 12 files                         |
 | 4. Tests, e2e and bench to TypeScript | not started                                             |
 | 5. Turn on type-aware linting         | blocked on 2–4 — nothing to be type-aware about yet     |
 | 6. The format sweep                   | **done** — `4740819`, run early since it is independent |
@@ -34,6 +34,25 @@ with it. Full write-up in `docs/superpowers/research/2026-08-03-server-migration
 
 Do **task 3 first**: `src/` has none of this. Vite already transforms it, nothing spawns it, and
 `.jsx` can become `.tsx` a few files at a time with the browser and e2e suites verifying each step.
+Confirmed by probe — Vite resolves `./api.js` to `api.ts`, so importers need no change.
+
+### Task 3 progress
+
+Done: `api.ts`, `syntax.ts`, `main.tsx`, `ReviewBanner.tsx`, `CommentComposer.tsx`.
+
+Remaining, cheapest first: `WorkspaceRail`, `DiffSearch`, `CommentDrawer`, `FileDiff`,
+`CommentThread`, `useVirtualRows`, `diff-model`, `FastDiff`, `App`.
+
+**`diff-model.js` is the hard one and should be done before the components that consume it.**
+Renaming it alone produced **102 errors** — it needs a real discriminated union for the row model
+(`file | hunk | line | spacer | comment`) rather than mechanical annotation, and that union is what
+`FastDiff`, `useVirtualRows` and `DiffSearch` all need in order to be typed properly. Budget it as
+its own session; the other components are an hour of prop types between them.
+
+One caution learned the hard way: a stray hub process left over from manual testing squats the port
+`test/cli.test.js` needs and produces 20-plus failures that look like a code regression. Check
+`pgrep -fl server/index.js` before believing a red suite — `livediff stop` will report "hub is not
+running" if its state file was already cleared, so it is not a reliable check.
 
 A note for whoever picks up task 2: a working-tree revert of `2ad1d07` was found and discarded on
 2026-08-03 with the user's agreement — `shared/` stays. If it reappears, that is a signal another
