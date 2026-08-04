@@ -6,10 +6,34 @@ import { BINARY_SNIFF_BYTES, GIT_MAX_BUFFER_BYTES, LEGACY_COMMENT_DIR } from "./
 
 const exec = promisify(execFile);
 
+interface FileCounts {
+  additions: number;
+  deletions: number;
+  binary: boolean;
+}
+
+type DiffStatus = "added" | "deleted" | "renamed" | "copied" | "modified";
+
+export interface DiffFile extends FileCounts {
+  path: string;
+  oldPath: string;
+  status: DiffStatus;
+  lang: string;
+  patch: string;
+}
+
+export interface WorkingTreeDiff {
+  repo: string;
+  branch: string;
+  head: string | null;
+  base: string | null;
+  files: DiffFile[];
+}
+
 // Keep livediff's own comment store out of the diff it renders.
 const EXCLUDE = ["--", ".", `:(exclude)${LEGACY_COMMENT_DIR}`];
 
-const EXT_LANG = {
+const EXT_LANG: Record<string, string> = {
   js: "javascript",
   jsx: "jsx",
   mjs: "javascript",
@@ -52,16 +76,25 @@ const EXT_LANG = {
   dockerfile: "dockerfile",
 };
 
-function langFor(path) {
+function langFor(path: string): string {
   if (!path) return "plaintext";
-  const base = path.split("/").pop().toLowerCase();
+  const base = path.split("/").pop()?.toLowerCase() ?? "";
   if (base === "dockerfile") return "dockerfile";
-  const ext = base.includes(".") ? base.split(".").pop() : "";
-  return EXT_LANG[ext] || "plaintext";
+  const ext = base.includes(".") ? (base.split(".").pop() ?? "") : "";
+  return EXT_LANG[ext] ?? "plaintext";
 }
 
 /** Run git and always resolve with stdout, even when it exits non-zero (diff uses exit 1 for "differences found"). */
-async function git(cwd, args) {
+function hasStringStdout(error: unknown): error is { stdout: string } {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "stdout" in error &&
+    typeof error.stdout === "string"
+  );
+}
+
+async function git(cwd: string, args: readonly string[]): Promise<string> {
   try {
     const { stdout } = await exec("git", args, {
       cwd,
@@ -70,12 +103,12 @@ async function git(cwd, args) {
     });
     return stdout;
   } catch (err) {
-    if (typeof err.stdout === "string") return err.stdout;
+    if (hasStringStdout(err)) return err.stdout;
     throw err;
   }
 }
 
-export async function isGitRepo(cwd) {
+export async function isGitRepo(cwd: string): Promise<boolean> {
   try {
     const out = await exec("git", ["rev-parse", "--is-inside-work-tree"], { cwd });
     return out.stdout.trim() === "true";
@@ -88,7 +121,7 @@ export async function isGitRepo(cwd) {
  * Absolute path of the worktree root containing `cwd`. Returns null when `cwd` is not inside a
  * work tree. Correct for linked worktrees, where it resolves to the worktree — not the main repo.
  */
-export async function toplevel(cwd) {
+export async function toplevel(cwd: string): Promise<string | null> {
   try {
     const out = await exec("git", ["rev-parse", "--show-toplevel"], { cwd });
     return out.stdout.trim() || null;
@@ -97,12 +130,12 @@ export async function toplevel(cwd) {
   }
 }
 
-export async function currentBranch(cwd) {
+export async function currentBranch(cwd: string): Promise<string> {
   const out = (await git(cwd, ["rev-parse", "--abbrev-ref", "HEAD"])).trim();
   return out === "HEAD" ? "(detached)" : out;
 }
 
-async function hasHead(cwd) {
+async function hasHead(cwd: string): Promise<boolean> {
   try {
     await exec("git", ["rev-parse", "--verify", "HEAD"], { cwd });
     return true;
@@ -111,11 +144,11 @@ async function hasHead(cwd) {
   }
 }
 
-function parseNumstat(out) {
-  const map = new Map();
+function parseNumstat(out: string): Map<string, FileCounts> {
+  const map = new Map<string, FileCounts>();
   for (const line of out.split("\n")) {
     if (!line.trim()) continue;
-    const [add, del, ...rest] = line.split("\t");
+    const [add = "", del = "", ...rest] = line.split("\t");
     const path = rest.join("\t");
     map.set(path, {
       additions: add === "-" ? 0 : Number(add),
@@ -136,8 +169,8 @@ function parseNumstat(out) {
  * in --numstat, rather than by parsing the header, so quoting and spaces cannot mis-assign a
  * patch. Anything unmatched is simply absent from the map and the caller re-runs it alone.
  */
-function splitPatches(all, knownPaths) {
-  const patches = new Map();
+function splitPatches(all: string, knownPaths: Iterable<string>): Map<string, string> {
+  const patches = new Map<string, string>();
   if (!all.trim()) return patches;
 
   const byLongest = [...knownPaths].sort((a, b) => b.length - a.length);
@@ -162,14 +195,14 @@ function splitPatches(all, knownPaths) {
  * Falls back to the ref itself when there is no common ancestor, which is the best available answer
  * for unrelated histories.
  */
-async function mergeBase(cwd, ref) {
+async function mergeBase(cwd: string, ref: string | null | undefined): Promise<string> {
   if (!ref || ref === "HEAD") return "HEAD";
   const found = (await git(cwd, ["merge-base", ref, "HEAD"])).trim();
   return found || ref;
 }
 
 /** Local branches, for the compare-against picker. */
-export async function branches(cwd) {
+export async function branches(cwd: string): Promise<string[]> {
   const out = await git(cwd, ["for-each-ref", "--format=%(refname:short)", "refs/heads"]);
   return out.split("\n").filter(Boolean);
 }
@@ -179,12 +212,12 @@ export async function branches(cwd) {
  * @param {string} cwd repo path
  * @param {string|null} base optional ref to compare against (e.g. "main"); default is HEAD
  */
-export async function getDiff(cwd, base) {
+export async function getDiff(cwd: string, base: string | null = null): Promise<WorkingTreeDiff> {
   const branch = await currentBranch(cwd);
   const head = (await git(cwd, ["rev-parse", "--short", "HEAD"])).trim() || null;
 
-  const files = [];
-  const seen = new Set();
+  const files: DiffFile[] = [];
+  const seen = new Set<string>();
   const withHead = await hasHead(cwd);
   const against = withHead ? await mergeBase(cwd, base) : "HEAD";
 
@@ -195,8 +228,9 @@ export async function getDiff(cwd, base) {
     for (const line of nameStatus.split("\n")) {
       if (!line.trim()) continue;
       const parts = line.split("\t");
-      const code = parts[0][0];
-      const path = parts[parts.length - 1];
+      const code = (parts[0] ?? "")[0] ?? "";
+      const path = parts.at(-1) ?? "";
+      if (!path) continue;
       statusByPath.set(path, code);
     }
 
@@ -224,7 +258,7 @@ export async function getDiff(cwd, base) {
   const added = await Promise.all(
     untracked.filter((p) => !seen.has(p)).map((path) => readAddedFile(cwd, path)),
   );
-  files.push(...added.filter(Boolean));
+  files.push(...added.filter((file): file is DiffFile => file !== null));
 
   files.sort((a, b) => a.path.localeCompare(b.path));
   return { repo: cwd, branch, head, base: base || null, files };
@@ -235,7 +269,7 @@ export async function getDiff(cwd, base) {
  * addition, so there is nothing for git to compute and no reason to pay for a subprocess.
  * Returns null when the file cannot be read — it may have been deleted mid-scan.
  */
-async function readAddedFile(cwd, path) {
+async function readAddedFile(cwd: string, path: string): Promise<DiffFile | null> {
   let buf;
   try {
     buf = await readFile(join(cwd, path));
@@ -255,7 +289,7 @@ async function readAddedFile(cwd, path) {
   const text = buf.toString("utf8");
   const noTrailingNewline = text.length > 0 && !text.endsWith("\n");
   const lines = text.split("\n");
-  if (lines[lines.length - 1] === "") lines.pop(); // trailing newline produces a final empty entry
+  if (lines.at(-1) === "") lines.pop(); // trailing newline produces a final empty entry
 
   const body = lines.map((l) => `+${l}`).join("\n");
   const patch =
@@ -272,7 +306,7 @@ async function readAddedFile(cwd, path) {
   );
 }
 
-function statusName(code) {
+function statusName(code: string): DiffStatus {
   switch (code) {
     case "A":
       return "added";
@@ -287,7 +321,13 @@ function statusName(code) {
   }
 }
 
-function buildFile(path, oldPath, status, counts, patch) {
+function buildFile(
+  path: string,
+  oldPath: string,
+  status: DiffStatus,
+  counts: FileCounts | undefined,
+  patch: string,
+): DiffFile {
   return {
     path,
     oldPath,
@@ -304,13 +344,16 @@ function buildFile(path, oldPath, status, counts, patch) {
  * The paths named by a `--porcelain=v1 -z` status, with the origin path a rename reports second
  * skipped so it is not mistaken for a changed file of its own.
  */
-function statusPaths(status) {
+function statusPaths(status: string): string[] {
   const entries = status.split("\0").filter(Boolean);
-  const paths = [];
+  const paths: string[] = [];
   for (let i = 0; i < entries.length; i++) {
-    const code = entries[i].slice(0, 2);
-    paths.push(entries[i].slice(3));
-    if (code[0] === "R" || code[0] === "C") i++;
+    const entry = entries[i];
+    if (!entry) continue;
+    const code = entry.slice(0, 2);
+    paths.push(entry.slice(3));
+    const kind = code[0] ?? "";
+    if (kind === "R" || kind === "C") i++;
   }
   return paths;
 }
@@ -323,7 +366,7 @@ function statusPaths(status) {
  * mtime of each changed path are folded in. That is one stat per changed file and no extra process,
  * against a git spawn this function already pays for.
  */
-export async function worktreeSignature(cwd, base) {
+export async function worktreeSignature(cwd: string, base: string | null = null): Promise<string> {
   // The comparison point is folded in so that committing, or the compared branch moving, is itself
   // a change worth pushing to browsers — the worktree can be byte-identical across both.
   const against = base ? await mergeBase(cwd, base) : "";
@@ -343,8 +386,8 @@ export async function worktreeSignature(cwd, base) {
  * Paths that differ from HEAD, plus untracked files. Shared by the rail's summary and by the
  * lifecycle sweep, so a poll never runs the same git twice for the same information.
  */
-export async function changedPaths(cwd) {
-  const paths = [];
+export async function changedPaths(cwd: string): Promise<string[]> {
+  const paths: string[] = [];
   if (await hasHead(cwd)) {
     const tracked = (await git(cwd, ["diff", "--name-only", "HEAD", ...EXCLUDE]))
       .split("\n")
@@ -361,7 +404,12 @@ export async function changedPaths(cwd) {
 }
 
 /** Cheap per-workspace summary for the rail: branch, head, changed-file count. */
-export async function summary(cwd) {
+export async function summary(cwd: string): Promise<{
+  valid: boolean;
+  branch: string | null;
+  head: string | null;
+  changedFiles: number;
+}> {
   if (!(await isGitRepo(cwd))) {
     return { valid: false, branch: null, head: null, changedFiles: 0 };
   }

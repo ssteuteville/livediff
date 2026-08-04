@@ -1,5 +1,5 @@
 /** Time getDiff against an existing repo, without regenerating it. */
-import { getDiff } from "../server/git.js";
+import { getDiff } from "../dist-server/server/git.js";
 
 const ROOT = process.argv[2];
 const t0 = performance.now();

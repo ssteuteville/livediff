@@ -17,11 +17,24 @@ import {
 import { APP_DIR_NAME, SPAWN_WAIT_TIMEOUT_MS } from "./constants.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const SERVER = join(__dirname, "index.js");
+const isSourceModule = import.meta.url.endsWith(".ts");
+const projectRoot = isSourceModule ? join(__dirname, "..") : join(__dirname, "..", "..");
+const SERVER = isSourceModule
+  ? join(projectRoot, "dist-server", "server", "index.js")
+  : join(__dirname, "index.js");
 
-let VERSION = "0.0.0";
+let VERSION: string = "0.0.0";
 try {
-  VERSION = JSON.parse(await readFile(join(__dirname, "..", "package.json"), "utf8")).version;
+  const packageData: unknown = JSON.parse(
+    await readFile(join(projectRoot, "package.json"), "utf8"),
+  );
+  const version =
+    packageData && typeof packageData === "object"
+      ? (packageData as Record<string, unknown>)["version"]
+      : undefined;
+  if (typeof version === "string") {
+    VERSION = version;
+  }
 } catch {
   /* keep default */
 }
@@ -30,17 +43,17 @@ export function hubVersion() {
   return VERSION;
 }
 
-let ensured = null;
+let ensured: string | null = null;
 
 /** Test seam: clears the per-process memo so a suite can exercise several hub lifecycles. */
 export function resetEnsuredHub() {
   ensured = null;
 }
 
-const url = (port) => `http://127.0.0.1:${port}`;
+const url = (port: number): string => `http://127.0.0.1:${port}`;
 
-async function waitForHub(timeoutMs) {
-  let found = null;
+async function waitForHub(timeoutMs: number): Promise<string | null> {
+  let found: string | null = null;
   await waitUntil(async () => {
     const state = await readState();
     if (!state) return false;
@@ -52,7 +65,7 @@ async function waitForHub(timeoutMs) {
   return found;
 }
 
-async function spawnHub() {
+async function spawnHub(): Promise<void> {
   await mkdir(stateDir(), { recursive: true });
   const log = await open(logPath(), "a");
   const child = spawn(process.execPath, [SERVER], {
@@ -63,7 +76,7 @@ async function spawnHub() {
   await log.close();
 }
 
-async function failure() {
+async function failure(): Promise<Error> {
   let tail = "";
   try {
     tail = (await readFile(logPath(), "utf8")).split("\n").slice(-20).join("\n");
@@ -77,7 +90,7 @@ async function failure() {
  * Return the base URL of a live hub running our version, starting or replacing one if needed.
  * Memoized: the first command in a process pays the cost, the rest connect directly.
  */
-export async function ensureHub() {
+export async function ensureHub(): Promise<string> {
   if (ensured) return ensured;
 
   const state = await readState();

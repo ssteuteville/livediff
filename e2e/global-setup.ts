@@ -43,13 +43,13 @@ export default async function globalSetup() {
 
   execFileSync("pnpm", ["run", "build"], { cwd: repo, stdio: "ignore" });
 
-  const { addWorkspace } = await import(join(repo, "server/registry.js"));
+  const { addWorkspace } = await import(join(repo, "dist-server/server/registry.js"));
   const ids: Record<string, string> = {};
   for (const [name, path] of Object.entries(fixtures)) {
     ids[name] = (await addWorkspace(path, name)).id;
   }
 
-  const child = spawn(process.execPath, [join(repo, "server/index.js")], {
+  const child = spawn(process.execPath, [join(repo, "dist-server/server/index.js")], {
     env: { ...process.env, HOME: home, LIVEDIFF_PORT: "4183" },
     stdio: "ignore",
   });

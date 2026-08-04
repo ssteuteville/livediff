@@ -5,18 +5,22 @@
   "description": "Local, live-updating git worktree diff hub with agent-readable review comments",
   "license": "MIT",
   "bin": {
-    "livediff": "server/cli.js"
+    "livediff": "dist-server/server/cli.js"
   },
   "files": [
-    "server",
+    "dist-server",
     "dist"
   ],
   "type": "module",
   "scripts": {
-    "dev": "concurrently -k -n web,api -c cyan,magenta \"vite\" \"node --watch server/index.js\"",
-    "build": "vite build",
-    "start": "vite build && node server/index.js",
-    "serve": "node server/index.js",
+    "predev": "pnpm build:server",
+    "dev": "concurrently -k -n web,api,types -c cyan,magenta,yellow \"vite\" \"node --watch dist-server/server/index.js\" \"tsc -b --watch tsconfig.node.json\"",
+    "build:server": "tsc -p tsconfig.node.json",
+    "build": "tsc -b && vite build",
+    "prestart": "pnpm build:server",
+    "start": "vite build && node dist-server/server/index.js",
+    "serve": "node dist-server/server/index.js",
+    "pretest": "pnpm build:server",
     "test": "vitest run --project node",
     "test:browser": "vitest run --project browser",
     "e2e": "playwright test",
@@ -25,7 +29,7 @@
     "lint": "oxlint --deny-warnings",
     "format": "oxfmt .",
     "format:check": "oxfmt --check .",
-    "prepack": "vite build"
+    "prepack": "pnpm build"
   },
   "dependencies": {
     "@git-diff-view/core": "^0.1.7",

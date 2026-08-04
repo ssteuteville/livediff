@@ -2,8 +2,18 @@
  * Read an SSE stream as `{event, data}` objects. Node has no EventSource, and pulling in a
  * polyfill for one long-lived connection is not worth a dependency.
  */
-export async function* sseEvents(url, signal) {
-  const res = await fetch(url, { signal });
+export interface SseEvent {
+  event: string;
+  data: unknown;
+}
+
+export async function* sseEvents(
+  url: Parameters<typeof fetch>[0],
+  signal?: AbortSignal,
+): AsyncGenerator<SseEvent> {
+  const init: RequestInit = signal ? { signal } : {};
+  const res = await fetch(url, init);
+  if (!res.body) throw new Error("SSE response has no body");
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
   let buf = "";
@@ -19,7 +29,8 @@ export async function* sseEvents(url, signal) {
       const raw = /^data: (.+)$/m.exec(frame)?.[1];
       if (!event || !raw) continue;
       try {
-        yield { event, data: JSON.parse(raw) };
+        const data: unknown = JSON.parse(raw);
+        yield { event, data };
       } catch {
         /* keepalive or malformed frame */
       }

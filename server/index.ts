@@ -1,4 +1,5 @@
 import { createServer } from "node:http";
+import type { IncomingMessage, OutgoingHttpHeaders, Server, ServerResponse } from "node:http";
 import { readFile, stat } from "node:fs/promises";
 import { mkdirSync, watch } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -32,6 +33,7 @@ import {
   resolveWorkspace,
   configDir,
 } from "./registry.js";
+import type { Workspace } from "./registry.js";
 import { writeState, clearState, probeMeta, isBlockedPort } from "./hub-state.js";
 import {
   APP_DIR_NAME,
@@ -51,7 +53,10 @@ import { migrateRegistry } from "./migrations.js";
 import { openReview, reviewFor, closeReview } from "./reviews.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const DIST = join(__dirname, "..", "dist");
+const projectRoot = import.meta.url.endsWith(".ts")
+  ? join(__dirname, "..")
+  : join(__dirname, "..", "..");
+const DIST = join(projectRoot, "dist");
 
 const PREFERRED_PORT = Number(process.env[ENV.PORT] || DEFAULT_PORT);
 let BOUND_PORT = PREFERRED_PORT;
@@ -59,12 +64,16 @@ const POLL_MS = Number(process.env[ENV.POLL_MS] || DEFAULT_POLL_MS);
 
 let VERSION = "0.0.0";
 try {
-  VERSION = JSON.parse(await readFile(join(__dirname, "..", "package.json"), "utf8")).version;
+  const packageData: unknown = JSON.parse(
+    await readFile(join(projectRoot, "package.json"), "utf8"),
+  );
+  if (isRecord(packageData) && typeof packageData["version"] === "string")
+    VERSION = packageData["version"];
 } catch {
   /* keep default */
 }
 
-const MIME = {
+const MIME: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
   ".js": "text/javascript; charset=utf-8",
   ".css": "text/css; charset=utf-8",
@@ -74,40 +83,60 @@ const MIME = {
   ".map": "application/json",
 };
 
-const sseClients = new Set();
+const sseClients = new Set<ServerResponse>();
 
-function send(res, status, body, headers = {}) {
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function stringValue(value: unknown): string | undefined {
+  return typeof value === "string" ? value : undefined;
+}
+
+function numberValue(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function send(
+  res: ServerResponse,
+  status: number,
+  body: unknown,
+  headers: OutgoingHttpHeaders = {},
+): void {
   const payload = typeof body === "string" ? body : JSON.stringify(body);
   res.writeHead(status, { "content-type": "application/json; charset=utf-8", ...headers });
   res.end(payload);
 }
 
-function broadcast(event, data) {
+function broadcast(event: string, data: unknown): void {
   const frame = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
   for (const res of sseClients) res.write(frame);
 }
 
-async function readBody(req) {
-  const chunks = [];
-  for await (const chunk of req) chunks.push(chunk);
+async function readBody(req: IncomingMessage): Promise<unknown> {
+  const chunks: Buffer[] = [];
+  for await (const chunk of req) chunks.push(Buffer.from(chunk));
   if (!chunks.length) return {};
   try {
-    return JSON.parse(Buffer.concat(chunks).toString("utf8"));
+    return JSON.parse(Buffer.concat(chunks).toString("utf8")) as unknown;
   } catch {
     return {};
   }
 }
 
 /** Resolve the target workspace from ?ws=<id> or ?path=<dir> on the request. */
-function resolveWs(url) {
-  return resolveWorkspace({
-    ws: url.searchParams.get("ws"),
-    path: url.searchParams.get("path"),
-  });
+function resolveWs(url: URL): Promise<Workspace | null> {
+  const ws = url.searchParams.get("ws");
+  const path = url.searchParams.get("path");
+  return resolveWorkspace({ ...(ws === null ? {} : { ws }), ...(path === null ? {} : { path }) });
 }
 
 /** No path means every registered workspace — these are maintenance routes, not review routes. */
-async function targetWorkspaces(path) {
+async function targetWorkspaces(path: string | undefined): Promise<Workspace[]> {
   const all = await readRegistry();
   if (!path) return all;
   const root = (await toplevel(path)) ?? path;
@@ -119,7 +148,12 @@ async function workspacesView() {
   const registered = await readRegistry();
   return Promise.all(
     registered.map(async (w) => {
-      let info = { valid: false, branch: null, head: null, changedFiles: 0 };
+      let info: Awaited<ReturnType<typeof summary>> = {
+        valid: false,
+        branch: null,
+        head: null,
+        changedFiles: 0,
+      };
       try {
         info = await summary(w.path);
       } catch {
@@ -139,7 +173,7 @@ async function workspacesView() {
   );
 }
 
-async function serveStatic(req, res, url) {
+async function serveStatic(res: ServerResponse, url: URL): Promise<void> {
   let pathname = decodeURIComponent(url.pathname);
   if (pathname === "/") pathname = "/index.html";
   const filePath = join(DIST, pathname);
@@ -162,7 +196,7 @@ async function serveStatic(req, res, url) {
 }
 
 const server = createServer(async (req, res) => {
-  const url = new URL(req.url, `http://${req.headers.host}`);
+  const url = new URL(req.url ?? "/", `http://${req.headers.host ?? LOOPBACK_HOST}`);
   const { pathname } = url;
 
   try {
@@ -196,12 +230,14 @@ const server = createServer(async (req, res) => {
 
     if (pathname === "/api/workspaces" && req.method === "POST") {
       const body = await readBody(req);
-      if (!body.path) return send(res, 400, { error: "path required" });
-      let ws;
+      const path = isRecord(body) ? stringValue(body["path"]) : undefined;
+      const label = isRecord(body) ? stringValue(body["label"]) : undefined;
+      if (!path) return send(res, 400, { error: "path required" });
+      let ws: Workspace;
       try {
-        ws = await addWorkspace(resolvePath(body.path), body.label);
+        ws = await addWorkspace(resolvePath(path), label);
       } catch (err) {
-        return send(res, 400, { error: String(err.message || err) });
+        return send(res, 400, { error: errorMessage(err) });
       }
       broadcast("workspaces", { reason: "added", ws: ws.id });
       return send(res, 201, ws);
@@ -209,8 +245,10 @@ const server = createServer(async (req, res) => {
 
     const wsMatch = pathname.match(/^\/api\/workspaces\/([\w-]+)$/);
     if (wsMatch && req.method === "DELETE") {
-      const ok = await removeWorkspace(wsMatch[1]);
-      broadcast("workspaces", { reason: "removed", ws: wsMatch[1] });
+      const id = wsMatch[1];
+      if (!id) return send(res, 400, { error: "workspace id required" });
+      const ok = await removeWorkspace(id);
+      broadcast("workspaces", { reason: "removed", ws: id });
       return send(res, ok ? 200 : 404, { ok });
     }
 
@@ -250,14 +288,21 @@ const server = createServer(async (req, res) => {
     if (restoreMatch && req.method === "POST") {
       const ws = await resolveWs(url);
       if (!ws) return send(res, 404, { error: "unknown workspace" });
-      const comment = await restoreComment(ws.id, restoreMatch[1]);
+      const id = restoreMatch[1];
+      if (!id) return send(res, 400, { error: "comment id required" });
+      const comment = await restoreComment(ws.id, id);
       if (!comment) return send(res, 404, { error: "unknown comment" });
       broadcast("comments", { reason: "restored", ws: ws.id });
       return send(res, 200, comment);
     }
 
     if (pathname === "/api/sweep" && req.method === "POST") {
-      const { path, force } = await readBody(req);
+      const body = await readBody(req);
+      const path = isRecord(body) ? stringValue(body["path"]) : undefined;
+      const bodyForce = isRecord(body) ? body["force"] : undefined;
+      const force = isRecord(bodyForce)
+        ? { stale: bodyForce["stale"] === true, resolved: bodyForce["resolved"] === true }
+        : {};
       const targets = await targetWorkspaces(path);
       let archived = 0;
       let purged = 0;
@@ -272,7 +317,12 @@ const server = createServer(async (req, res) => {
     }
 
     if (pathname === "/api/purge" && req.method === "POST") {
-      const { path, keepDays, dryRun } = await readBody(req);
+      const body = await readBody(req);
+      const path = isRecord(body) ? stringValue(body["path"]) : undefined;
+      const keepDays = isRecord(body) ? numberValue(body["keepDays"]) : undefined;
+      const dryRun = isRecord(body) && body["dryRun"] === true;
+      if (keepDays === undefined)
+        return send(res, 400, { error: "keepDays must be a finite number" });
       const targets = await targetWorkspaces(path);
       const cutoff = Date.now() - keepDays * DAY_MS;
       let count = 0;
@@ -285,7 +335,7 @@ const server = createServer(async (req, res) => {
         }
       }
       if (count && !dryRun) broadcast("comments", { reason: "pruned" });
-      return send(res, 200, { count, workspaces: targets.length, dryRun: Boolean(dryRun) });
+      return send(res, 200, { count, workspaces: targets.length, dryRun });
     }
 
     if (pathname === "/api/comments" && req.method === "POST") {
@@ -301,6 +351,7 @@ const server = createServer(async (req, res) => {
       const ws = await resolveWs(url);
       if (!ws) return send(res, 404, { error: "unknown workspace" });
       const id = commentMatch[1];
+      if (!id) return send(res, 400, { error: "comment id required" });
       if (req.method === "PATCH") {
         const updated = await updateComment(ws.id, ws.path, id, await readBody(req));
         if (!updated) return send(res, 404, { error: `no comment with id ${id} in ${ws.label}` });
@@ -322,7 +373,12 @@ const server = createServer(async (req, res) => {
 
     if (pathname === "/api/reviews" && req.method === "POST") {
       const body = await readBody(req);
-      const ws = await resolveWorkspace({ ws: body.ws, path: body.path });
+      const bodyWs = isRecord(body) ? stringValue(body["ws"]) : undefined;
+      const bodyPath = isRecord(body) ? stringValue(body["path"]) : undefined;
+      const ws = await resolveWorkspace({
+        ...(bodyWs === undefined ? {} : { ws: bodyWs }),
+        ...(bodyPath === undefined ? {} : { path: bodyPath }),
+      });
       if (!ws) return send(res, 404, { error: "unknown workspace" });
       const review = openReview(ws.id);
       broadcast("review", { ws: ws.id, reviewId: review.reviewId, state: "open" });
@@ -331,7 +387,9 @@ const server = createServer(async (req, res) => {
 
     const reviewDone = pathname.match(/^\/api\/reviews\/([\w-]+)\/done$/);
     if (reviewDone && req.method === "POST") {
-      const review = closeReview(reviewDone[1]);
+      const reviewId = reviewDone[1];
+      if (!reviewId) return send(res, 400, { error: "review id required" });
+      const review = closeReview(reviewId);
       if (!review) return send(res, 404, { error: "no such review" });
       broadcast("review", { ws: review.ws, reviewId: review.reviewId, state: "done" });
       return send(res, 200, review);
@@ -339,7 +397,9 @@ const server = createServer(async (req, res) => {
 
     const reviewCancel = pathname.match(/^\/api\/reviews\/([\w-]+)$/);
     if (reviewCancel && req.method === "DELETE") {
-      const review = closeReview(reviewCancel[1]);
+      const reviewId = reviewCancel[1];
+      if (!reviewId) return send(res, 400, { error: "review id required" });
+      const review = closeReview(reviewId);
       if (!review) return send(res, 404, { error: "no such review" });
       broadcast("review", { ws: review.ws, reviewId: review.reviewId, state: "cancelled" });
       return send(res, 200, { ok: true });
@@ -361,9 +421,9 @@ const server = createServer(async (req, res) => {
       return;
     }
 
-    return serveStatic(req, res, url);
+    return serveStatic(res, url);
   } catch (err) {
-    return send(res, 500, { error: String(err.message || err) });
+    return send(res, 500, { error: errorMessage(err) });
   }
 });
 
@@ -371,21 +431,29 @@ const server = createServer(async (req, res) => {
  * Bind `preferred`, or the next free port after it. An occupied port whose occupant is an
  * equivalent livediff hub means this process is redundant — signalled by returning null.
  */
-async function listenWithFallback(srv, preferred, tries = PORT_FALLBACK_ATTEMPTS) {
+async function listenWithFallback(
+  srv: Server,
+  preferred: number,
+  tries = PORT_FALLBACK_ATTEMPTS,
+): Promise<number | null> {
   for (let port = preferred; port < preferred + tries; port++) {
     if (isBlockedPort(port)) continue;
     try {
-      await new Promise((res, rej) => {
-        const onError = (err) => rej(err);
+      await new Promise<void>((resolve, reject) => {
+        const onError = (error: Error) => reject(error);
         srv.once("error", onError);
         srv.listen(port, LOOPBACK_HOST, () => {
           srv.removeListener("error", onError);
-          res();
+          resolve();
         });
       });
       return port;
     } catch (err) {
-      if (err.code !== "EADDRINUSE") throw err;
+      const code =
+        err instanceof Error && "code" in err && typeof err.code === "string"
+          ? err.code
+          : undefined;
+      if (code !== "EADDRINUSE") throw err;
     }
     // Only now is a probe worth its cost. The timeout is generous because this is the first
     // fetch in a cold process, which pays undici's one-time initialization.
@@ -395,9 +463,9 @@ async function listenWithFallback(srv, preferred, tries = PORT_FALLBACK_ATTEMPTS
   throw new Error(`no free port in ${preferred}..${preferred + tries - 1}`);
 }
 
-const diffSigs = new Map();
-let registrySig = null;
-let pollTimer = null;
+const diffSigs = new Map<string, string>();
+let registrySig: string | null = null;
+let pollTimer: NodeJS.Timeout | null = null;
 
 /**
  * Sweeping needs one `changedPaths` spawn per workspace. The poll loop runs every second, and
@@ -411,7 +479,7 @@ let lastSweep = 0;
  * Drop workspaces whose worktree is gone. Keeps the rail honest without the user having to
  * `livediff rm` every deleted agent worktree.
  */
-async function pruneWorkspaces(registered) {
+async function pruneWorkspaces(registered: Workspace[]): Promise<Workspace[]> {
   const alive = await Promise.all(registered.map((w) => isGitRepo(w.path)));
   const kept = registered.filter((_, i) => alive[i]);
   for (const [i, w] of registered.entries()) {
@@ -432,7 +500,7 @@ async function poll() {
     /* ignore */
   }
 
-  let registered = [];
+  let registered: Workspace[] = [];
   try {
     registered = await pruneWorkspaces(await readRegistry());
   } catch {
@@ -448,7 +516,7 @@ async function poll() {
   );
   registered.forEach((w, i) => {
     const sig = signatures[i];
-    if (sig === null) return; // transient git state
+    if (sig === null || sig === undefined) return; // transient git state
     const prev = diffSigs.get(w.id);
     if (prev !== undefined && sig !== prev) broadcast("diff", { reason: "worktree", ws: w.id });
     diffSigs.set(w.id, sig);
@@ -459,8 +527,9 @@ async function poll() {
   const changed = await Promise.all(registered.map((w) => changedPaths(w.path).catch(() => null)));
   await Promise.all(
     registered.map(async (w, i) => {
-      if (changed[i] === null) return; // transient git state
-      const { archived, purged } = await sweep(w.id, w.path, changed[i], {});
+      const workspaceChanged = changed[i];
+      if (workspaceChanged === null || workspaceChanged === undefined) return; // transient git state
+      const { archived, purged } = await sweep(w.id, w.path, workspaceChanged, {});
       if (archived || purged) broadcast("comments", { reason: "swept", ws: w.id });
     }),
   );
@@ -488,15 +557,15 @@ function stopPolling() {
  * already broadcasts in-process — no watching required for the normal path. This exists purely
  * so a hand-edited JSON file still shows up live. Degrades to nothing if fs.watch is unsupported.
  */
-function watchConfigDir() {
+function watchConfigDir(): void {
   const dir = configDir();
-  const fire = debounce((file) => {
+  const fire = debounce((file: string) => {
     if (file === REGISTRY_FILENAME) return broadcast("workspaces", { reason: "file" });
     const match = new RegExp(`^([0-9a-f]{${ID_LENGTH}})\\.json$`).exec(file ?? "");
     if (match) broadcast("comments", { reason: "file", ws: match[1] });
   }, 50);
 
-  const attach = (target, mapName) => {
+  const attach = (target: string, mapName: (name: string | Buffer | null) => string | null) => {
     try {
       const watcher = watch(target, (_event, name) => fire(mapName(name)));
       watcher.on("error", () => {});
@@ -507,14 +576,16 @@ function watchConfigDir() {
   };
 
   mkdirSync(join(dir, COMMENTS_DIR_NAME), { recursive: true });
-  attach(dir, (name) => name);
-  attach(join(dir, COMMENTS_DIR_NAME), (name) => name);
+  attach(dir, (name) => (typeof name === "string" ? name : (name?.toString() ?? null)));
+  attach(join(dir, COMMENTS_DIR_NAME), (name) =>
+    typeof name === "string" ? name : (name?.toString() ?? null),
+  );
 }
 
-function debounce(fn, ms) {
-  const pending = new Map();
+function debounce(fn: (key: string) => void, ms: number): (key: string | null) => void {
+  const pending = new Map<string, NodeJS.Timeout>();
   return (key) => {
-    if (key === null || key === undefined) return;
+    if (key === null) return;
     clearTimeout(pending.get(key));
     pending.set(
       key,

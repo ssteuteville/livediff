@@ -3,11 +3,24 @@
  * in help without being runnable — or vice versa.
  */
 
-const useColor = process.stdout.isTTY && !process.env.NO_COLOR;
-const bold = (s) => (useColor ? `\x1b[1m${s}\x1b[0m` : s);
-const dim = (s) => (useColor ? `\x1b[2m${s}\x1b[0m` : s);
+type HelpRow = readonly [string, string];
 
-export const GLOBAL_FLAGS = [
+export interface CommandHelp {
+  id: string;
+  name: string;
+  usage: string;
+  summary: string;
+  details: string;
+  flags: readonly HelpRow[];
+  examples: readonly HelpRow[];
+  aliases?: readonly string[];
+}
+
+const useColor = process.stdout.isTTY && !process.env["NO_COLOR"];
+const bold = (s: string): string => (useColor ? `\x1b[1m${s}\x1b[0m` : s);
+const dim = (s: string): string => (useColor ? `\x1b[2m${s}\x1b[0m` : s);
+
+export const GLOBAL_FLAGS: readonly HelpRow[] = [
   ["--json", "machine-readable output"],
   ["-h, --help", "show help for a command"],
   ["-v, --version", "print the livediff version"],
@@ -16,7 +29,7 @@ export const GLOBAL_FLAGS = [
 /** Flags that consume the next token as their value. The parser needs this to keep it out of args. */
 export const VALUE_FLAGS = new Set(["--timeout", "--status", "--branch", "--keep-days"]);
 
-export const COMMANDS = [
+export const COMMANDS: readonly CommandHelp[] = [
   {
     id: "open",
     name: "<path>",
@@ -217,23 +230,26 @@ export const COMMANDS = [
 ];
 
 /** Every name a user could type to reach a command. */
-export function commandNames() {
+export function commandNames(): string[] {
   return COMMANDS.flatMap((c) =>
     c.name.startsWith("<") || c.name.startsWith("(") ? [] : [c.name, ...(c.aliases ?? [])],
   );
 }
 
-export function findCommand(token) {
+export function findCommand(token: string): CommandHelp | null {
   return COMMANDS.find((c) => c.name === token || (c.aliases ?? []).includes(token)) ?? null;
 }
 
-function pad(rows) {
+function pad(rows: readonly HelpRow[]): string {
   const width = Math.max(...rows.map(([left]) => left.length));
   return rows.map(([left, right]) => `  ${left.padEnd(width)}  ${dim(right)}`).join("\n");
 }
 
-export function renderMainHelp(version) {
-  const commandRows = COMMANDS.filter((c) => c.id !== "help").map((c) => [c.name, c.summary]);
+export function renderMainHelp(version: string): string {
+  const commandRows: HelpRow[] = COMMANDS.filter((c) => c.id !== "help").map((c) => [
+    c.name,
+    c.summary,
+  ]);
   return [
     `${bold("livediff")} ${dim(`v${version}`)} — live git worktree diff hub with agent-readable review comments`,
     "",
@@ -266,7 +282,7 @@ export function renderMainHelp(version) {
   ].join("\n");
 }
 
-export function renderCommandHelp(cmd) {
+export function renderCommandHelp(cmd: CommandHelp): string {
   const out = [
     `${bold(`livediff ${cmd.name === "(no arguments)" ? "" : cmd.name}`.trim())} — ${cmd.summary}`,
     "",
@@ -288,23 +304,23 @@ export function renderCommandHelp(cmd) {
   return out.join("\n");
 }
 
-function distance(a, b) {
+function distance(a: string, b: string): number {
   const rows = Array.from({ length: a.length + 1 }, (_, i) => [i, ...Array(b.length).fill(0)]);
-  for (let j = 0; j <= b.length; j++) rows[0][j] = j;
+  for (let j = 0; j <= b.length; j++) rows[0]![j] = j;
   for (let i = 1; i <= a.length; i++) {
     for (let j = 1; j <= b.length; j++) {
-      rows[i][j] = Math.min(
-        rows[i - 1][j] + 1,
-        rows[i][j - 1] + 1,
-        rows[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1),
+      rows[i]![j] = Math.min(
+        rows[i - 1]![j]! + 1,
+        rows[i]![j - 1]! + 1,
+        rows[i - 1]![j - 1]! + (a[i - 1] === b[j - 1] ? 0 : 1),
       );
     }
   }
-  return rows[a.length][b.length];
+  return rows[a.length]![b.length]!;
 }
 
 /** Nearest command name within a small edit distance, or null when nothing is close enough. */
-export function suggest(token) {
+export function suggest(token: string): string | null {
   let best = null;
   let bestScore = Infinity;
   for (const name of commandNames()) {

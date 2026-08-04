@@ -6,6 +6,34 @@ import { join, resolve, basename, sep } from "node:path";
 import { writeJsonAtomic } from "./atomic.js";
 import { toplevel } from "./git.js";
 
+export interface Workspace {
+  id: string;
+  path: string;
+  label: string;
+  addedAt: string;
+}
+
+interface RegistryFile {
+  workspaces: Workspace[];
+}
+
+function isWorkspace(value: unknown): value is Workspace {
+  if (!value || typeof value !== "object") return false;
+  const workspace = value as Record<string, unknown>;
+  return (
+    typeof workspace["id"] === "string" &&
+    typeof workspace["path"] === "string" &&
+    typeof workspace["label"] === "string" &&
+    typeof workspace["addedAt"] === "string"
+  );
+}
+
+function isRegistryFile(value: unknown): value is RegistryFile {
+  if (!value || typeof value !== "object") return false;
+  const workspaces = (value as Record<string, unknown>)["workspaces"];
+  return Array.isArray(workspaces) && workspaces.every(isWorkspace);
+}
+
 /**
  * The registry is the on-disk source of truth for which workspaces the hub shows.
  * Global (shared across every repo you launch the hub from) at
@@ -23,18 +51,18 @@ export function registryPath() {
 }
 
 /** Stable, idempotent id derived from the absolute path. */
-export function idFor(path) {
+export function idFor(path: string): string {
   return createHash("sha1").update(resolve(path)).digest("hex").slice(0, ID_LENGTH);
 }
 
-const isId = (s) => ID_PATTERN.test(s);
+const isId = (value: string): boolean => ID_PATTERN.test(value);
 
 /**
  * Registered paths come from `git rev-parse --show-toplevel`, which resolves symlinks — on macOS
  * /var and /tmp are symlinks, so a logical cwd would never match a stored physical path. Compare
  * canonical forms on both sides.
  */
-async function canonical(path) {
+async function canonical(path: string): Promise<string> {
   const abs = resolve(path);
   try {
     return await realpath(abs);
@@ -43,23 +71,27 @@ async function canonical(path) {
   }
 }
 
-export async function readRegistry() {
+export async function readRegistry(): Promise<Workspace[]> {
   try {
     const raw = await readFile(registryPath(), "utf8");
-    const data = JSON.parse(raw);
-    return Array.isArray(data.workspaces) ? data.workspaces : [];
+    const data: unknown = JSON.parse(raw);
+    return isRegistryFile(data) ? data.workspaces : [];
   } catch (err) {
-    if (err.code === "ENOENT") return [];
+    if (isNodeError(err, "ENOENT")) return [];
     throw err;
   }
 }
 
-async function writeRegistry(workspaces) {
+function isNodeError(error: unknown, code: string): error is NodeJS.ErrnoException {
+  return error instanceof Error && "code" in error && error.code === code;
+}
+
+async function writeRegistry(workspaces: Workspace[]): Promise<void> {
   await writeJsonAtomic(registryPath(), { workspaces });
 }
 
 /** Add (or update the label of) a workspace. Idempotent by worktree root. */
-export async function addWorkspace(path, label) {
+export async function addWorkspace(path: string, label?: string): Promise<Workspace> {
   const root = await toplevel(resolve(path));
   if (!root) throw new Error(`not a git worktree: ${resolve(path)}`);
   const id = idFor(root);
@@ -79,7 +111,7 @@ export async function addWorkspace(path, label) {
 }
 
 /** Remove by id or by path. Returns true if something was removed. */
-export async function removeWorkspace(idOrPath) {
+export async function removeWorkspace(idOrPath: string): Promise<boolean> {
   const workspaces = await readRegistry();
   const targetId = isId(idOrPath) ? idOrPath : idFor(await canonical(idOrPath));
   const next = workspaces.filter((w) => w.id !== targetId);
@@ -95,7 +127,10 @@ export async function removeWorkspace(idOrPath) {
  * registered workspace that contains it (exact match, else nearest ancestor), so a caller can pass
  * its current working directory even from a subdirectory of the worktree. Returns null if none.
  */
-export async function resolveWorkspace({ ws, path } = {}) {
+export async function resolveWorkspace({
+  ws,
+  path,
+}: { ws?: string; path?: string } = {}): Promise<Workspace | null> {
   const workspaces = await readRegistry();
   if (ws) return workspaces.find((w) => w.id === ws) || null;
   if (path) {
@@ -112,7 +147,7 @@ export async function resolveWorkspace({ ws, path } = {}) {
 }
 
 /** mtime signature used by the hub to detect external edits to the registry. */
-export async function registrySignature() {
+export async function registrySignature(): Promise<string> {
   try {
     const info = await stat(registryPath());
     return `${info.mtimeMs}:${info.size}`;

@@ -75,7 +75,7 @@ const SHAPES = {
 reset();
 SHAPES[SHAPE]();
 
-const { getDiff } = await import("../server/git.js");
+const { getDiff } = await import("../dist-server/server/git.js");
 
 const t0 = performance.now();
 const diff = await getDiff(ROOT, null);

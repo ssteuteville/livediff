@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 
 const exec = promisify(execFile);
-const SERVER = fileURLToPath(new URL("../server/index.js", import.meta.url));
+const SERVER = fileURLToPath(new URL("../dist-server/server/index.js", import.meta.url));
 
 /**
  * Point XDG_CONFIG_HOME, XDG_STATE_HOME and HOME at fresh temp dirs for the duration of `fn`.

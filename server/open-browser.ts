@@ -12,9 +12,14 @@ const exec = promisify(execFile);
  * whitespace instead of run through a shell: this is a "where do I open things" setting, not a
  * place to want globbing or pipelines, and no shell means no quoting surprises around the URL.
  */
-function openerArgv() {
+type CommandArgv = [command: string, ...args: string[]];
+
+function openerArgv(): CommandArgv {
   const configured = process.env[ENV.BROWSER];
-  if (configured) return configured.trim().split(/\s+/);
+  if (configured) {
+    const [command = "", ...args] = configured.trim().split(/\s+/);
+    return [command, ...args];
+  }
   if (process.platform === "darwin") return ["open"];
   if (process.platform === "win32") return ["explorer"];
   return ["xdg-open"];
@@ -24,7 +29,7 @@ function openerArgv() {
  * Launch a browser, resolving to whether it worked. Never throws: a failed launch is worth
  * reporting but never worth failing a command over — the workspace is registered either way.
  */
-export async function openBrowser(url) {
+export async function openBrowser(url: string): Promise<boolean> {
   const [command, ...args] = openerArgv();
   try {
     await exec(command, [...args, url]);

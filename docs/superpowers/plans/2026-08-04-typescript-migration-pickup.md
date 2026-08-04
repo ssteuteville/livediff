@@ -11,8 +11,16 @@ Five frontend files have already migrated: `src/api.ts`, `src/syntax.ts`, `src/m
 1. Define and migrate the discriminated diff-row model in `src/diff-model.ts`.
 2. Migrate the remaining frontend consumers, starting with direct model consumers:
    `useVirtualRows`, `DiffSearch`, and `FastDiff`; then the remaining leaf components and `App`.
-3. Migrate the server as one compiled `dist-server/` cutover, including its execution and package entry points.
+3. Migrate the server as one compiled `dist-server/` cutover, including its execution and package entry points. **Done 2026-08-04.**
 4. Migrate the remaining node tests and benchmarks, then enable type-aware linting.
+
+## Completed checkpoint — 2026-08-04
+
+- All `server/` modules are TypeScript and compile to `dist-server/server/`.
+- Package scripts, CLI bin, installer, runtime tests, e2e setup, and benchmark fixture generation use the compiled server.
+- `typescript/no-explicit-any` is enforced as an error; warnings already fail the lint command.
+- `pnpm verify` passed: 174 Node tests, 6 browser tests, and 17 E2E tests.
+- The installer completed its build and `livediff doctor` reported "All good." Its global pnpm install attempt warned about a pre-existing store-version mismatch, but the existing global command remained runnable.
 
 ## Guardrails
 

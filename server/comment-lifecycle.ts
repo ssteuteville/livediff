@@ -8,10 +8,27 @@
 
 import { DAY_MS, ORPHAN_ARCHIVE_DAYS, PURGE_DAYS, RESOLVED_ARCHIVE_DAYS } from "./constants.js";
 
-const ageInDays = (iso, now) => (now - Date.parse(iso)) / DAY_MS;
+export type CommentStatus = "open" | "resolved";
+
+export interface LifecycleComment {
+  archivedAt: string | null;
+  file: string;
+  status: CommentStatus;
+  updatedAt: string;
+}
+
+export interface ArchiveContext {
+  orphaned: boolean;
+  now: number;
+}
+
+const ageInDays = (iso: string, now: number): number => (now - Date.parse(iso)) / DAY_MS;
 
 /** A comment is orphaned when the file it was left on is no longer part of the diff. */
-export function isOrphaned(comment, changedPaths) {
+export function isOrphaned(
+  comment: Pick<LifecycleComment, "file">,
+  changedPaths: ReadonlySet<string>,
+): boolean {
   return !changedPaths.has(comment.file);
 }
 
@@ -19,20 +36,26 @@ export function isOrphaned(comment, changedPaths) {
  * Either trigger archives: orphaned and stale, or resolved and stale. An open comment that is
  * still in the diff never archives, however old — it is live work, not clutter.
  */
-export function shouldArchive(comment, { orphaned, now }) {
+export function shouldArchive(
+  comment: LifecycleComment,
+  { orphaned, now }: ArchiveContext,
+): boolean {
   if (comment.archivedAt) return false;
   const age = ageInDays(comment.updatedAt, now);
   if (orphaned && age > ORPHAN_ARCHIVE_DAYS) return true;
   return comment.status === "resolved" && age > RESOLVED_ARCHIVE_DAYS;
 }
 
-export function shouldPurge(comment, now) {
+export function shouldPurge(comment: Pick<LifecycleComment, "archivedAt">, now: number): boolean {
   if (!comment.archivedAt) return false;
   return ageInDays(comment.archivedAt, now) > PURGE_DAYS;
 }
 
 /** Days left before purge, or null when the comment is not archived. */
-export function daysUntilPurge(comment, now) {
+export function daysUntilPurge(
+  comment: Pick<LifecycleComment, "archivedAt">,
+  now: number,
+): number | null {
   if (!comment.archivedAt) return null;
   return Math.ceil(PURGE_DAYS - ageInDays(comment.archivedAt, now));
 }

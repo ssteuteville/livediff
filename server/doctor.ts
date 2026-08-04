@@ -18,16 +18,38 @@ import { readState, statePath, lockPath, pidAlive, probeMeta } from "./hub-state
 
 const exec = promisify(execFile);
 
-const ok = (title, detail) => ({ level: "ok", title, detail });
-const warn = (title, detail, fix) => ({ level: "warn", title, detail, fix });
-const bad = (title, detail, fix) => ({ level: "error", title, detail, fix });
+export type FindingLevel = "ok" | "warn" | "error";
+
+export interface Finding {
+  level: FindingLevel;
+  title: string;
+  detail: string;
+  fix?: string;
+}
+
+const ok = (title: string, detail: string): Finding => ({ level: "ok", title, detail });
+const warn = (title: string, detail: string, fix: string): Finding => ({
+  level: "warn",
+  title,
+  detail,
+  fix,
+});
+const bad = (title: string, detail: string, fix: string): Finding => ({
+  level: "error",
+  title,
+  detail,
+  fix,
+});
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
 
 /**
  * A stale `pnpm link --global` symlink and an installed package can both be on PATH, and which
  * one runs depends on directory order — an "upgrade" that silently keeps running old code.
  */
-async function checkPath() {
-  let paths = [];
+async function checkPath(): Promise<Finding> {
+  let paths: string[] = [];
   try {
     const { stdout } = await exec("sh", [
       "-c",
@@ -58,10 +80,12 @@ async function checkPath() {
       "Remove the stale one — usually `pnpm uninstall --global livediff`.",
     );
   }
-  return ok("livediff on PATH", paths[0]);
+  const path = paths[0];
+  if (!path) return ok("livediff on PATH", "not found");
+  return ok("livediff on PATH", path);
 }
 
-async function checkHub(version) {
+async function checkHub(version: string): Promise<Finding> {
   const state = await readState();
   if (!state) return ok("hub", "not running (any command will start it)");
 
@@ -86,7 +110,7 @@ async function checkHub(version) {
   );
 }
 
-async function checkLock() {
+async function checkLock(): Promise<Finding> {
   try {
     const info = await stat(lockPath());
     const ageMs = Date.now() - info.mtimeMs;
@@ -104,7 +128,7 @@ async function checkLock() {
   }
 }
 
-async function checkRegistry() {
+async function checkRegistry(): Promise<Finding> {
   const workspaces = await readRegistry();
   if (!workspaces.length) return ok("registry", "no workspaces registered");
 
@@ -119,8 +143,8 @@ async function checkRegistry() {
     }),
   );
 
-  const problems = [];
-  const seen = new Map();
+  const problems: string[] = [];
+  const seen = new Map<string, string>();
   for (const [index, w] of workspaces.entries()) {
     const root = roots[index];
     if (root === undefined) {
@@ -146,7 +170,7 @@ async function checkRegistry() {
   );
 }
 
-async function checkLegacyDirs() {
+async function checkLegacyDirs(): Promise<Finding> {
   const workspaces = await readRegistry();
   const dirs = await Promise.all(
     workspaces.map(async (w) => {
@@ -159,7 +183,7 @@ async function checkLegacyDirs() {
       }
     }),
   );
-  const found = dirs.filter(Boolean);
+  const found = dirs.filter((dir): dir is string => dir !== null);
   if (!found.length) return ok("legacy comment dirs", "none");
   return warn(
     "pre-0.3 .diff-review directories present",
@@ -169,7 +193,7 @@ async function checkLegacyDirs() {
 }
 
 /** Numeric per-segment comparison: "0.10.0" is newer than "0.4.0", which string order gets wrong. */
-function compareVersions(a, b) {
+function compareVersions(a: string, b: string): number {
   const pa = a.split(".").map(Number);
   const pb = b.split(".").map(Number);
   for (let i = 0; i < 3; i++) {
@@ -179,18 +203,18 @@ function compareVersions(a, b) {
 }
 
 /** Highest livediff version present in the plugin cache, or null when it is not installed. */
-async function installedPluginVersion() {
+async function installedPluginVersion(): Promise<string | null> {
   const cache = join(homedir(), ".claude", "plugins", "cache");
-  let marketplaces = [];
+  let marketplaces: string[] = [];
   try {
     marketplaces = await readdir(cache);
   } catch {
     return null;
   }
-  const found = [];
+  const found: string[] = [];
   for (const marketplace of marketplaces) {
     const dir = join(cache, marketplace, APP_DIR_NAME);
-    let versions = [];
+    let versions: string[] = [];
     try {
       versions = await readdir(dir);
     } catch {
@@ -199,8 +223,10 @@ async function installedPluginVersion() {
     for (const version of versions) {
       try {
         const raw = await readFile(join(dir, version, ".claude-plugin", "plugin.json"), "utf8");
-        const parsed = JSON.parse(raw);
-        if (parsed.version) found.push(parsed.version);
+        const parsed: unknown = JSON.parse(raw);
+        if (isRecord(parsed) && typeof parsed["version"] === "string") {
+          found.push(parsed["version"]);
+        }
       } catch {
         /* not a plugin directory */
       }
@@ -214,7 +240,7 @@ async function installedPluginVersion() {
  * copy is a second, stale answer to the same question — it never updates and its instructions
  * compete with the plugin's for the model's attention.
  */
-async function checkPlugin(version) {
+async function checkPlugin(version: string): Promise<Finding> {
   const legacy = join(homedir(), ".claude", "skills", "open-worktree-diff");
   try {
     await access(legacy);
@@ -243,11 +269,11 @@ async function checkPlugin(version) {
  * Archive growth is the one thing doctor would otherwise only describe. Every other finding
  * carries a fix, so this one does too.
  */
-async function checkArchive() {
+async function checkArchive(): Promise<Finding> {
   const workspaces = await readRegistry();
   let bytes = 0;
   let archived = 0;
-  let oldest = null;
+  let oldest: string | null = null;
 
   for (const w of workspaces) {
     try {
@@ -255,15 +281,23 @@ async function checkArchive() {
     } catch {
       continue; // no store for this workspace yet
     }
-    for (const c of await listComments(w.id, null, { branch: "all" })) {
-      if (!c.archivedAt) continue;
+    const comments: unknown = await listComments(w.id, null, { branch: "all" });
+    if (!Array.isArray(comments)) continue;
+    for (const comment of comments) {
+      if (!isRecord(comment) || typeof comment["archivedAt"] !== "string") continue;
       archived++;
-      if (!oldest || c.archivedAt < oldest) oldest = c.archivedAt;
+      if (!oldest || comment["archivedAt"] < oldest) oldest = comment["archivedAt"];
     }
   }
 
   const size = `${(bytes / 1024).toFixed(1)} KB`;
   if (!archived) return ok("comment archive", `${size}, nothing archived`);
+  if (!oldest)
+    return bad(
+      "comment archive",
+      "archived comments have invalid archive dates",
+      "Run livediff prune --dry-run.",
+    );
 
   const days = Math.floor((Date.now() - Date.parse(oldest)) / DAY_MS);
   const noun = archived === 1 ? "archived comment" : "archived comments";
@@ -277,8 +311,8 @@ async function checkArchive() {
 }
 
 /** Every check, in report order. Never throws — a failed check becomes a finding. */
-export async function diagnose(version) {
-  const checks = [
+export async function diagnose(version: string): Promise<Finding[]> {
+  const checks: Promise<Finding>[] = [
     checkPath(),
     checkHub(version),
     checkLock(),
@@ -289,6 +323,12 @@ export async function diagnose(version) {
   ];
   const settled = await Promise.allSettled(checks);
   return settled.map((r) =>
-    r.status === "fulfilled" ? r.value : bad("check failed", String(r.reason?.message || r.reason)),
+    r.status === "fulfilled"
+      ? r.value
+      : bad(
+          "check failed",
+          r.reason instanceof Error ? r.reason.message : String(r.reason),
+          "Retry the command.",
+        ),
   );
 }

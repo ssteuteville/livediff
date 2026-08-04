@@ -10,7 +10,122 @@ import {
 } from "./constants.js";
 import { writeJsonAtomic } from "./atomic.js";
 import { currentBranch } from "./git.js";
-import { isOrphaned, shouldArchive, shouldPurge } from "./comment-lifecycle.js";
+import {
+  isOrphaned,
+  shouldArchive,
+  shouldPurge,
+  type CommentStatus,
+  type LifecycleComment,
+} from "./comment-lifecycle.js";
+
+type CommentSide = "old" | "new";
+type CommentAuthor = "user" | "claude";
+
+interface CommentReply {
+  author: CommentAuthor;
+  body: string;
+  ts: string;
+}
+
+export interface Comment extends LifecycleComment {
+  id: string;
+  side: CommentSide;
+  line: number;
+  lineContent: string;
+  body: string;
+  author: CommentAuthor;
+  branch: string | null;
+  replies: CommentReply[];
+  createdAt: string;
+}
+
+type CommentStore = Record<string, Comment>;
+
+interface ListCommentsOptions {
+  branch?: string | "all";
+}
+
+interface SweepOptions {
+  now?: number;
+  force?: {
+    stale?: boolean;
+    resolved?: boolean;
+  };
+}
+
+interface PurgeArchivedOptions {
+  olderThanDays: number;
+  now?: number;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function stringValue(value: unknown, fallback = ""): string {
+  return typeof value === "string" ? value : fallback;
+}
+
+function commentStatus(value: unknown): CommentStatus {
+  return value === "resolved" ? "resolved" : "open";
+}
+
+function commentSide(value: unknown): CommentSide {
+  return value === "old" ? "old" : "new";
+}
+
+function commentAuthor(value: unknown): CommentAuthor {
+  return value === "claude" ? "claude" : "user";
+}
+
+function parseReply(value: unknown): CommentReply | null {
+  if (!isRecord(value) || typeof value["body"] !== "string") return null;
+  return {
+    author: commentAuthor(value["author"]),
+    body: value["body"],
+    ts: stringValue(value["ts"]),
+  };
+}
+
+function parseComment(value: unknown, key?: string): Comment | null {
+  if (!isRecord(value)) return null;
+  const id = stringValue(value["id"], key);
+  const file = stringValue(value["file"]);
+  if (!id) return null;
+  const line =
+    typeof value["line"] === "number" && Number.isFinite(value["line"]) ? value["line"] : 0;
+  const replies = Array.isArray(value["replies"])
+    ? value["replies"].flatMap((reply) => {
+        const parsed = parseReply(reply);
+        return parsed ? [parsed] : [];
+      })
+    : [];
+  return {
+    id,
+    file,
+    side: commentSide(value["side"]),
+    line,
+    lineContent: stringValue(value["lineContent"]),
+    body: stringValue(value["body"]),
+    author: commentAuthor(value["author"]),
+    status: commentStatus(value["status"]),
+    branch: typeof value["branch"] === "string" ? value["branch"] : null,
+    archivedAt: typeof value["archivedAt"] === "string" ? value["archivedAt"] : null,
+    replies,
+    createdAt: stringValue(value["createdAt"]),
+    updatedAt: stringValue(value["updatedAt"]),
+  };
+}
+
+function toCommentStore(value: unknown): CommentStore {
+  if (!isRecord(value)) return {};
+  const comments: CommentStore = {};
+  for (const [id, comment] of Object.entries(value)) {
+    const parsed = parseComment(comment, id);
+    if (parsed) comments[parsed.id] = parsed;
+  }
+  return comments;
+}
 
 /**
  * Comments are stored centrally — keyed by workspace id, not inside the worktree — so livediff
@@ -32,14 +147,14 @@ import { isOrphaned, shouldArchive, shouldPurge } from "./comment-lifecycle.js";
  * }
  */
 
-function storePath(wsId) {
+function storePath(wsId: string): string {
   return join(configDir(), COMMENTS_DIR_NAME, `${wsId}.json`);
 }
 
 // Pre-v0.3 versions wrote comments into <worktree>/.diff-review/comments.json. Migrate that file
 // into the central store the first time this workspace's comments are touched, then remove it so
 // the worktree stops showing an untracked file.
-async function migrateLegacy(wsId, repoPath) {
+async function migrateLegacy(wsId: string, repoPath: string | null): Promise<void> {
   if (!repoPath) return;
   const dest = storePath(wsId);
   try {
@@ -67,23 +182,35 @@ async function migrateLegacy(wsId, repoPath) {
  * before 0.6; normalizing here is five lines and removes a whole class of "what if an old file
  * turns up" from every caller.
  */
-function normalize(data) {
-  const raw = data?.comments;
-  if (Array.isArray(raw)) return Object.fromEntries(raw.map((c) => [c.id, c]));
-  return raw && typeof raw === "object" ? raw : {};
+function normalize(data: unknown): CommentStore {
+  if (!isRecord(data)) return {};
+  const raw = data["comments"];
+  if (Array.isArray(raw)) {
+    const comments: CommentStore = {};
+    for (const value of raw) {
+      const parsed = parseComment(value);
+      if (parsed) comments[parsed.id] = parsed;
+    }
+    return comments;
+  }
+  return toCommentStore(raw);
 }
 
-async function readStore(wsId, repoPath) {
+function hasErrorCode(error: unknown, code: string): boolean {
+  return isRecord(error) && error["code"] === code;
+}
+
+async function readStore(wsId: string, repoPath: string | null): Promise<CommentStore> {
   await migrateLegacy(wsId, repoPath);
   try {
     return normalize(JSON.parse(await readFile(storePath(wsId), "utf8")));
   } catch (err) {
-    if (err.code === "ENOENT") return {};
+    if (hasErrorCode(err, "ENOENT")) return {};
     throw err;
   }
 }
 
-async function writeStore(wsId, comments) {
+async function writeStore(wsId: string, comments: CommentStore): Promise<void> {
   await writeJsonAtomic(storePath(wsId), { version: COMMENT_STORE_VERSION, comments });
 }
 
@@ -92,7 +219,11 @@ async function writeStore(wsId, comments) {
  * every branch — nothing will have one after the 0.6 wipe, but it costs one `||` and removes any
  * path where a record silently vanishes.
  */
-export async function listComments(wsId, repoPath, { branch = "all" } = {}) {
+export async function listComments(
+  wsId: string,
+  repoPath: string | null,
+  { branch = "all" }: ListCommentsOptions = {},
+): Promise<Comment[]> {
   const store = await readStore(wsId, repoPath);
   const all = Object.values(store);
   if (branch === "all") return all;
@@ -100,21 +231,33 @@ export async function listComments(wsId, repoPath, { branch = "all" } = {}) {
 }
 
 /** O(1) — the reason the store is keyed. */
-export async function getComment(wsId, id) {
+export async function getComment(wsId: string, id: string): Promise<Comment | null> {
   return (await readStore(wsId, null))[id] ?? null;
 }
 
-export async function addComment(wsId, repoPath, input) {
+export async function addComment(
+  wsId: string,
+  repoPath: string | null,
+  input: unknown,
+): Promise<Comment> {
+  if (
+    !isRecord(input) ||
+    typeof input["file"] !== "string" ||
+    typeof input["line"] !== "number" ||
+    !Number.isFinite(input["line"])
+  ) {
+    throw new TypeError("A comment requires a string file and finite numeric line");
+  }
   const store = await readStore(wsId, repoPath);
   const now = new Date().toISOString();
-  const comment = {
+  const comment: Comment = {
     id: randomUUID().slice(0, ID_LENGTH),
-    file: input.file,
-    side: input.side === "old" ? "old" : "new",
-    line: Number(input.line),
-    lineContent: input.lineContent ?? "",
-    body: String(input.body ?? "").trim(),
-    author: input.author === "claude" ? "claude" : "user",
+    file: input["file"],
+    side: input["side"] === "old" ? "old" : "new",
+    line: input["line"],
+    lineContent: stringValue(input["lineContent"]),
+    body: String(input["body"] ?? "").trim(),
+    author: input["author"] === "claude" ? "claude" : "user",
     status: "open",
     branch: repoPath ? await currentBranch(repoPath).catch(() => null) : null,
     archivedAt: null,
@@ -127,17 +270,30 @@ export async function addComment(wsId, repoPath, input) {
   return comment;
 }
 
-export async function updateComment(wsId, repoPath, id, patch) {
+export async function updateComment(
+  wsId: string,
+  repoPath: string | null,
+  id: string,
+  patch: unknown,
+): Promise<Comment | null> {
   const store = await readStore(wsId, repoPath);
   const comment = store[id];
   if (!comment) return null;
-  if (typeof patch.body === "string") comment.body = patch.body;
-  if (patch.status === "open" || patch.status === "resolved") comment.status = patch.status;
-  if ("branch" in patch) comment.branch = patch.branch;
-  if (patch.reply && patch.reply.body) {
+  if (!isRecord(patch)) return comment;
+  if (typeof patch["body"] === "string") comment.body = patch["body"];
+  if (patch["status"] === "open" || patch["status"] === "resolved")
+    comment.status = patch["status"];
+  if ("branch" in patch && (typeof patch["branch"] === "string" || patch["branch"] === null)) {
+    comment.branch = patch["branch"];
+  }
+  if (
+    isRecord(patch["reply"]) &&
+    typeof patch["reply"]["body"] === "string" &&
+    patch["reply"]["body"]
+  ) {
     comment.replies.push({
-      author: patch.reply.author === "user" ? "user" : "claude",
-      body: String(patch.reply.body).trim(),
+      author: patch["reply"]["author"] === "user" ? "user" : "claude",
+      body: String(patch["reply"]["body"]).trim(),
       ts: new Date().toISOString(),
     });
   }
@@ -146,7 +302,11 @@ export async function updateComment(wsId, repoPath, id, patch) {
   return comment;
 }
 
-export async function deleteComment(wsId, repoPath, id) {
+export async function deleteComment(
+  wsId: string,
+  repoPath: string | null,
+  id: string,
+): Promise<boolean> {
   const store = await readStore(wsId, repoPath);
   if (!store[id]) return false;
   delete store[id];
@@ -158,9 +318,9 @@ export async function deleteComment(wsId, repoPath, id) {
  * Append `from`'s comments onto `into`'s and delete `from`'s store. Used when two registry
  * entries collapse to one workspace. Returns how many comments moved.
  */
-export async function mergeInto(fromWsId, intoWsId) {
+export async function mergeInto(fromWsId: string, intoWsId: string): Promise<number> {
   if (fromWsId === intoWsId) return 0;
-  let incoming = {};
+  let incoming: CommentStore = {};
   try {
     incoming = await readStore(fromWsId, null);
   } catch {
@@ -178,7 +338,7 @@ export async function mergeInto(fromWsId, intoWsId) {
 }
 
 /** mtime signature used by the hub to detect edits (including migration) for live reload. */
-export async function commentsSignature(wsId) {
+export async function commentsSignature(wsId: string): Promise<string> {
   try {
     const info = await stat(storePath(wsId));
     return `${info.mtimeMs}:${info.size}`;
@@ -196,7 +356,12 @@ export async function commentsSignature(wsId) {
  * `force` overrides only the age gates, never what qualifies: `{ stale: true }` archives every
  * orphaned comment, `{ resolved: true }` every resolved one.
  */
-export async function sweep(wsId, repoPath, changed, { now = Date.now(), force = {} } = {}) {
+export async function sweep(
+  wsId: string,
+  repoPath: string | null,
+  changed: readonly string[],
+  { now = Date.now(), force = {} }: SweepOptions = {},
+): Promise<{ archived: number; purged: number }> {
   const store = await readStore(wsId, repoPath);
   const branch = repoPath ? await currentBranch(repoPath).catch(() => null) : null;
   const changedSet = new Set(changed);
@@ -230,7 +395,7 @@ export async function sweep(wsId, repoPath, changed, { now = Date.now(), force =
  * clearing the flag alone would let the next sweep archive it again and make the command look
  * broken. Resetting the clock is the reprieve the caller is asking for.
  */
-export async function restoreComment(wsId, id) {
+export async function restoreComment(wsId: string, id: string): Promise<Comment | null> {
   const store = await readStore(wsId, null);
   const comment = store[id];
   if (!comment) return null;
@@ -241,7 +406,10 @@ export async function restoreComment(wsId, id) {
 }
 
 /** Delete archived records older than an explicit window. `olderThanDays: 0` empties the archive. */
-export async function purgeArchived(wsId, { olderThanDays, now = Date.now() }) {
+export async function purgeArchived(
+  wsId: string,
+  { olderThanDays, now = Date.now() }: PurgeArchivedOptions,
+): Promise<number> {
   const store = await readStore(wsId, null);
   const cutoff = now - olderThanDays * 86_400_000;
   let purged = 0;
@@ -256,6 +424,6 @@ export async function purgeArchived(wsId, { olderThanDays, now = Date.now() }) {
 }
 
 /** Test-only escape hatch for seeding aged records without waiting days. */
-export async function __writeForTest(wsId, comments) {
+export async function __writeForTest(wsId: string, comments: CommentStore): Promise<void> {
   await writeStore(wsId, comments);
 }

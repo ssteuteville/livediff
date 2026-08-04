@@ -14,11 +14,51 @@ import {
   STATE_FILENAME,
 } from "./constants.js";
 
+export interface HubState {
+  pid: number;
+  port: number;
+  version: string;
+  startedAt: string;
+}
+
+export interface HubMeta {
+  name: string;
+  version: string;
+  clients: number;
+  polling: boolean;
+}
+
+function isHubState(value: unknown): value is HubState {
+  if (!value || typeof value !== "object") return false;
+  const state = value as Record<string, unknown>;
+  return (
+    typeof state["pid"] === "number" &&
+    typeof state["port"] === "number" &&
+    typeof state["version"] === "string" &&
+    typeof state["startedAt"] === "string"
+  );
+}
+
+function isHubMeta(value: unknown): value is HubMeta {
+  if (!value || typeof value !== "object") return false;
+  const meta = value as Record<string, unknown>;
+  return (
+    typeof meta["name"] === "string" &&
+    typeof meta["version"] === "string" &&
+    typeof meta["clients"] === "number" &&
+    typeof meta["polling"] === "boolean"
+  );
+}
+
+function isNodeError(error: unknown, code: string): error is NodeJS.ErrnoException {
+  return error instanceof Error && "code" in error && error.code === code;
+}
+
 /**
  * Hub runtime state lives under XDG_STATE_HOME, not XDG_CONFIG_HOME: it describes a running
  * process, is meaningless after a reboot, and must not be mistaken for user configuration.
  */
-export function stateDir() {
+export function stateDir(): string {
   const base = process.env[ENV.XDG_STATE_HOME] || join(homedir(), ".local", "state");
   return join(base, APP_DIR_NAME);
 }
@@ -27,17 +67,16 @@ export const statePath = () => join(stateDir(), STATE_FILENAME);
 export const lockPath = () => join(stateDir(), LOCK_FILENAME);
 export const logPath = () => join(stateDir(), LOG_FILENAME);
 
-export async function readState() {
+export async function readState(): Promise<HubState | null> {
   try {
-    const parsed = JSON.parse(await readFile(statePath(), "utf8"));
-    if (!parsed || typeof parsed.port !== "number" || typeof parsed.pid !== "number") return null;
-    return parsed;
+    const parsed: unknown = JSON.parse(await readFile(statePath(), "utf8"));
+    return isHubState(parsed) ? parsed : null;
   } catch {
     return null;
   }
 }
 
-export async function writeState(state) {
+export async function writeState(state: HubState): Promise<void> {
   await writeJsonAtomic(statePath(), state);
 }
 
@@ -46,16 +85,16 @@ export async function clearState() {
 }
 
 /** EPERM means the pid exists but belongs to another user — still alive for our purposes. */
-export function pidAlive(pid) {
+export function pidAlive(pid: number): boolean {
   try {
     process.kill(pid, 0);
     return true;
   } catch (err) {
-    return err.code === "EPERM";
+    return isNodeError(err, "EPERM");
   }
 }
 
-export async function acquireLock(attempt = 0) {
+export async function acquireLock(attempt = 0): Promise<boolean> {
   await mkdir(stateDir(), { recursive: true });
   try {
     const fh = await open(lockPath(), "wx");
@@ -63,7 +102,7 @@ export async function acquireLock(attempt = 0) {
     await fh.close();
     return true;
   } catch (err) {
-    if (err.code !== "EEXIST" || attempt >= 1) return false;
+    if (!isNodeError(err, "EEXIST") || attempt >= 1) return false;
     let stale = false;
     try {
       stale = Date.now() - (await stat(lockPath())).mtimeMs > LOCK_STALE_MS;
@@ -93,24 +132,32 @@ const BLOCKED_PORTS = new Set([
   6669, 6697, 10080,
 ]);
 
-export function isBlockedPort(port) {
+export function isBlockedPort(port: number): boolean {
   return BLOCKED_PORTS.has(port);
 }
 
-export async function probeMeta(port, timeoutMs = PROBE_TIMEOUT_MS) {
+export async function probeMeta(
+  port: number,
+  timeoutMs = PROBE_TIMEOUT_MS,
+): Promise<HubMeta | null> {
   try {
     const res = await fetch(`http://${LOOPBACK_HOST}:${port}/api/meta`, {
       signal: AbortSignal.timeout(timeoutMs),
     });
     if (!res.ok) return null;
-    return await res.json();
+    const body: unknown = await res.json();
+    return isHubMeta(body) ? body : null;
   } catch {
     return null;
   }
 }
 
 /** Resolve true once `predicate` holds, false at the deadline. */
-export async function waitUntil(predicate, timeoutMs, intervalMs = 50) {
+export async function waitUntil(
+  predicate: () => boolean | Promise<boolean>,
+  timeoutMs: number,
+  intervalMs = 50,
+): Promise<boolean> {
   const deadline = Date.now() + timeoutMs;
   for (;;) {
     if (await predicate()) return true;
@@ -123,7 +170,7 @@ export async function waitUntil(predicate, timeoutMs, intervalMs = 50) {
  * Ask a hub to exit, falling back to SIGTERM, and wait until its port stops answering. Shared by
  * `livediff stop` and by ensureHub replacing a mismatched version — they had drifted apart.
  */
-export async function shutdownHub(state) {
+export async function shutdownHub(state: HubState): Promise<boolean> {
   await fetch(`http://${LOOPBACK_HOST}:${state.port}/api/shutdown`, {
     method: "POST",
     signal: AbortSignal.timeout(2000),

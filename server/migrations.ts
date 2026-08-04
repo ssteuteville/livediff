@@ -1,5 +1,5 @@
 import { access } from "node:fs/promises";
-import { readRegistry, registryPath, idFor } from "./registry.js";
+import { readRegistry, registryPath, idFor, type Workspace } from "./registry.js";
 import { toplevel } from "./git.js";
 import { mergeInto } from "./comments.js";
 import { writeJsonAtomic } from "./atomic.js";
@@ -9,7 +9,7 @@ import { writeJsonAtomic } from "./atomic.js";
  * several times — once per subdirectory it was invoked from — each with its own comments file.
  * Collapse those onto the worktree root and merge their comments. Idempotent.
  */
-export async function migrateRegistry() {
+export async function migrateRegistry(): Promise<{ normalized: number; merged: number }> {
   const workspaces = await readRegistry();
   if (!workspaces.length) return { normalized: 0, merged: 0 };
 
@@ -26,11 +26,12 @@ export async function migrateRegistry() {
     }),
   );
 
-  const byRoot = new Map();
+  const byRoot = new Map<string, Workspace>();
   let normalized = 0;
   let merged = 0;
 
-  for (const [index, ws] of workspaces.entries()) {
+  for (const [index, workspace] of workspaces.entries()) {
+    const ws = workspace;
     const root = roots[index];
     if (!root) continue;
     if (root !== ws.path) normalized++;
@@ -49,7 +50,10 @@ export async function migrateRegistry() {
   const next = [...byRoot.values()];
   const changed =
     next.length !== workspaces.length ||
-    next.some((w, i) => w.id !== workspaces[i].id || w.path !== workspaces[i].path);
+    next.some((w, i) => {
+      const previous = workspaces[i];
+      return !previous || w.id !== previous.id || w.path !== previous.path;
+    });
   if (changed) await writeJsonAtomic(registryPath(), { workspaces: next });
 
   return { normalized, merged };

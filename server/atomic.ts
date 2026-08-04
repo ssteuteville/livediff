@@ -7,7 +7,7 @@ import { dirname, join, basename } from "node:path";
  * rename(2) is atomic on POSIX, so a reader sees either the previous file or the complete new
  * one — never a truncated write from a crash mid-flush.
  */
-export async function writeJsonAtomic(file, data) {
+export async function writeJsonAtomic(file: string, data: unknown): Promise<void> {
   const dir = dirname(file);
   await mkdir(dir, { recursive: true });
   const tmp = join(dir, `.${basename(file)}.${randomUUID().slice(0, ID_LENGTH)}.tmp`);

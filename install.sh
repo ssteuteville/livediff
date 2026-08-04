@@ -57,7 +57,7 @@ info "Installing dependencies…"
 info "Building the UI…"
 "$PM" run build
 
-chmod +x server/cli.js
+chmod +x dist-server/server/cli.js
 
 if [ "$MODE" = dev ]; then
   info "Linking the working tree globally (--dev)…"
@@ -97,7 +97,7 @@ else
     warn "  Remove it, then re-run this installer."
   else
     warn "  pnpm: run \`pnpm setup\` and open a new shell. Or run it directly:"
-    warn "  node \"$SCRIPT_DIR/server/cli.js\""
+    warn "  node \"$SCRIPT_DIR/dist-server/server/cli.js\""
   fi
 fi
 
@@ -116,7 +116,7 @@ info "Checking the install…"
 if livediff --version >/dev/null 2>&1; then
   livediff doctor || true
 else
-  node "$SCRIPT_DIR/server/cli.js" doctor || true
+  node "$SCRIPT_DIR/dist-server/server/cli.js" doctor || true
 fi
 
 cat <<EOF

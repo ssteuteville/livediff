@@ -9,11 +9,17 @@ import { ID_LENGTH } from "./constants.js";
  * a request that outlived the process that was waiting on it would be a button that does nothing.
  */
 
-const byId = new Map();
-const byWorkspace = new Map();
+export interface ReviewRequest {
+  reviewId: string;
+  ws: string;
+  startedAt: string;
+}
+
+const byId = new Map<string, ReviewRequest>();
+const byWorkspace = new Map<string, ReviewRequest>();
 
 /** Open a request for `ws`, or return the one already open so a second waiter attaches to it. */
-export function openReview(ws) {
+export function openReview(ws: string): ReviewRequest {
   const existing = byWorkspace.get(ws);
   if (existing) return existing;
   const request = {
@@ -26,7 +32,7 @@ export function openReview(ws) {
   return request;
 }
 
-export function reviewFor(ws) {
+export function reviewFor(ws: string): ReviewRequest | null {
   return byWorkspace.get(ws) ?? null;
 }
 
@@ -34,7 +40,7 @@ export function reviewFor(ws) {
  * Close a request, returning it so the caller can broadcast the outcome. Done and cancelled are
  * the same state transition here — the difference is only what the caller reports.
  */
-export function closeReview(reviewId) {
+export function closeReview(reviewId: string): ReviewRequest | null {
   const request = byId.get(reviewId);
   if (!request) return null;
   byId.delete(reviewId);

@@ -6,10 +6,10 @@ import { fileURLToPath } from "node:url";
 import { join } from "node:path";
 import { writeFile } from "node:fs/promises";
 import { withTempXdg, makeRepo } from "./helpers.js";
-import { readState, probeMeta } from "../server/hub-state.js";
+import { readState, probeMeta } from "../dist-server/server/hub-state.js";
 
 const exec = promisify(execFile);
-const CLI = fileURLToPath(new URL("../server/cli.js", import.meta.url));
+const CLI = fileURLToPath(new URL("../dist-server/server/cli.js", import.meta.url));
 
 /** Run the CLI with the ambient temp XDG env. Never throws — returns the failure for assertions. */
 async function cli(args, opts = {}) {

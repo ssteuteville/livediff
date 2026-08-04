@@ -2,9 +2,9 @@
   "extends": "./tsconfig.base.json",
   "compilerOptions": {
     "types": ["node"],
-    "allowJs": true,
-    "checkJs": false
+    "noEmit": false,
+    "outDir": "dist-server",
+    "rootDir": "."
   },
-  "include": ["server/**/*", "shared/**/*", "test/**/*", "e2e/**/*", "bench/**/*", "types/**/*"],
-  "exclude": ["test/browser/**/*"]
+  "include": ["server/**/*", "shared/**/*"]
 }
