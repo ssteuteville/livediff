@@ -22,7 +22,8 @@ comment count. You review in the browser; the agent reads your comments through 
 
 ## Install
 
-Requires Node ≥ 18.
+Requires Node ≥ 24. If Claude Code or Codex is installed, the installer also configures LiveDiff
+as a native plugin for it.
 
 ```bash
 git clone <this-repo-url> livediff
@@ -30,21 +31,18 @@ cd livediff
 ./install.sh
 ```
 
-This builds a real package and installs it globally — the same thing publishing to npm would do —
-then removes any skill copy left by a pre-0.5 install. Run `./install.sh --dev` instead to link
-the working tree if you are hacking on livediff itself.
+This builds a real package, installs it globally, and installs the shared LiveDiff plugin in any
+available Claude Code and Codex CLIs. Run `./install.sh --dev` instead to link the working tree if
+you are hacking on livediff itself.
 
 Upgrading later is the same command. It removes the previous install first, so you can never end up
 with two `livediff` binaries racing on `PATH`.
 
-## Claude Code
+## Claude Code and Codex
 
-Install the plugin once; it supplies the skills and commands:
-
-```
-/plugin marketplace add /path/to/livediff
-/plugin install livediff
-```
+`./install.sh` registers this clone as a native marketplace and installs the LiveDiff plugin for
+each installed agent. Restart the agent after installation to load its skills. Re-running the
+installer refreshes the local marketplace and plugin after a pull.
 
 | You say or type       | What happens                                               |
 | --------------------- | ---------------------------------------------------------- |

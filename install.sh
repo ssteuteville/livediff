@@ -101,6 +101,25 @@ else
   fi
 fi
 
+# --- Native agent plugins ---
+# Both marketplaces point at the same package under plugins/livediff, so they always receive the
+# same skills without copied, stale-able files.
+if command -v claude >/dev/null 2>&1; then
+  info "Installing the Claude Code plugin…"
+  claude plugin marketplace add "$SCRIPT_DIR" || warn "Claude marketplace already registered or could not be added."
+  claude plugin install livediff@livediff || claude plugin update livediff@livediff || warn "Claude plugin could not be installed."
+else
+  warn "Claude Code is not installed; skipped its plugin."
+fi
+
+if command -v codex >/dev/null 2>&1; then
+  info "Installing the Codex plugin…"
+  codex plugin marketplace add "$SCRIPT_DIR" || warn "Codex marketplace already registered or could not be added."
+  codex plugin add livediff@livediff || warn "Codex plugin is already installed or could not be installed."
+else
+  warn "Codex is not installed; skipped its plugin."
+fi
+
 # --- Migrate off the copied skill ---
 # Pre-0.5 installs copied the skill into ~/.claude/skills. The plugin owns it now; leaving the
 # copy behind means two stale-able answers to the same question.
@@ -128,11 +147,6 @@ $(ok "Done.")
 That registers the worktree, starts the hub if it isn't running, and opens the
 diff.
 
-For Claude Code, install the plugin once — it supplies the skills and the
-/livediff:link and /livediff:review commands:
-
-  /plugin marketplace add $SCRIPT_DIR
-  /plugin install livediff
-
-Then say "show me the diff", or type /livediff:link for just the URL.
+The Claude Code and Codex plugins were installed when their CLIs were available.
+Restart either agent client to load the new skills, then say "show me the diff".
 EOF

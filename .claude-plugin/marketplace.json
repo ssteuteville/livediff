@@ -5,7 +5,7 @@
   "plugins": [
     {
       "name": "livediff",
-      "source": "./",
+      "source": "./plugins/livediff",
       "description": "Show a git worktree as a live browser diff and act on the review comments left on it"
     }
   ]
