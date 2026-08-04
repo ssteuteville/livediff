@@ -330,15 +330,15 @@ test("comments filters by --status and defaults to open", async () => {
     try {
       const ws = JSON.parse((await cli([repo, "--no-open", "--json"])).stdout);
       const state = await readState();
-      const post = (body) =>
+      const addComment = (body) =>
         fetch(`http://127.0.0.1:${state.port}/api/comments?ws=${ws.id}`, {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({ file: "README.md", side: "new", line: 1, body }),
         }).then((r) => r.json());
 
-      const kept = await post("still open");
-      const closed = await post("will be resolved");
+      const kept = await addComment("still open");
+      const closed = await addComment("will be resolved");
       await cli(["resolve", closed.id, "done"], { cwd: repo });
 
       const dflt = (await cli(["comments", repo])).stdout;

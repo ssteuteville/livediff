@@ -22,13 +22,13 @@
     "react/react-in-jsx-scope": "off",
     "eslint/no-underscore-dangle": "off",
     "import/no-unassigned-import": "off",
-    "unicorn/no-array-sort": "warn",
-    "eslint/no-shadow": "warn",
+    "unicorn/no-array-sort": "off",
+    "unicorn/consistent-function-scoping": "off",
+    "promise/always-return": "off",
+    "promise/no-callback-in-promise": "off",
+    "eslint/no-shadow": "error",
     "eslint/no-unmodified-loop-condition": "warn",
-    "unicorn/consistent-function-scoping": "warn",
-    "unicorn/no-new-array": "warn",
-    "promise/always-return": "warn",
-    "promise/no-callback-in-promise": "warn"
+    "unicorn/no-new-array": "warn"
   },
   "ignorePatterns": ["dist", "dist-server", "node_modules", "test-results", "playwright-report"],
   "overrides": [

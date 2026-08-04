@@ -203,12 +203,12 @@ export async function getDiff(cwd, base) {
     const patches = splitPatches(await git(cwd, ["diff", against, ...EXCLUDE]), [
       ...numstat.keys(),
     ]);
-    for (const [path, stat] of numstat) {
+    for (const [path, counts] of numstat) {
       const code = statusByPath.get(path) || "M";
       // A path the splitter could not attribute — an exotic quoted name, say — falls back to its
       // own spawn. Correctness never depends on the fast path being able to parse everything.
       const patch = patches.get(path) ?? (await git(cwd, ["diff", against, "--", path]));
-      files.push(buildFile(path, path, statusName(code), stat, patch));
+      files.push(buildFile(path, path, statusName(code), counts, patch));
       seen.add(path);
     }
   }
@@ -287,14 +287,14 @@ function statusName(code) {
   }
 }
 
-function buildFile(path, oldPath, status, stat, patch) {
+function buildFile(path, oldPath, status, counts, patch) {
   return {
     path,
     oldPath,
     status,
-    additions: stat?.additions ?? 0,
-    deletions: stat?.deletions ?? 0,
-    binary: stat?.binary ?? /Binary files/.test(patch),
+    additions: counts?.additions ?? 0,
+    deletions: counts?.deletions ?? 0,
+    binary: counts?.binary ?? /Binary files/.test(patch),
     lang: langFor(path),
     patch: patch || "",
   };
