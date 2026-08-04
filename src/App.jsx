@@ -11,6 +11,7 @@ import {
   resolvePath,
   fetchDiff,
   fetchComments,
+  fetchRefs,
   createComment,
   patchComment,
   removeComment,
@@ -60,6 +61,7 @@ export default function App() {
   const [diff, setDiff] = useState(null);
   const [comments, setComments] = useState([]);
   const [base, setBase] = useState("");
+  const [refs, setRefs] = useState([]);
   const [mode, setMode] = useState("split");
   const [filter, setFilter] = useState("all");
   const [flash, setFlash] = useState(false);
@@ -167,6 +169,16 @@ export default function App() {
     loadComments(selected);
     loadReview(selected);
   }, [selected, base, loadDiff, loadComments, loadReview]);
+
+  // Branch list for the compare-against picker. Keyed on the workspace only: branches change far
+  // less often than the diff, and refetching them on every base change would be pure noise.
+  useEffect(() => {
+    if (!selected) {
+      setRefs([]);
+      return;
+    }
+    fetchRefs(selected).then(keepIfSame(setRefs)).catch(() => {});
+  }, [selected]);
 
   useEffect(() => {
     return subscribe({
@@ -279,12 +291,24 @@ export default function App() {
         )}
 
         <div className="ml-auto flex items-center gap-2 text-xs">
-          <input
-            value={base}
-            onChange={(e) => setBase(e.target.value)}
-            placeholder="worktree vs HEAD — or base ref"
-            className="w-52 rounded border border-neutral-300 bg-white px-2 py-1 font-mono outline-none focus:border-blue-500 dark:border-neutral-700 dark:bg-neutral-800"
-          />
+          <label className="flex items-center gap-1.5 text-neutral-500 dark:text-neutral-400">
+            vs
+            <input
+              value={base}
+              onChange={(e) => setBase(e.target.value)}
+              list="livediff-refs"
+              data-compare-against
+              placeholder="HEAD"
+              title="Compare the working tree against a branch, from where it diverged"
+              className="w-44 rounded border border-neutral-300 bg-white px-2 py-1 font-mono outline-none focus:border-blue-500 dark:border-neutral-700 dark:bg-neutral-800"
+            />
+          </label>
+          <datalist id="livediff-refs">
+            <option value="HEAD">last commit — uncommitted changes only</option>
+            {refs.map((name) => (
+              <option key={name} value={name} />
+            ))}
+          </datalist>
           <div className="flex overflow-hidden rounded border border-neutral-300 dark:border-neutral-700">
             {[
               ["split", "Split"],

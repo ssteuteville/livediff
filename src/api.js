@@ -30,6 +30,10 @@ export function fetchDiff(ws, base) {
   return fetch(`/api/diff?${q}`).then(json);
 }
 
+export function fetchRefs(ws) {
+  return fetch(`/api/refs?ws=${ws}`).then(json).then((d) => d.branches);
+}
+
 export function fetchComments(ws) {
   return fetch(`/api/comments?ws=${ws}`).then(json).then((d) => d.comments);
 }

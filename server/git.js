@@ -123,31 +123,45 @@ function splitPatches(all, knownPaths) {
 }
 
 /**
+ * The commit to diff the working tree against.
+ *
+ * A bare ref would compare against that branch's *tip*, so commits it gained since you branched
+ * would appear inverted, as deletions you never made. The merge base answers the question actually
+ * being asked — "everything I have done since I diverged" — and because the right-hand side stays
+ * the working tree, uncommitted and staged changes are included.
+ *
+ * Falls back to the ref itself when there is no common ancestor, which is the best available answer
+ * for unrelated histories.
+ */
+async function mergeBase(cwd, ref) {
+  if (!ref || ref === "HEAD") return "HEAD";
+  const found = (await git(cwd, ["merge-base", ref, "HEAD"])).trim();
+  return found || ref;
+}
+
+/** Local branches, for the compare-against picker. */
+export async function branches(cwd) {
+  const out = await git(cwd, ["for-each-ref", "--format=%(refname:short)", "refs/heads"]);
+  return out.split("\n").filter(Boolean);
+}
+
+/**
  * Build the diff for the working tree.
  * @param {string} cwd repo path
- * @param {string|null} base optional ref to diff against (e.g. "main"); default is working tree vs HEAD + untracked
+ * @param {string|null} base optional ref to compare against (e.g. "main"); default is HEAD
  */
 export async function getDiff(cwd, base) {
   const branch = await currentBranch(cwd);
   const head = (await git(cwd, ["rev-parse", "--short", "HEAD"])).trim() || null;
 
-  if (base) {
-    const numstat = parseNumstat(await git(cwd, ["diff", "--numstat", `${base}...HEAD`]));
-    const files = [];
-    for (const [path, stat] of numstat) {
-      const patch = await git(cwd, ["diff", `${base}...HEAD`, "--", path]);
-      files.push(buildFile(path, path, "modified", stat, patch));
-    }
-    return { repo: cwd, branch, head, base, files };
-  }
-
   const files = [];
   const seen = new Set();
   const withHead = await hasHead(cwd);
+  const against = withHead ? await mergeBase(cwd, base) : "HEAD";
 
   if (withHead) {
-    const numstat = parseNumstat(await git(cwd, ["diff", "--numstat", "HEAD", ...EXCLUDE]));
-    const nameStatus = await git(cwd, ["diff", "--name-status", "HEAD", ...EXCLUDE]);
+    const numstat = parseNumstat(await git(cwd, ["diff", "--numstat", against, ...EXCLUDE]));
+    const nameStatus = await git(cwd, ["diff", "--name-status", against, ...EXCLUDE]);
     const statusByPath = new Map();
     for (const line of nameStatus.split("\n")) {
       if (!line.trim()) continue;
@@ -157,12 +171,12 @@ export async function getDiff(cwd, base) {
       statusByPath.set(path, code);
     }
 
-    const patches = splitPatches(await git(cwd, ["diff", "HEAD", ...EXCLUDE]), [...numstat.keys()]);
+    const patches = splitPatches(await git(cwd, ["diff", against, ...EXCLUDE]), [...numstat.keys()]);
     for (const [path, stat] of numstat) {
       const code = statusByPath.get(path) || "M";
       // A path the splitter could not attribute — an exotic quoted name, say — falls back to its
       // own spawn. Correctness never depends on the fast path being able to parse everything.
-      const patch = patches.get(path) ?? (await git(cwd, ["diff", "HEAD", "--", path]));
+      const patch = patches.get(path) ?? (await git(cwd, ["diff", against, "--", path]));
       files.push(buildFile(path, path, statusName(code), stat, patch));
       seen.add(path);
     }
@@ -180,7 +194,7 @@ export async function getDiff(cwd, base) {
   files.push(...added.filter(Boolean));
 
   files.sort((a, b) => a.path.localeCompare(b.path));
-  return { repo: cwd, branch, head, base: null, files };
+  return { repo: cwd, branch, head, base: base || null, files };
 }
 
 /**
@@ -266,10 +280,9 @@ function statusPaths(status) {
  * against a git spawn this function already pays for.
  */
 export async function worktreeSignature(cwd, base) {
-  if (base) {
-    return (await git(cwd, ["diff", "--stat", `${base}...HEAD`])).trim() +
-      "|" + (await git(cwd, ["rev-parse", "HEAD"])).trim();
-  }
+  // The comparison point is folded in so that committing, or the compared branch moving, is itself
+  // a change worth pushing to browsers — the worktree can be byte-identical across both.
+  const against = base ? await mergeBase(cwd, base) : "";
   const status = await git(cwd, ["status", "--porcelain=v1", "-uall", "-z", ...EXCLUDE]);
   const stamps = await Promise.all(
     statusPaths(status).map((path) =>
@@ -279,7 +292,7 @@ export async function worktreeSignature(cwd, base) {
       )
     )
   );
-  return `${status}|${stamps.join(",")}`;
+  return `${status}|${stamps.join(",")}|${against}`;
 }
 
 /**

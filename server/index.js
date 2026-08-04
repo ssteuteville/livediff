@@ -13,6 +13,7 @@ import {
   currentBranch,
   changedPaths,
   toplevel,
+  branches,
 } from "./git.js";
 import {
   listComments,
@@ -218,6 +219,15 @@ const server = createServer(async (req, res) => {
       if (!ws) return send(res, 404, { error: "unknown workspace" });
       const base = url.searchParams.get("base") || null;
       return send(res, 200, await getDiff(ws.path, base));
+    }
+
+    if (pathname === "/api/refs") {
+      const ws = await resolveWs(url);
+      if (!ws) return send(res, 404, { error: "unknown workspace" });
+      return send(res, 200, {
+        branches: await branches(ws.path),
+        current: await currentBranch(ws.path),
+      });
     }
 
     if (pathname === "/api/comments" && req.method === "GET") {

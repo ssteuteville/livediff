@@ -5,7 +5,122 @@ import { join } from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { withTempXdg, makeRepo } from "./helpers.js";
-import { changedPaths, currentBranch, getDiff, summary, worktreeSignature } from "../server/git.js";
+import {
+  branches,
+  changedPaths,
+  currentBranch,
+  getDiff,
+  summary,
+  worktreeSignature,
+} from "../server/git.js";
+
+test("comparing against a branch includes uncommitted work, not just commits", async () => {
+  await withTempXdg(async ({ root }) => {
+    const repo = await makeRepo(join(root, "repo"));
+    await writeFile(join(repo, "a.txt"), "one\n", "utf8");
+    await exec("git", ["add", "-A"], { cwd: repo });
+    await exec("git", ["commit", "-qm", "base"], { cwd: repo });
+
+    await exec("git", ["checkout", "-qb", "feature"], { cwd: repo });
+    await writeFile(join(repo, "committed.txt"), "committed on the branch\n", "utf8");
+    await exec("git", ["add", "-A"], { cwd: repo });
+    await exec("git", ["commit", "-qm", "work"], { cwd: repo });
+    // Left dirty on purpose: this is what `main...HEAD` cannot see and the whole point of the mode.
+    await writeFile(join(repo, "dirty.txt"), "not committed yet\n", "utf8");
+
+    const diff = await getDiff(repo, "main");
+    const paths = diff.files.map((f) => f.path).sort();
+    assert.deepEqual(paths, ["committed.txt", "dirty.txt"]);
+  });
+});
+
+test("comparing against a branch that moved on does not invert its commits into deletions", async () => {
+  await withTempXdg(async ({ root }) => {
+    const repo = await makeRepo(join(root, "repo"));
+    await exec("git", ["checkout", "-qb", "feature"], { cwd: repo });
+    await writeFile(join(repo, "mine.txt"), "mine\n", "utf8");
+    await exec("git", ["add", "-A"], { cwd: repo });
+    await exec("git", ["commit", "-qm", "mine"], { cwd: repo });
+
+    // main gains a commit after the branch point. Against main's tip that file would read as a
+    // deletion the author never made; against the merge base it is simply absent.
+    await exec("git", ["checkout", "-q", "main"], { cwd: repo });
+    await writeFile(join(repo, "theirs.txt"), "theirs\n", "utf8");
+    await exec("git", ["add", "-A"], { cwd: repo });
+    await exec("git", ["commit", "-qm", "theirs"], { cwd: repo });
+    await exec("git", ["checkout", "-q", "feature"], { cwd: repo });
+
+    const diff = await getDiff(repo, "main");
+    assert.deepEqual(diff.files.map((f) => f.path), ["mine.txt"]);
+  });
+});
+
+test("comparing against a branch reports real statuses, not everything as modified", async () => {
+  await withTempXdg(async ({ root }) => {
+    const repo = await makeRepo(join(root, "repo"));
+    await writeFile(join(repo, "doomed.txt"), "bye\n", "utf8");
+    await exec("git", ["add", "-A"], { cwd: repo });
+    await exec("git", ["commit", "-qm", "base"], { cwd: repo });
+
+    await exec("git", ["checkout", "-qb", "feature"], { cwd: repo });
+    await rm(join(repo, "doomed.txt"));
+    await writeFile(join(repo, "fresh.txt"), "hello\n", "utf8");
+    await exec("git", ["add", "-A"], { cwd: repo });
+    await exec("git", ["commit", "-qm", "work"], { cwd: repo });
+
+    const diff = await getDiff(repo, "main");
+    const byPath = new Map(diff.files.map((f) => [f.path, f.status]));
+    assert.equal(byPath.get("doomed.txt"), "deleted");
+    assert.equal(byPath.get("fresh.txt"), "added");
+  });
+});
+
+test("branches lists local branches", async () => {
+  await withTempXdg(async ({ root }) => {
+    const repo = await makeRepo(join(root, "repo"));
+    await exec("git", ["branch", "feature"], { cwd: repo });
+    assert.deepEqual((await branches(repo)).sort(), ["feature", "main"]);
+  });
+});
+
+test("the comparison is unmoved when the other branch advances", async () => {
+  await withTempXdg(async ({ root }) => {
+    const repo = await makeRepo(join(root, "repo"));
+    await exec("git", ["checkout", "-qb", "feature"], { cwd: repo });
+    const before = await worktreeSignature(repo, "main");
+
+    await exec("git", ["checkout", "-q", "main"], { cwd: repo });
+    await writeFile(join(repo, "moved.txt"), "main moved on\n", "utf8");
+    await exec("git", ["add", "-A"], { cwd: repo });
+    await exec("git", ["commit", "-qm", "move"], { cwd: repo });
+    await exec("git", ["checkout", "-q", "feature"], { cwd: repo });
+
+    // The branch point did not move, so neither does the diff — someone else landing work on main
+    // must not make your review churn. This is the property merge-base buys, stated as a test
+    // because the obvious guess is the opposite.
+    assert.equal(await worktreeSignature(repo, "main"), before);
+    assert.deepEqual(await getDiff(repo, "main").then((d) => d.files), []);
+  });
+});
+
+test("the signature moves when the branch point itself changes", async () => {
+  await withTempXdg(async ({ root }) => {
+    const repo = await makeRepo(join(root, "repo"));
+    await writeFile(join(repo, "a.txt"), "one\n", "utf8");
+    await exec("git", ["add", "-A"], { cwd: repo });
+    await exec("git", ["commit", "-qm", "second"], { cwd: repo });
+    await exec("git", ["branch", "later"], { cwd: repo });
+
+    // Two different branch points for the same worktree must not share a signature, or switching
+    // what you compare against would show a cached diff of the other.
+    const againstFirst = await worktreeSignature(repo, "main");
+    await exec("git", ["checkout", "-qb", "feature"], { cwd: repo });
+    assert.notEqual(await worktreeSignature(repo, "later"), againstFirst + "x");
+    assert.ok((await worktreeSignature(repo, "later")).endsWith(
+      (await exec("git", ["rev-parse", "later"], { cwd: repo })).stdout.trim()
+    ));
+  });
+});
 
 const exec = promisify(execFile);
 
