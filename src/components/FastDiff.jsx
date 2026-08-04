@@ -9,7 +9,7 @@ import {
   COMMENT_CARD_INSET_PX,
   COMMENT_REPLY_STRIP_PX,
   COMMENT_EXPANDED_MAX_PX,
-} from "../../server/constants.js";
+} from "../../shared/constants.ts";
 import DiffSearch from "./DiffSearch.jsx";
 import CommentThread, { CommentThreadPreview, ThreadHeader } from "./CommentThread.jsx";
 import CommentComposer from "./CommentComposer.jsx";

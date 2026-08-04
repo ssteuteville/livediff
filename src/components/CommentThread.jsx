@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { COMMENT_REPLY_STRIP_PX } from "../../server/constants.js";
+import { COMMENT_REPLY_STRIP_PX } from "../../shared/constants.ts";
 
 function timeAgo(iso) {
   const s = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);

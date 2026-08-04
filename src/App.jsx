@@ -3,7 +3,7 @@ import FastDiff from "./components/FastDiff.jsx";
 import CommentDrawer from "./components/CommentDrawer.jsx";
 import WorkspaceRail from "./components/WorkspaceRail.jsx";
 import ReviewBanner from "./components/ReviewBanner.jsx";
-import { RENDERER, RENDERERS, DIFF_REFETCH_DEBOUNCE_MS } from "../server/constants.js";
+import { RENDERER, RENDERERS, DIFF_REFETCH_DEBOUNCE_MS } from "../shared/constants.ts";
 import {
   fetchWorkspaces,
   addWorkspace,
