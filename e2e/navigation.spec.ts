@@ -4,12 +4,9 @@ import { join } from "node:path";
 import { workspaceUrl, focusUrl, fixturePath } from "./harness.js";
 
 test("a ?ws= deep link selects the workspace it names", async ({ page }) => {
-  // KNOWN BUG, recorded in docs/superpowers/research/2026-08-03-deep-link-selection.md.
-  // On mount the URL effect sets the selection, then the "keep a valid selection" effect runs with
-  // an empty workspace list and clears it; when the list arrives it falls back to workspaces[0].
-  // So ?ws= only works for whichever workspace happens to be first. ?focus=1 avoids it, which is
-  // why every other test here uses focusUrl().
-  test.fail();
+  // Regression guard: the "keep a valid selection" effect used to run before the workspace list
+  // had loaded and clear the selection this URL just made, so a deep link opened whichever
+  // workspace happened to be first. Fixed by distinguishing "not fetched yet" from "none exist".
   await page.goto(workspaceUrl("modfiles"));
   await page.waitForSelector("[data-diff-scroll]", { timeout: 30_000 });
   await expect(page.locator("[data-file-item]")).toHaveCount(40);
@@ -119,11 +116,9 @@ test("a minified single-line bundle does not break the height model", async ({ p
 });
 
 test("a minified single-line bundle stays within the node budget", async ({ page }) => {
-  // KNOWN BUG, recorded in docs/superpowers/research/2026-08-03-minified-line-node-count.md.
-  // Virtualization bounds the number of *rows*, but nothing bounds the tokens within one row, so a
-  // single 20,000-character line renders 40,058 nodes — eight times the whole 20k-line fixture —
-  // and takes ~11s to load. Highlighting needs a per-line length cutoff.
-  test.fail();
+  // Regression guard: virtualization bounds rows, not the tokens inside one, so a single
+  // 20,000-character line once rendered 40,058 nodes and took ~11s. MAX_HIGHLIGHT_LINE_CHARS caps
+  // it by rendering an over-long line as plain text.
   await page.goto(focusUrl("minified"));
   await page.waitForSelector("[data-diff-scroll]", { timeout: 30_000 });
 

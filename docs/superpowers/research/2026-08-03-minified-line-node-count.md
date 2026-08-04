@@ -42,3 +42,20 @@ render budgets.
 
 Worth checking at the same time whether search over such a line is also pathological — `matchRange`
 and `splitAtMatch` run per token.
+
+## Resolved (2026-08-03)
+
+`MAX_HIGHLIGHT_LINE_CHARS = 2000` in `shared/constants.ts`; `tokenize` in `src/syntax.js` returns
+null above it, which is the existing "grammar not ready" path, so the caller already renders one
+plain text node.
+
+| | before | after |
+| --- | --- | --- |
+| DOM nodes | 40,058 | under budget |
+| Load | 11.3 s | **0.28 s** |
+
+A 40× improvement on load, from a three-line change. The `test.fail()` guards in
+`e2e/navigation.spec.ts` are now ordinary passing tests.
+
+Not done: search over such a line still runs `matchRange` per token. It is no longer pathological
+because there is only one token, but that is a consequence rather than a decision.

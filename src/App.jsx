@@ -75,6 +75,7 @@ function useTheme() {
 
 export default function App() {
   const [workspaces, setWorkspaces] = useState([]);
+  const [loaded, setLoaded] = useState(false);
   const [selected, setSelected] = useState(null);
   const [diff, setDiff] = useState(null);
   const [comments, setComments] = useState([]);
@@ -110,7 +111,16 @@ export default function App() {
   selectedRef.current = selected;
   baseRef.current = base;
 
-  const loadWorkspaces = useCallback(() => fetchWorkspaces().then(keepIfSame(setWorkspaces)).catch(() => {}), []);
+  const loadWorkspaces = useCallback(
+    () =>
+      fetchWorkspaces()
+        .then((next) => {
+          keepIfSame(setWorkspaces)(next);
+          setLoaded(true);
+        })
+        .catch(() => {}),
+    []
+  );
 
   // Saving several files in a row fires several diff events. Only the last answer is worth having,
   // and without this the second-to-last can land after it and put a stale diff on screen.
@@ -173,6 +183,10 @@ export default function App() {
 
   // Keep a valid selection as the workspace list changes.
   useEffect(() => {
+    // "Not fetched yet" is not "there are none". Without this the empty first render clears the
+    // selection a ?ws= deep link just made, and the list arriving falls back to workspaces[0] —
+    // so deep links silently opened whichever workspace happened to be first.
+    if (!loaded) return;
     if (workspaces.length === 0) {
       if (!focused) setSelected(null);
       return;
@@ -180,7 +194,7 @@ export default function App() {
     if (selected && workspaces.some((w) => w.id === selected)) return;
     if (focused) return; // focused mode targets a specific workspace via URL; no fallback
     setSelected(workspaces[0].id);
-  }, [workspaces, selected, focused]);
+  }, [workspaces, selected, focused, loaded]);
 
   useEffect(() => {
     loadDiff(selected, base);

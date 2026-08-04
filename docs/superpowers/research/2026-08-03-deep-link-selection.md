@@ -52,3 +52,19 @@ successful `fetchWorkspaces`, gating the clearing branch, is the smallest change
 selection because data has not arrived yet is the actual mistake.
 
 Until then, `e2e/harness.ts` exposes `focusUrl()` and every e2e test uses it.
+
+## Resolved (2026-08-03)
+
+A `loaded` flag in `src/App.jsx`, set by the first successful `fetchWorkspaces`, now gates the
+guard effect:
+
+```js
+if (!loaded) return;
+```
+
+"Not fetched yet" and "there are none" were the same state, and only the second should clear a
+selection. `?ws=` now opens the workspace it names regardless of registry order, and `?focus=1` is
+no longer required to work around it — though the e2e suite keeps using it, since focused mode is
+also what hides the rail.
+
+The `test.fail()` guard in `e2e/navigation.spec.ts` is now an ordinary passing test.

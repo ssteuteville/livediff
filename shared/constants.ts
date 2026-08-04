@@ -36,5 +36,14 @@ export const COMMENT_CARD_INSET_PX = 50;
 /** The one-line summary of the latest reply, shown only when a thread has one. */
 export const COMMENT_REPLY_STRIP_PX = 34;
 
+/**
+ * Above this many characters, a line renders as plain text instead of tokens.
+ *
+ * Virtualization bounds how many rows are in the DOM; nothing bounds the tokens inside one row.
+ * A single 20,000-character minified line produced 40,058 nodes — eight times the whole 20,000-line
+ * fixture — and eleven seconds to first paint. Nobody reads syntax colour on a minified bundle.
+ */
+export const MAX_HIGHLIGHT_LINE_CHARS = 2000;
+
 /** How tall an expanded thread may grow before it scrolls internally. */
 export const COMMENT_EXPANDED_MAX_PX = 460;
