@@ -21,3 +21,12 @@ export function workspaceUrl(name: FixtureName): string {
   if (!id) throw new Error(`no workspace id for ${name}`);
   return `${hubUrl()}/?ws=${id}`;
 }
+
+/**
+ * Deep link in focused mode. Prefer this: plain `?ws=` is clobbered on mount for any workspace that
+ * is not first in the registry — see 2026-08-03-deep-link-selection.md — and focused mode also hides
+ * the rail, so a test targets one worktree without the others on screen.
+ */
+export function focusUrl(name: FixtureName): string {
+  return `${workspaceUrl(name)}&focus=1`;
+}
