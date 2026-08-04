@@ -8,6 +8,28 @@
 
 **Tech Stack:** TypeScript 7.0.2, oxlint 1.77.0 + oxlint-tsgolint, oxfmt 0.62.0, Vitest 4.1.10, `@playwright/test` 1.62.1.
 
+## Status — 2026-08-03
+
+| Task                                  | State                                                   |
+| ------------------------------------- | ------------------------------------------------------- |
+| 1. Extract `shared/`                  | **done** — `2ad1d07`                                    |
+| 2. `server/` to TypeScript            | not started                                             |
+| 3. `src/` to TypeScript               | not started                                             |
+| 4. Tests, e2e and bench to TypeScript | not started                                             |
+| 5. Turn on type-aware linting         | blocked on 2–4 — nothing to be type-aware about yet     |
+| 6. The format sweep                   | **done** — `4740819`, run early since it is independent |
+| 7. Close the two known bugs           | **done** — `ddc5e30`                                    |
+
+Tasks 6 and 7 were taken out of order deliberately: both are self-contained and neither depends on
+the migration, so they bank value that a half-finished migration would otherwise strand.
+
+Task 7's outcome is worth carrying forward: the minified fixture went from 11.3s to 0.28s, and both
+`test.fail()` guards are now ordinary passing tests. **17 e2e, 0 expected-fail.**
+
+A note for whoever picks up task 2: a working-tree revert of `2ad1d07` was found and discarded on
+2026-08-03 with the user's agreement — `shared/` stays. If it reappears, that is a signal another
+session disagrees about the boundary, not a merge artifact to wave through.
+
 ## Global Constraints
 
 - Package manager is **pnpm**. **Never chain shell commands** — one per invocation.
