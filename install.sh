@@ -149,4 +149,7 @@ diff.
 
 The Claude Code and Codex plugins were installed when their CLIs were available.
 Restart either agent client to load the new skills, then say "show me the diff".
+
+Optional shell completion:
+  livediff completion install --activate
 EOF

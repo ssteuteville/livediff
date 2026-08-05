@@ -7,13 +7,24 @@ import { ensureHub, hubVersion } from "./ensure-hub.js";
 import { probeMeta, readState, shutdownHub } from "./hub-state.js";
 import {
   findCommand,
+  findCompletionCommand,
   findConfigCommand,
+  GLOBAL_OPTION_NAMES,
+  optionNames,
   renderCommandHelp,
+  renderCompletionCommandHelp,
   renderConfigCommandHelp,
   renderMainHelp,
   suggest,
   VALUE_FLAGS,
 } from "./cli-help.js";
+import {
+  completionInstallPath,
+  completionStatus,
+  installCompletion,
+  resolveCompletionShell,
+  uninstallCompletion,
+} from "./completion-state.js";
 import { openBrowser } from "./open-browser.js";
 import {
   configPath,
@@ -190,35 +201,6 @@ const JSON_OUT = flags.has("--json");
 const WANTS_HELP = flags.has("-h") || flags.has("--help");
 const WANTS_VERSION = flags.has("-v") || flags.has("--version");
 
-const GLOBAL_FLAG_NAMES = new Set(["--json", "-h", "--help", "-v", "--version"]);
-const COMMAND_FLAG_NAMES: Readonly<Record<string, ReadonlySet<string>>> = {
-  open: new Set(["--no-open", "--wait", "--timeout"]),
-  hub: new Set(["--no-open"]),
-  review: new Set(["--no-open", "--timeout"]),
-  link: new Set(),
-  list: new Set(),
-  ls: new Set(),
-  rm: new Set(),
-  remove: new Set(),
-  comments: new Set(["--status", "--branch", "--stale", "--archived"]),
-  resolve: new Set(),
-  reply: new Set(),
-  restore: new Set(),
-  archive: new Set(["--stale", "--resolved"]),
-  prune: new Set(["--keep-days", "--all", "--dry-run", "--yes"]),
-  restart: new Set(),
-  status: new Set(),
-  stop: new Set(),
-  doctor: new Set(),
-  completion: new Set(),
-  help: new Set(),
-};
-
-const CONFIG_FLAG_NAMES: Readonly<Record<string, ReadonlySet<string>>> = {
-  edit: new Set(["--editor"]),
-  schema: new Set(["--update"]),
-};
-
 /** stdout writes to a pipe are queued; exiting without draining them truncates output. */
 async function exit(code: number): Promise<never> {
   await new Promise<void>((resolveOutput, rejectOutput) =>
@@ -240,16 +222,20 @@ async function validateInvocation(
   command: string | undefined,
   rest: readonly string[],
 ): Promise<void> {
-  const allowed = new Set(GLOBAL_FLAG_NAMES);
-  if (command === undefined) {
-    for (const flag of COMMAND_FLAG_NAMES["hub"] ?? []) allowed.add(flag);
-  } else if (command === "config") {
-    for (const flag of CONFIG_FLAG_NAMES[rest[0] ?? ""] ?? []) allowed.add(flag);
-  } else if (await isPathArg(command)) {
-    for (const flag of COMMAND_FLAG_NAMES["open"] ?? []) allowed.add(flag);
-  } else {
-    for (const flag of COMMAND_FLAG_NAMES[command] ?? []) allowed.add(flag);
-  }
+  const resolved =
+    command === undefined
+      ? findCommand("hub")
+      : command === "config"
+        ? findConfigCommand(rest[0] ?? "")
+        : command === "completion"
+          ? findCompletionCommand(rest[0] ?? "")
+          : (await isPathArg(command))
+            ? findCommand("open")
+            : findCommand(command);
+  const allowed = new Set([
+    ...GLOBAL_OPTION_NAMES,
+    ...(resolved === null ? [] : optionNames(resolved)),
+  ]);
   for (const flag of flags) {
     if (allowed.has(flag)) continue;
     await die(`unknown option '${flag}'${command ? ` for 'livediff ${command}'` : ""}`, EXIT_USAGE);
@@ -257,71 +243,24 @@ async function validateInvocation(
   for (const [flag, value] of values) {
     if (value === null) await die(`${flag} requires a value`, EXIT_USAGE);
   }
-  await validatePositionals(command, rest);
-}
-
-async function validatePositionals(
-  command: string | undefined,
-  rest: readonly string[],
-): Promise<void> {
-  const error = async (unexpected: string | undefined): Promise<never> =>
-    die(
-      `unexpected argument${unexpected === undefined ? "" : ` '${unexpected}'`}${command ? ` for 'livediff ${command}'` : ""}\n\n` +
-        `Run \`livediff ${command === "config" ? "config " : ""}--help\` for details.`,
+  if (resolved === null) return;
+  const nested = command === "config" || command === "completion";
+  const positionalArgs = nested ? rest.slice(1) : rest;
+  const label = command === undefined ? "hub" : nested ? rest.slice(0, 1).join(" ") : command;
+  const helpTarget = nested ? command + " " : "";
+  if (positionalArgs.length < resolved.positionals.min) {
+    await die(
+      `missing required argument for 'livediff ${label}'\n\nRun \`livediff ${helpTarget}--help\` for details.`,
       EXIT_USAGE,
     );
-  if (command === undefined) {
-    if (rest.length > 0) await error(rest[0]);
-    return;
   }
-  if (command === "config") {
-    const [action, ...configArgs] = rest;
-    switch (action) {
-      case undefined:
-      case "edit":
-      case "path":
-      case "init":
-      case "validate":
-      case "list":
-      case "schema":
-        if (configArgs.length > 0) await error(configArgs[0]);
-        return;
-      case "get":
-      case "unset":
-      case "explain":
-        if (configArgs.length > 1) await error(configArgs[1]);
-        return;
-      case "set":
-        return;
-      default:
-        return;
-    }
-  }
-  const pathCommand =
-    command === "open" || command === "review" || command === "link" || (await isPathArg(command));
-  if (
-    pathCommand ||
-    command === "rm" ||
-    command === "remove" ||
-    command === "comments" ||
-    command === "archive" ||
-    command === "prune"
-  ) {
-    if (rest.length > 1) await error(rest[1]);
-    return;
-  }
-  if (command === "help") {
-    if (rest.length > 2) await error(rest[2]);
-    return;
-  }
-  if (
-    ["hub", "list", "ls", "restore", "restart", "status", "stop", "doctor", "completion"].includes(
-      command,
-    )
-  ) {
-    const maxArgs = command === "restore" ? 1 : 0;
-    const completionMaxArgs = command === "completion" ? 1 : maxArgs;
-    if (rest.length > completionMaxArgs) await error(rest[completionMaxArgs]);
+  if (resolved.positionals.max !== null && positionalArgs.length > resolved.positionals.max) {
+    const unexpected = positionalArgs[resolved.positionals.max];
+    await die(
+      `unexpected argument${unexpected === undefined ? "" : ` '${unexpected}'`} for 'livediff ${label}'\n\n` +
+        `Run \`livediff ${helpTarget}--help\` for details.`,
+      EXIT_USAGE,
+    );
   }
 }
 
@@ -746,13 +685,66 @@ function requiresHubRestart(key: string): boolean {
   );
 }
 
-async function cmdCompletion(shell?: string): Promise<void> {
-  if (shell === undefined) {
-    await die("completion requires a shell: bash, zsh, or fish", EXIT_USAGE);
+async function cmdCompletion(completionArgs: readonly string[]): Promise<void> {
+  const [action, requestedShell] = completionArgs;
+  if (action === undefined) return cmdHelp(["completion"]);
+  if (action === "bash" || action === "zsh" || action === "fish") {
+    return out(renderCompletion(action), { shell: action });
   }
-  const requestedShell = shell ?? "";
   try {
-    return out(renderCompletion(requestedShell), { shell: requestedShell });
+    const shell = resolveCompletionShell(requestedShell);
+    switch (action) {
+      case "install": {
+        const status = await installCompletion(
+          shell,
+          renderCompletion(shell),
+          flags.has("--activate"),
+        );
+        return out(
+          "installed " +
+            shell +
+            " completion at " +
+            status.path +
+            (status.activated
+              ? "\nactivated in " + status.activationPath
+              : "\nrun livediff completion install " + shell + " --activate to activate it"),
+          status,
+        );
+      }
+      case "path":
+        return out(completionInstallPath(shell), { shell, path: completionInstallPath(shell) });
+      case "status": {
+        const status = await completionStatus(shell);
+        return out(
+          [
+            "shell: " + shell,
+            "installed: " + (status.installed ? "yes" : "no"),
+            "activated: " + (status.activated ? "yes" : "no") + " (" + status.activationPath + ")",
+            "path: " + status.path,
+          ].join("\n"),
+          status,
+        );
+      }
+      case "uninstall": {
+        const status = await uninstallCompletion(shell, flags.has("--deactivate"));
+        return out(
+          "removed " +
+            shell +
+            " completion" +
+            (flags.has("--deactivate") ? " and its activation block" : "") +
+            "\npath: " +
+            status.path,
+          status,
+        );
+      }
+      default:
+        await die(
+          "unknown completion action '" +
+            action +
+            "'; choose bash, zsh, fish, install, path, status, or uninstall",
+          EXIT_USAGE,
+        );
+    }
   } catch (error) {
     await die(error instanceof Error ? error.message : String(error), EXIT_USAGE);
   }
@@ -895,6 +887,10 @@ function helpFor(tokens: readonly string[]): string | null {
     const command = findConfigCommand(subcommand);
     return command ? renderConfigCommandHelp(command) : null;
   }
+  if (token === "completion" && subcommand) {
+    const command = findCompletionCommand(subcommand);
+    return command ? renderCompletionCommandHelp(command) : null;
+  }
   const cmd = findCommand(token);
   if (cmd) return renderCommandHelp(cmd);
   return null;
@@ -961,7 +957,7 @@ async function main(): Promise<void> {
     case "doctor":
       return cmdDoctor();
     case "completion":
-      return cmdCompletion(rest[0]);
+      return cmdCompletion(rest);
     case "config":
       return cmdConfig(rest);
     default:

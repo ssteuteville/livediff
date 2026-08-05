@@ -103,9 +103,12 @@ livediff config explain <key>  show a setting's value and where it came from
 Every command takes `--json` for machine-readable output. Exit codes are `0` success, `1` error,
 `2` usage mistake. `livediff help <command>` documents any of them.
 
-For shell completion, source the generated script from your shell startup file. For example,
-`source <(livediff completion zsh)` enables it for the current zsh session; `bash` and `fish` are
-also supported.
+For shell completion, run `livediff completion install`. It detects bash, zsh, or fish and writes
+a generated completion file under LiveDiff's XDG configuration directory. Add `--activate` only
+when you want it to append LiveDiff's clearly marked source block to your shell startup file:
+`livediff completion install zsh --activate`. Use `livediff completion status` to inspect it or
+`livediff completion uninstall zsh --deactivate` to remove it. You can still source a one-off
+script directly with `source <(livediff completion zsh)`.
 
 Any subdirectory works — `livediff .` from `src/components` registers the worktree root, so a
 worktree never registers twice.

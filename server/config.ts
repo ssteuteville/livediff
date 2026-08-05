@@ -424,19 +424,21 @@ function isRenderer(value: unknown): value is Renderer {
   return typeof value === "string" && (RENDERERS as readonly string[]).includes(value);
 }
 
+export const CONFIG_KEYS = [
+  "browser.opener",
+  "tools.editor",
+  "hub.port",
+  "hub.pollIntervalMs",
+  "retention.orphanArchiveAfterDays",
+  "retention.resolvedArchiveAfterDays",
+  "retention.purgeAfterDays",
+  "retention.archiveWarningBytes",
+  "ui.defaultRenderer",
+] as const;
+
 function configPathSegments(key: string): string[] {
   const segments = key.split(".");
-  const allowed = new Set([
-    "browser.opener",
-    "tools.editor",
-    "hub.port",
-    "hub.pollIntervalMs",
-    "retention.orphanArchiveAfterDays",
-    "retention.resolvedArchiveAfterDays",
-    "retention.purgeAfterDays",
-    "retention.archiveWarningBytes",
-    "ui.defaultRenderer",
-  ]);
+  const allowed: ReadonlySet<string> = new Set(CONFIG_KEYS);
   if (!allowed.has(key)) throw new Error(`unknown configuration setting: ${key}`);
   return segments;
 }

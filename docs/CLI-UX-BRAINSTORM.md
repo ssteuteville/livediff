@@ -1,7 +1,7 @@
 # LiveDiff CLI “unicorn DX” brainstorm
 
 **Status:** first implementation slice in progress; remaining ideas are deliberately retained below  
-**Source snapshot:** LiveDiff 0.6.4, August 2026  
+**Source snapshot:** LiveDiff 0.6.5, August 2026
 **Scope:** the human and agent-facing CLI contract; no implementation decision is made here
 
 ## Implementation status — August 2026
@@ -14,7 +14,8 @@ first slice now delivers the core P0/P1 contract:
 - Nested configuration help plus `config edit`, `unset`, `explain`, and schema refresh workflows.
 - Schema-backed, atomic configuration drafts and editor precedence that is explicit in the CLI,
   documentation, and agent skill.
-- `status` for a safe hub/config check, and generated bash/zsh/fish completion for command discovery.
+- `status` for a safe hub/config check, plus generated bash/zsh/fish completion with explicit
+  install, status, and uninstall workflows. Startup-file activation is opt-in and marked for safe removal.
 
 Still intentionally deferred: state-aware completion (workspaces, comment IDs, and paths), a richer
 machine-readable command-introspection protocol, consistent JSON contracts for every command, and

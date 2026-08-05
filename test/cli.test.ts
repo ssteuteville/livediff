@@ -128,8 +128,59 @@ test("completion validates its shell without starting a hub", async () => {
   await withTempXdg(async () => {
     const result = await cli(["completion", "powershell"]);
     assert.equal(result.code, 2);
-    assert.match(result.stderr, /choose bash, zsh, or fish/);
+    assert.match(result.stderr, /unknown completion action/);
     assert.equal(await readState(), null);
+  });
+});
+
+test("completion actions have strict nested help and arguments", async () => {
+  await withTempXdg(async () => {
+    const help = await cli(["completion", "install", "--help"]);
+    assert.equal(help.code, 0);
+    assert.match(help.stdout, /livediff completion install/);
+
+    const extra = await cli(["completion", "zsh", "unexpected"]);
+    assert.equal(extra.code, 2);
+    assert.match(extra.stderr, /unexpected argument 'unexpected'/);
+    assert.equal(await readState(), null);
+  });
+});
+
+test("completion installs, reports, and removes an opt-in script", async () => {
+  await withTempXdg(async () => {
+    const installed = await cli(["completion", "install", "fish", "--json"]);
+    assert.equal(installed.code, 0);
+    const installBody: unknown = JSON.parse(installed.stdout);
+    assert.ok(isRecord(installBody));
+    assert.equal(installBody["installed"], true);
+    assert.equal(installBody["activated"], false);
+
+    const status = await cli(["completion", "status", "fish", "--json"]);
+    assert.equal(status.code, 0);
+    const statusBody: unknown = JSON.parse(status.stdout);
+    assert.ok(isRecord(statusBody));
+    assert.equal(statusBody["installed"], true);
+
+    const removed = await cli(["completion", "uninstall", "fish", "--json"]);
+    assert.equal(removed.code, 0);
+    const removedBody: unknown = JSON.parse(removed.stdout);
+    assert.ok(isRecord(removedBody));
+    assert.equal(removedBody["installed"], false);
+    assert.equal(await readState(), null);
+  });
+});
+
+test("completion activation changes only LiveDiff's marked shell block", async () => {
+  await withTempXdg(async ({ root }) => {
+    const env = { HOME: root };
+    const installed = await cli(["completion", "install", "zsh", "--activate"], { env });
+    assert.equal(installed.code, 0);
+    const startup = join(root, ".zshrc");
+    assert.match(await readFile(startup, "utf8"), />>> livediff completion >>>/);
+
+    const removed = await cli(["completion", "uninstall", "zsh", "--deactivate"], { env });
+    assert.equal(removed.code, 0);
+    assert.doesNotMatch(await readFile(startup, "utf8"), />>> livediff completion >>>/);
   });
 });
 
