@@ -9,15 +9,19 @@
 This document remains the durable rationale and backlog, not a verbatim implementation plan. The
 first slice now delivers the core P0/P1 contract:
 
-- Strict, command-owned option and positional validation, with actionable usage errors.
+- One typed command registry now owns names, aliases, flags, and positional arity for validation,
+  help, and completion; handlers remain in the CLI by design.
 - Canonical `open`, `hub`, `review`, and `link` commands while preserving the productive shorthands.
 - Nested configuration help plus `config edit`, `unset`, `explain`, and schema refresh workflows.
 - Schema-backed, atomic configuration drafts and editor precedence that is explicit in the CLI,
   documentation, and agent skill.
 - `status` for a safe hub/config check, plus generated bash/zsh/fish completion with explicit
   install, status, and uninstall workflows. Startup-file activation is opt-in and marked for safe removal.
+- State-aware completion for registered workspace paths and open/archived comment IDs, via hidden
+  `__complete-workspaces`/`__complete-comments` commands that query a running hub and never start
+  one — so a cold shell never blocks on Tab.
 
-Still intentionally deferred: state-aware completion (workspaces, comment IDs, and paths), a richer
+Still intentionally deferred: branch-name completion for `comments --branch`, a richer
 machine-readable command-introspection protocol, consistent JSON contracts for every command, and
 end-to-end runtime verification where the host permits local port binding. Those are the next
 highest-value items, rather than a parser-framework rewrite for its own sake.
@@ -88,6 +92,9 @@ agent plugin—is the portable integration surface.
 ### Where the CLI currently breaks its own mental model
 
 #### 1. Help, dispatch, and parsing are not actually one model
+
+**Status: resolved in 0.6.5.** Command metadata now owns names, aliases, flags, and positional
+arity. Handler implementation remains separate from that product contract intentionally.
 
 [`server/cli-help.ts`](../server/cli-help.ts) says one table drives dispatch, help, and suggestions,
 but [`server/cli.ts`](../server/cli.ts) still has a separate dispatch switch and a global parser.
@@ -232,6 +239,11 @@ Human output should be a compact snapshot; JSON should be a stable object. This 
 and agents one first diagnostic command before reaching for the broader `doctor`.
 
 #### 9. Completion can remove most remembering
+
+**Status: partially resolved in 0.7.** Static command, alias, action, flag, and config-key
+completion, plus dynamic workspace-path and comment-ID completion, are generated from the same
+registry and shell out to a hidden completion protocol that queries a running hub without ever
+starting one. Branch names for `comments --branch` remain deferred.
 
 Generated completion is the best “shell plugin” starting point. A separate resident plugin is not
 needed. A single command registry can generate standard completion scripts, while a small hidden

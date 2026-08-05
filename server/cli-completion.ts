@@ -12,6 +12,30 @@ export type CompletionShell = "bash" | "zsh" | "fish";
 
 type Candidate = { name: string; summary: string };
 
+/**
+ * Commands whose first positional is a registered workspace path, or a comment id — completed
+ * dynamically by shelling out to the hidden `__complete-*` commands, which query a running hub
+ * and never start one. Named by registry id; aliases are expanded from COMMANDS so a spelling
+ * like `remove` can never drift out of the completion guards.
+ */
+const withAliases = (ids: readonly string[]): readonly string[] =>
+  ids.flatMap((id) => {
+    const command = COMMANDS.find((candidate) => candidate.id === id);
+    return command === undefined ? [id] : [command.name, ...(command.aliases ?? [])];
+  });
+
+const WORKSPACE_PATH_COMMANDS = withAliases([
+  "open",
+  "review",
+  "link",
+  "comments",
+  "archive",
+  "prune",
+  "rm",
+]);
+const OPEN_COMMENT_ID_COMMANDS = withAliases(["resolve", "reply"]);
+const ARCHIVED_COMMENT_ID_COMMANDS = withAliases(["restore"]);
+
 const commandCandidates = (): readonly Candidate[] =>
   COMMANDS.filter((command) => command.name !== "(no arguments)").flatMap((command) =>
     [command.name, ...(command.aliases ?? [])].map((name) => ({ name, summary: command.summary })),
@@ -66,6 +90,16 @@ function bashCompletion(): string {
   ).join("\n");
   return [
     "# bash completion for livediff",
+    "# Candidates arrive as untrusted data — a workspace path may contain $(), backticks, or",
+    "# spaces. Read them as literal lines; `compgen -W` would re-expand them as shell words.",
+    "_livediff_dynamic() {",
+    '  local current="$1" line',
+    "  shift",
+    "  COMPREPLY=()",
+    "  while IFS= read -r line; do",
+    '    [[ -n "$line" && "$line" == "$current"* ]] && COMPREPLY+=( "$line" )',
+    '  done < <("$@" 2>/dev/null | cut -f1)',
+    "}",
     "_livediff() {",
     '  local current="${COMP_WORDS[COMP_CWORD]}" command="${COMP_WORDS[1]}" action="${COMP_WORDS[2]}"',
     '  local choices="' + words(commandCandidates()) + '"',
@@ -75,6 +109,23 @@ function bashCompletion(): string {
     '    choices="' + words(completionActions()) + '"',
     '  elif [[ "$command" == config && $COMP_CWORD -eq 3 && "$action" =~ ^(get|set|unset|explain)$ ]]; then',
     '    choices="' + words(configKeys()) + '"',
+    '  elif [[ $COMP_CWORD -eq 2 && "$current" != -* && "$command" =~ ^(' +
+      WORKSPACE_PATH_COMMANDS.join("|") +
+      ")$ ]]; then",
+    '    _livediff_dynamic "$current" livediff __complete-workspaces',
+    "    compopt -o filenames 2>/dev/null",
+    "    [[ ${#COMPREPLY[@]} -gt 0 ]] || compopt -o default 2>/dev/null",
+    "    return",
+    '  elif [[ $COMP_CWORD -eq 2 && "$current" != -* && "$command" =~ ^(' +
+      OPEN_COMMENT_ID_COMMANDS.join("|") +
+      ")$ ]]; then",
+    '    _livediff_dynamic "$current" livediff __complete-comments open',
+    "    return",
+    '  elif [[ $COMP_CWORD -eq 2 && "$current" != -* && "$command" =~ ^(' +
+      ARCHIVED_COMMENT_ID_COMMANDS.join("|") +
+      ")$ ]]; then",
+    '    _livediff_dynamic "$current" livediff __complete-comments archived',
+    "    return",
     '  elif [[ "$current" == -* ]]; then',
     '    case "$command" in',
     cases,
@@ -138,6 +189,37 @@ function zshCompletion(): string {
     '  if [[ "${words[2]}" == completion && CURRENT -eq 3 ]]; then',
     "    _describe -t commands 'completion action' completion_actions; return",
     "  fi",
+    '  if [[ "${words[2]}" == (' +
+      WORKSPACE_PATH_COMMANDS.join("|") +
+      ") && CURRENT -eq 3 ]]; then",
+    "    local -a workspaces",
+    '    workspaces=(${(f)"$(livediff __complete-workspaces 2>/dev/null)"})',
+    "    workspaces=(${workspaces//:/\\\\:})",
+    "    workspaces=(${workspaces//$'\\t'/:})",
+    "    _describe -t workspaces 'livediff workspace' workspaces",
+    "    _files -/",
+    "    return",
+    "  fi",
+    '  if [[ "${words[2]}" == (' +
+      OPEN_COMMENT_ID_COMMANDS.join("|") +
+      ") && CURRENT -eq 3 ]]; then",
+    "    local -a open_comments",
+    '    open_comments=(${(f)"$(livediff __complete-comments open 2>/dev/null)"})',
+    "    open_comments=(${open_comments//:/\\\\:})",
+    "    open_comments=(${open_comments//$'\\t'/:})",
+    "    _describe -t comments 'open comment' open_comments",
+    "    return",
+    "  fi",
+    '  if [[ "${words[2]}" == (' +
+      ARCHIVED_COMMENT_ID_COMMANDS.join("|") +
+      ") && CURRENT -eq 3 ]]; then",
+    "    local -a archived_comments",
+    '    archived_comments=(${(f)"$(livediff __complete-comments archived 2>/dev/null)"})',
+    "    archived_comments=(${archived_comments//:/\\\\:})",
+    "    archived_comments=(${archived_comments//$'\\t'/:})",
+    "    _describe -t comments 'archived comment' archived_comments",
+    "    return",
+    "  fi",
     "  [[ \"${words[CURRENT]}\" == -* ]] && _describe -t options 'livediff option' options",
     "}",
     "compdef _livediff livediff",
@@ -195,13 +277,32 @@ function fishCompletion(): string {
         quoteFish(candidate.summary),
     )
     .join("\n");
+  // `__fish_seen_subcommand_from` matches at every later token, so it would offer comment ids in
+  // `reply <id> <text>` and workspace paths after `--status`. Guard on the first positional only.
+  const firstArgHelper = [
+    "function __livediff_first_arg",
+    "    set -l tokens (commandline -poc)",
+    "    test (count $tokens) -eq 2; or return 1",
+    "    contains -- $tokens[2] $argv",
+    "end",
+  ].join("\n");
+  const dynamic = (commands: readonly string[], producer: string, files: boolean): string =>
+    "complete -c livediff -n '__livediff_first_arg " +
+    commands.join(" ") +
+    (files ? "' -F -a '(" : "' -f -a '(") +
+    producer +
+    " 2>/dev/null)'";
   return [
     "# fish completion for livediff",
     "complete -c livediff -f",
+    firstArgHelper,
     commandLines,
     configLines,
     completionLines,
     configKeyLines,
+    dynamic(WORKSPACE_PATH_COMMANDS, "livediff __complete-workspaces", true),
+    dynamic(OPEN_COMMENT_ID_COMMANDS, "livediff __complete-comments open", false),
+    dynamic(ARCHIVED_COMMENT_ID_COMMANDS, "livediff __complete-comments archived", false),
     optionLines,
     "",
   ].join("\n");

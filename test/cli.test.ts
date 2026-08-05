@@ -329,6 +329,61 @@ test("comments round-trip through the CLI without touching files", async () => {
   });
 });
 
+test("state-aware completion prints nothing when no hub is running", async () => {
+  await withTempXdg(async () => {
+    assert.equal(await readState(), null);
+    const workspaces = await cli(["__complete-workspaces"]);
+    assert.equal(workspaces.code, 0);
+    assert.equal(workspaces.stdout, "");
+    const comments = await cli(["__complete-comments", "open"]);
+    assert.equal(comments.code, 0);
+    assert.equal(comments.stdout, "");
+  });
+});
+
+test("state-aware completion lists workspaces and comment ids from a running hub", async () => {
+  await withTempXdg(async ({ root }) => {
+    const repo = await dirtyRepo(root);
+    try {
+      const ws = JSON.parse((await cli([repo, "--no-open", "--json"])).stdout);
+
+      const workspaces = await cli(["__complete-workspaces"]);
+      assert.equal(workspaces.code, 0);
+      assert.ok(workspaces.stdout.includes(`${repo}\t${ws.label}`));
+
+      const state = await readState();
+      assert.ok(state);
+      const created = await fetch(`http://127.0.0.1:${state.port}/api/comments?ws=${ws.id}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ file: "README.md", side: "new", line: 1, body: "fix this please" }),
+      }).then((r) => r.json());
+
+      const openComments = await cli(["__complete-comments", "open"], { cwd: repo });
+      assert.ok(openComments.stdout.includes(`${created.id}\tfix this please`));
+
+      const resolved = await cli(["resolve", created.id, "done"], { cwd: repo });
+      assert.equal(resolved.code, 0);
+
+      // Resolved but not yet archived: it must leave the `open` candidates immediately, rather
+      // than lingering there until a sweep runs.
+      const afterResolve = await cli(["__complete-comments", "open"], { cwd: repo });
+      assert.equal(afterResolve.stdout.includes(created.id), false);
+
+      const archived = await cli(["archive", repo, "--resolved"]);
+      assert.equal(archived.code, 0);
+
+      const archivedComments = await cli(["__complete-comments", "archived"], { cwd: repo });
+      assert.ok(archivedComments.stdout.includes(created.id));
+
+      const openAfter = await cli(["__complete-comments", "open"], { cwd: repo });
+      assert.equal(openAfter.stdout.includes(created.id), false);
+    } finally {
+      await stopHub();
+    }
+  });
+});
+
 test("--wait blocks until the review is marked done, then summarizes", async () => {
   await withTempXdg(async ({ root }) => {
     const repo = await dirtyRepo(root);

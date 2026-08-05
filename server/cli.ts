@@ -399,6 +399,62 @@ async function resolveWs(base: string, pathArg?: string): Promise<Workspace> {
   );
 }
 
+/**
+ * Dynamic shell completion shells out to the CLI on every keystroke, so it must never start a
+ * hub, prompt, or throw — silence and a fast exit are the only acceptable failure mode.
+ */
+async function runningHubBase(): Promise<string | null> {
+  const state = await readState();
+  if (!state) return null;
+  const meta = await probeMeta(state.port, 300);
+  return meta ? `http://127.0.0.1:${state.port}` : null;
+}
+
+/**
+ * Liveness is a loopback round trip, but the data routes shell out to git, so they get a longer
+ * budget — a cold or large repo would otherwise make Tab intermittently return nothing.
+ */
+async function tryFetch<T>(
+  base: string,
+  path: string,
+  parse: (body: unknown) => T,
+): Promise<T | null> {
+  try {
+    const res = await fetch(`${base}${path}`, { signal: AbortSignal.timeout(2000) });
+    if (!res.ok) return null;
+    return parse(await res.json());
+  } catch {
+    return null;
+  }
+}
+
+/** Hidden: candidate workspace paths for shell completion. Prints `path<TAB>label` per line. */
+async function cmdCompleteWorkspaces(): Promise<void> {
+  const base = await runningHubBase();
+  if (!base) return;
+  const found = await tryFetch(base, "/api/workspaces", parseWorkspaces);
+  for (const w of found?.workspaces ?? []) console.log(`${w.path}\t${w.label}`);
+}
+
+/** Hidden: candidate comment ids for shell completion. Prints `id<TAB>preview` per line. */
+async function cmdCompleteComments(status: string | undefined): Promise<void> {
+  const base = await runningHubBase();
+  if (!base) return;
+  const ws = await tryFetch(
+    base,
+    `/api/resolve?path=${encodeURIComponent(process.cwd())}`,
+    parseWorkspace,
+  );
+  if (!ws) return;
+  const found = await tryFetch(base, `/api/comments?ws=${ws.id}`, parseComments);
+  const wantArchived = status === "archived";
+  for (const c of found?.comments ?? []) {
+    if (Boolean(c.archivedAt) !== wantArchived) continue;
+    if (!wantArchived && c.status !== "open") continue;
+    console.log(`${c.id}\t${c.body.slice(0, 40).replace(/\s+/g, " ")}`);
+  }
+}
+
 async function cmdRemove(target?: string): Promise<void> {
   const base = await ensureHub();
   const arg = target || process.cwd();
@@ -960,6 +1016,10 @@ async function main(): Promise<void> {
       return cmdCompletion(rest);
     case "config":
       return cmdConfig(rest);
+    case "__complete-workspaces":
+      return cmdCompleteWorkspaces();
+    case "__complete-comments":
+      return cmdCompleteComments(rest[0]);
     default:
       if (await isPathArg(cmd)) return cmdOpen(cmd);
       return cmdHelp([cmd]);

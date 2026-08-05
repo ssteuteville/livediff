@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { promisify } from "node:util";
@@ -40,6 +40,36 @@ test("generated bash completion parses in bash", async () => {
     await writeFile(path, renderCompletion("bash"), "utf8");
     const { stderr } = await exec("bash", ["-n", path]);
     assert.equal(stderr, "");
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("dynamic completion candidates are never re-expanded as shell words", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "livediff-completion-"));
+  const marker = join(directory, "PWNED");
+  try {
+    await writeFile(join(directory, "livediff.bash"), renderCompletion("bash"), "utf8");
+    // A workspace path is untrusted data. Stand in a fake `livediff` that emits one carrying a
+    // command substitution and a space, then drive the completion function the way bash would.
+    await writeFile(
+      join(directory, "livediff"),
+      `#!/bin/bash\nprintf '%s\\t%s\\n' '/tmp/$(touch ${marker})/my repo' 'label'\n`,
+      { mode: 0o755 },
+    );
+    const script = [
+      `source ${directory}/livediff.bash`,
+      "COMP_WORDS=(livediff open '')",
+      "COMP_CWORD=2",
+      "_livediff",
+      'printf "%s\\n" "${COMPREPLY[@]}"',
+    ].join("\n");
+    const { stdout } = await exec("bash", ["-c", script], {
+      env: { ...process.env, PATH: `${directory}:${process.env["PATH"] ?? ""}` },
+    });
+
+    assert.equal(stdout.trim(), "/tmp/$(touch " + marker + ")/my repo");
+    await assert.rejects(stat(marker), "the candidate must not have been executed");
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

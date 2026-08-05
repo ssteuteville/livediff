@@ -108,7 +108,9 @@ a generated completion file under LiveDiff's XDG configuration directory. Add `-
 when you want it to append LiveDiff's clearly marked source block to your shell startup file:
 `livediff completion install zsh --activate`. Use `livediff completion status` to inspect it or
 `livediff completion uninstall zsh --deactivate` to remove it. You can still source a one-off
-script directly with `source <(livediff completion zsh)`.
+script directly with `source <(livediff completion zsh)`. Tab completion is state-aware: it
+suggests registered workspace paths for commands like `open` and `comments`, and open or archived
+comment IDs for `resolve`, `reply`, and `restore` — by querying the running hub, never starting one.
 
 Any subdirectory works — `livediff .` from `src/components` registers the worktree root, so a
 worktree never registers twice.
