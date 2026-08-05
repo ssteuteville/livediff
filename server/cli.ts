@@ -539,6 +539,16 @@ function parseConfigValue(value: string): unknown {
   }
 }
 
+function requiresHubRestart(key: string): boolean {
+  return (
+    key.startsWith("hub.") ||
+    key === "retention.orphanArchiveAfterDays" ||
+    key === "retention.resolvedArchiveAfterDays" ||
+    key === "retention.purgeAfterDays" ||
+    key === "ui.defaultRenderer"
+  );
+}
+
 async function cmdConfig(rest: readonly string[]): Promise<void> {
   const [action = "list", key, rawValue] = rest;
   switch (action) {
@@ -571,10 +581,11 @@ async function cmdConfig(rest: readonly string[]): Promise<void> {
       if (!key || rawValue === undefined)
         return die("usage: livediff config set <key> <value>", EXIT_USAGE);
       await setConfigValue(key, parseConfigValue(rawValue));
-      return out(`set ${key}`, {
+      const restartRequired = requiresHubRestart(key);
+      return out(`set ${key}${restartRequired ? " — restart the hub to apply it" : ""}`, {
         key,
         value: configValue(key),
-        restartRequired: key.startsWith("hub."),
+        restartRequired,
       });
     default:
       return die(`unknown config command: ${action}`, EXIT_USAGE);
