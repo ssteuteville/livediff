@@ -45,6 +45,33 @@ test("generated bash completion parses in bash", async () => {
   }
 });
 
+test("nested action flags are reachable in bash completion", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "livediff-completion-"));
+  try {
+    await writeFile(join(directory, "livediff.bash"), renderCompletion("bash"), "utf8");
+    const complete = async (words: readonly string[]): Promise<string> => {
+      const script = [
+        `source ${directory}/livediff.bash`,
+        `COMP_WORDS=(${words.map((word) => `'${word}'`).join(" ")})`,
+        `COMP_CWORD=${words.length - 1}`,
+        "_livediff",
+        'printf "%s\\n" "${COMPREPLY[@]}"',
+      ].join("\n");
+      return (await exec("bash", ["-c", script])).stdout;
+    };
+
+    assert.match(await complete(["livediff", "config", "edit", "--"]), /--editor/);
+    assert.match(await complete(["livediff", "config", "schema", "--"]), /--update/);
+    assert.match(
+      await complete(["livediff", "completion", "install", "--"]),
+      /--activate/,
+      "completion actions must reach their own flags too",
+    );
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("dynamic completion candidates are never re-expanded as shell words", async () => {
   const directory = await mkdtemp(join(tmpdir(), "livediff-completion-"));
   const marker = join(directory, "PWNED");

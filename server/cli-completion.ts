@@ -62,7 +62,12 @@ const quoteFish = (value: string): string => "'" + value.replaceAll("'", "\\'") 
 const zshEntry = ({ name, summary }: Candidate): string => quoteZsh(name + ":" + summary);
 
 function bashCompletion(): string {
-  const cases = COMMANDS.filter((command) => command.name !== "(no arguments)")
+  // config and completion get their own nested arms below; emitting them here too would shadow
+  // those, leaving every per-action flag list unreachable.
+  const cases = COMMANDS.filter(
+    (command) =>
+      command.name !== "(no arguments)" && command.id !== "config" && command.id !== "completion",
+  )
     .map(
       (command) =>
         "      " +

@@ -222,6 +222,7 @@ async function validateInvocation(
   command: string | undefined,
   rest: readonly string[],
 ): Promise<void> {
+  const nested = command === "config" || command === "completion";
   const resolved =
     command === undefined
       ? findCommand("hub")
@@ -232,6 +233,10 @@ async function validateInvocation(
           : (await isPathArg(command))
             ? findCommand("open")
             : findCommand(command);
+  // An unrecognized command is not an options problem. Let dispatch name it and suggest a
+  // correction instead of blaming whichever flag happens to follow it. Nested actions still
+  // validate here, so `config --badflag` stays strict.
+  if (resolved === null && !nested) return;
   const allowed = new Set([
     ...GLOBAL_OPTION_NAMES,
     ...(resolved === null ? [] : optionNames(resolved)),
@@ -244,21 +249,18 @@ async function validateInvocation(
     if (value === null) await die(`${flag} requires a value`, EXIT_USAGE);
   }
   if (resolved === null) return;
-  const nested = command === "config" || command === "completion";
   const positionalArgs = nested ? rest.slice(1) : rest;
   const label = command === undefined ? "hub" : nested ? rest.slice(0, 1).join(" ") : command;
   const helpTarget = nested ? command + " " : "";
+  /** The shape of the invocation is wrong, so show the shape it should have had. */
+  const shape = `\n\nusage: ${resolved.usage}\n  try: livediff help ${helpTarget}${label}`;
   if (positionalArgs.length < resolved.positionals.min) {
-    await die(
-      `missing required argument for 'livediff ${label}'\n\nRun \`livediff ${helpTarget}--help\` for details.`,
-      EXIT_USAGE,
-    );
+    await die(`missing required argument for 'livediff ${label}'${shape}`, EXIT_USAGE);
   }
   if (resolved.positionals.max !== null && positionalArgs.length > resolved.positionals.max) {
     const unexpected = positionalArgs[resolved.positionals.max];
     await die(
-      `unexpected argument${unexpected === undefined ? "" : ` '${unexpected}'`} for 'livediff ${label}'\n\n` +
-        `Run \`livediff ${helpTarget}--help\` for details.`,
+      `unexpected argument${unexpected === undefined ? "" : ` '${unexpected}'`} for 'livediff ${label}'${shape}`,
       EXIT_USAGE,
     );
   }
