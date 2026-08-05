@@ -25,7 +25,8 @@ test("shell completions are generated from the command metadata", () => {
 
   const fish = renderCompletion("fish");
   assert.match(fish, /complete -c livediff/);
-  assert.match(fish, /__fish_seen_subcommand_from config/);
+  assert.match(fish, /function __livediff_config_action/);
+  assert.match(fish, /function __livediff_config_key/);
   assert.match(fish, /-l no-open/);
 });
 

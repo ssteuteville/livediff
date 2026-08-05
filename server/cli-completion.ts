@@ -244,7 +244,7 @@ function fishCompletion(): string {
     .join("\n");
   const configLines = CONFIG_COMMANDS.map(
     (candidate) =>
-      "complete -c livediff -n '__fish_seen_subcommand_from config' -a " +
+      "complete -c livediff -n '__livediff_config_action' -a " +
       quoteFish(candidate.name) +
       " -d " +
       quoteFish(candidate.summary),
@@ -261,7 +261,7 @@ function fishCompletion(): string {
   const configKeyLines = configKeys()
     .map(
       (candidate) =>
-        "complete -c livediff -n '__fish_seen_subcommand_from get set unset explain' -a " +
+        "complete -c livediff -n '__livediff_config_key get set unset explain' -a " +
         quoteFish(candidate.name) +
         " -d " +
         quoteFish(candidate.summary),
@@ -291,6 +291,24 @@ function fishCompletion(): string {
     "    contains -- $tokens[2] $argv",
     "end",
   ].join("\n");
+  // Config nests an action and (for get/set/unset/explain) a key underneath it, so
+  // `__fish_seen_subcommand_from` — which matches at every later token — can't tell the action
+  // position from the key position. Pin each guard to its exact token count instead.
+  const configActionHelper = [
+    "function __livediff_config_action",
+    "    set -l tokens (commandline -poc)",
+    "    test (count $tokens) -eq 2; or return 1",
+    '    test "$tokens[2]" = config',
+    "end",
+  ].join("\n");
+  const configKeyHelper = [
+    "function __livediff_config_key",
+    "    set -l tokens (commandline -poc)",
+    "    test (count $tokens) -eq 3; or return 1",
+    '    test "$tokens[2]" = config; or return 1',
+    "    contains -- $tokens[3] $argv",
+    "end",
+  ].join("\n");
   const dynamic = (commands: readonly string[], producer: string, files: boolean): string =>
     "complete -c livediff -n '__livediff_first_arg " +
     commands.join(" ") +
@@ -301,6 +319,8 @@ function fishCompletion(): string {
     "# fish completion for livediff",
     "complete -c livediff -f",
     firstArgHelper,
+    configActionHelper,
+    configKeyHelper,
     commandLines,
     configLines,
     completionLines,
