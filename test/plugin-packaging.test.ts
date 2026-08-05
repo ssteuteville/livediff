@@ -33,6 +33,7 @@ test("the shared LiveDiff plugin is listed in both native marketplaces", async (
   const claudeManifestPath = join(pluginRoot, ".claude-plugin", "plugin.json");
   const codexMarketplacePath = join(root, ".agents", "plugins", "marketplace.json");
   const claudeMarketplacePath = join(root, ".claude-plugin", "marketplace.json");
+  const packagePath = join(root, "package.json");
 
   await Promise.all([
     access(codexManifestPath),
@@ -41,16 +42,20 @@ test("the shared LiveDiff plugin is listed in both native marketplaces", async (
     access(join(pluginRoot, "skills", "review", "SKILL.md")),
   ]);
 
-  const [codexManifest, claudeManifest, codexMarketplace, claudeMarketplace] = await Promise.all([
-    readObject(codexManifestPath),
-    readObject(claudeManifestPath),
-    readObject(codexMarketplacePath),
-    readObject(claudeMarketplacePath),
-  ]);
+  const [codexManifest, claudeManifest, codexMarketplace, claudeMarketplace, packageManifest] =
+    await Promise.all([
+      readObject(codexManifestPath),
+      readObject(claudeManifestPath),
+      readObject(codexMarketplacePath),
+      readObject(claudeMarketplacePath),
+      readObject(packagePath),
+    ]);
 
   assert.equal(codexManifest["name"], "livediff");
   assert.equal(codexManifest["skills"], "./skills");
   assert.equal(claudeManifest["name"], "livediff");
+  assert.equal(codexManifest["version"], packageManifest["version"]);
+  assert.equal(claudeManifest["version"], packageManifest["version"]);
   assert.ok(
     Array.isArray(codexMarketplace["plugins"]) && hasCodexEntry(codexMarketplace["plugins"]),
   );
