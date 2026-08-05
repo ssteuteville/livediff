@@ -549,8 +549,22 @@ function requiresHubRestart(key: string): boolean {
   );
 }
 
+function configSetValue(key: string, inputValues: readonly string[]): unknown {
+  if (key === "browser.opener") {
+    if (inputValues.length === 0)
+      throw new Error("usage: livediff config set browser.opener <command> [args...]");
+    if (inputValues.length === 1 && inputValues[0]?.trim().startsWith("["))
+      return parseConfigValue(inputValues[0]);
+    return inputValues.flatMap((value) => value.trim().split(/\s+/).filter(Boolean));
+  }
+  if (inputValues.length !== 1) throw new Error(`configuration setting ${key} accepts one value`);
+  const value = inputValues[0];
+  if (value === undefined) throw new Error(`configuration setting ${key} requires a value`);
+  return parseConfigValue(value);
+}
+
 async function cmdConfig(rest: readonly string[]): Promise<void> {
-  const [action = "list", key, rawValue] = rest;
+  const [action = "list", key, ...configValues] = rest;
   switch (action) {
     case "path":
       return out(configPath(), { path: configPath() });
@@ -578,9 +592,9 @@ async function cmdConfig(rest: readonly string[]): Promise<void> {
       if (!key) return die("usage: livediff config get <key>", EXIT_USAGE);
       return out(String(configValue(key)), { key, value: configValue(key) });
     case "set":
-      if (!key || rawValue === undefined)
+      if (!key || configValues.length === 0)
         return die("usage: livediff config set <key> <value>", EXIT_USAGE);
-      await setConfigValue(key, parseConfigValue(rawValue));
+      await setConfigValue(key, configSetValue(key, configValues));
       const restartRequired = requiresHubRestart(key);
       return out(`set ${key}${restartRequired ? " — restart the hub to apply it" : ""}`, {
         key,

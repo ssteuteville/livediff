@@ -203,7 +203,7 @@ export const COMMANDS: readonly CommandHelp[] = [
     flags: [],
     examples: [
       ["livediff config init", "create a commented config file without overwriting"],
-      ['livediff config set browser.opener \'["cmux", "open-window"]\'', "use cmux to open URLs"],
+      ["livediff config set browser.opener cmux browser open", "use cmux to open URLs"],
       ["livediff config set retention.archiveWarningBytes 10485760", "warn at 10 MiB"],
       ["livediff config list", "show effective settings"],
       ["livediff config schema --update", "refresh editor completion without changing settings"],

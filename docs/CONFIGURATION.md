@@ -60,11 +60,14 @@ livediff config schema --update
 ```
 
 `init` never overwrites an existing file. `set` validates the updated JSONC and writes atomically.
-For arrays and objects, pass a JSON value, for example:
+`browser.opener` accepts a command followed by ordinary arguments:
 
 ```text
-livediff config set browser.opener '["cmux", "open-window"]'
+livediff config set browser.opener cmux browser open
 ```
+
+It is stored as structured argv. For an argument that itself needs whitespace or other exact
+preservation, pass the JSON array form instead.
 
 `livediff config init` installs `config.schema.json` beside the config. Its relative `$schema`
 reference provides completion, validation, descriptions, and defaults in editors that support JSON
