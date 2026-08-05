@@ -29,6 +29,10 @@ function isProcessError(
   return typeof error === "object" && error !== null;
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
 test("config commands initialize, validate, and update JSONC settings", async () => {
   await withTempXdg(async ({ config }) => {
     const initialized = await cli(["config", "init"]);
@@ -43,6 +47,103 @@ test("config commands initialize, validate, and update JSONC settings", async ()
     assert.equal(get.stdout.trim(), "8000000");
     const valid = await cli(["config", "validate"]);
     assert.equal(valid.code, 0);
+
+    const schema = await cli(["config", "schema", "--update"]);
+    assert.equal(schema.code, 0);
+    assert.match(schema.stdout, /updated/);
+  });
+});
+
+test("config commands explain and unset typed overrides", async () => {
+  await withTempXdg(async () => {
+    const set = await cli(["config", "set", "retention.archiveWarningBytes", "10MiB"]);
+    assert.equal(set.code, 0);
+    assert.match(set.stdout, /set retention\.archiveWarningBytes/);
+
+    const explained = await cli(["config", "explain", "retention.archiveWarningBytes"]);
+    assert.equal(explained.code, 0);
+    assert.match(explained.stdout, /value: 10485760/);
+    assert.match(explained.stdout, /source: file/);
+
+    const unset = await cli(["config", "unset", "retention.archiveWarningBytes"]);
+    assert.equal(unset.code, 0);
+    assert.match(unset.stdout, /unset retention\.archiveWarningBytes/);
+    const current = await cli(["config", "get", "retention.archiveWarningBytes"]);
+    assert.equal(current.stdout.trim(), "5242880");
+  });
+});
+
+test("config edit creates a schema-linked config through the selected editor", async () => {
+  await withTempXdg(async ({ config }) => {
+    const edited = await cli(["config", "edit"], { env: { LIVEDIFF_EDITOR: "true" } });
+    assert.equal(edited.code, 0);
+    assert.match(edited.stdout, /updated/);
+    assert.match(await readFile(join(config, "livediff", "config.jsonc"), "utf8"), /\$schema/);
+  });
+});
+
+test("explicit commands and nested config help are discoverable without starting a hub", async () => {
+  await withTempXdg(async () => {
+    const openHelp = await cli(["help", "open"]);
+    assert.equal(openHelp.code, 0);
+    assert.match(openHelp.stdout, /livediff open \[path\]/);
+
+    const configSetHelp = await cli(["config", "set", "--help"]);
+    assert.equal(configSetHelp.code, 0);
+    assert.match(configSetHelp.stdout, /livediff config set <key> <value\.\.\./);
+    assert.equal(await readState(), null);
+  });
+});
+
+test("unknown and incomplete options fail before starting a hub", async () => {
+  await withTempXdg(async () => {
+    const unknown = await cli(["comments", "--sttaus", "open"]);
+    assert.equal(unknown.code, 2);
+    assert.match(unknown.stderr, /unknown option '--sttaus' for 'livediff comments'/);
+
+    const incomplete = await cli(["comments", "--status"]);
+    assert.equal(incomplete.code, 2);
+    assert.match(incomplete.stderr, /--status requires a value/);
+
+    const extra = await cli(["list", "unexpected"]);
+    assert.equal(extra.code, 2);
+    assert.match(extra.stderr, /unexpected argument 'unexpected' for 'livediff list'/);
+    assert.equal(await readState(), null);
+  });
+});
+
+test("status reports state without starting a hub", async () => {
+  await withTempXdg(async () => {
+    const result = await cli(["status", "--json"]);
+    assert.equal(result.code, 0);
+    const status: unknown = JSON.parse(result.stdout);
+    assert.ok(isRecord(status));
+    assert.deepEqual(status["hub"], { status: "stopped" });
+    assert.equal(typeof status["configPath"], "string");
+    assert.equal(await readState(), null);
+  });
+});
+
+test("completion validates its shell without starting a hub", async () => {
+  await withTempXdg(async () => {
+    const result = await cli(["completion", "powershell"]);
+    assert.equal(result.code, 2);
+    assert.match(result.stderr, /choose bash, zsh, or fish/);
+    assert.equal(await readState(), null);
+  });
+});
+
+test("help honors the global JSON output contract", async () => {
+  await withTempXdg(async () => {
+    const result = await cli(["config", "edit", "--help", "--json"]);
+    assert.equal(result.code, 0);
+    const body: unknown = JSON.parse(result.stdout);
+    assert.ok(isRecord(body));
+    const help = body["help"];
+    assert.equal(typeof help, "string");
+    if (typeof help !== "string") throw new Error("expected help output");
+    assert.match(help, /livediff config edit/);
+    assert.equal(await readState(), null);
   });
 });
 

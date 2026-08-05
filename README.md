@@ -77,10 +77,12 @@ Nothing is destroyed less than 205 days after a comment's last activity, and
 
 ```
 livediff                       open the hub UI (all workspaces)
-livediff <path>                register a worktree and open its focused view
+livediff hub                   explicit name for the hub command
+livediff open [path]           register a worktree and open its focused view
+livediff <path>                shorthand for `livediff open <path>`
                                (a subdirectory scopes the view to it)
-livediff <path> --no-open      register only, print the URL
-livediff <path> --wait         open, then block until "Done reviewing" is clicked
+livediff link [path]           register only, print the URL
+livediff review [path]         open, then block until "Done reviewing" is clicked
 livediff list                  list registered workspaces
 livediff rm [path|id]          unregister
 livediff comments [path]       open comments on the current branch
@@ -90,12 +92,20 @@ livediff archive [path]        archive comments that are no longer live (all wor
 livediff prune [path]          delete archived comments (all workspaces)
 livediff resolve <id> [text…]  reply and mark resolved
 livediff reply <id> <text…>    reply without resolving
+livediff restart               restart the hub with current settings
+livediff status                check hub and configuration state without starting anything
 livediff stop                  shut the hub down
 livediff doctor                diagnose install and state problems
+livediff config edit           edit settings in your preferred editor
+livediff config explain <key>  show a setting's value and where it came from
 ```
 
 Every command takes `--json` for machine-readable output. Exit codes are `0` success, `1` error,
 `2` usage mistake. `livediff help <command>` documents any of them.
+
+For shell completion, source the generated script from your shell startup file. For example,
+`source <(livediff completion zsh)` enables it for the current zsh session; `bash` and `fish` are
+also supported.
 
 Any subdirectory works — `livediff .` from `src/components` registers the worktree root, so a
 worktree never registers twice.

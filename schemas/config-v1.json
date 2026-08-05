@@ -23,6 +23,19 @@
         }
       }
     },
+    "tools": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "editor": {
+          "type": "array",
+          "description": "Executable and literal arguments used by livediff config edit. This is argv, not a shell command.",
+          "minItems": 1,
+          "items": { "type": "string", "minLength": 1 },
+          "examples": [["vim"]]
+        }
+      }
+    },
     "hub": {
       "type": "object",
       "additionalProperties": false,

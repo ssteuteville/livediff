@@ -1,4 +1,5 @@
-import { copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -22,6 +23,7 @@ export const CONFIG_SCHEMA_REFERENCE = `./${CONFIG_SCHEMA_FILENAME}`;
 
 export interface Config {
   browser: { opener: readonly string[] | null };
+  tools: { editor: readonly string[] | null };
   hub: { port: number; pollIntervalMs: number };
   retention: {
     orphanArchiveAfterDays: number;
@@ -35,6 +37,7 @@ export interface Config {
 interface ConfigFile {
   $schema?: string | undefined;
   browser?: { opener?: string[] | undefined } | undefined;
+  tools?: { editor?: string[] | undefined } | undefined;
   hub?: { port?: number | undefined; pollIntervalMs?: number | undefined } | undefined;
   retention?:
     | {
@@ -49,6 +52,7 @@ interface ConfigFile {
 
 export const DEFAULT_CONFIG: Config = {
   browser: { opener: null },
+  tools: { editor: null },
   hub: { port: DEFAULT_PORT, pollIntervalMs: DEFAULT_POLL_MS },
   retention: {
     orphanArchiveAfterDays: ORPHAN_ARCHIVE_DAYS,
@@ -71,6 +75,7 @@ export function loadConfig(): Config {
   const file = readConfigFile();
   return applyEnvironment({
     browser: { opener: file.browser?.opener ?? DEFAULT_CONFIG.browser.opener },
+    tools: { editor: file.tools?.editor ?? DEFAULT_CONFIG.tools.editor },
     hub: {
       port: file.hub?.port ?? DEFAULT_CONFIG.hub.port,
       pollIntervalMs: file.hub?.pollIntervalMs ?? DEFAULT_CONFIG.hub.pollIntervalMs,
@@ -87,6 +92,20 @@ export function loadConfig(): Config {
     },
     ui: { defaultRenderer: file.ui?.defaultRenderer ?? DEFAULT_CONFIG.ui.defaultRenderer },
   });
+}
+
+export type ConfigValueSource = "default" | "file" | "environment";
+
+/** Identify the winning configuration layer without exposing mutable file internals. */
+export function configValueSource(key: string): ConfigValueSource {
+  const segments = configPathSegments(key);
+  if (environmentNameForKey(key) !== null) return "environment";
+  let value: unknown = readConfigFile();
+  for (const segment of segments) {
+    if (!isRecord(value) || !(segment in value)) return "default";
+    value = value[segment];
+  }
+  return value === undefined ? "default" : "file";
 }
 
 function readConfigFile(): ConfigFile {
@@ -155,6 +174,60 @@ export async function setConfigValue(key: string, value: unknown): Promise<void>
   await writeTextAtomic(path, next.endsWith("\n") ? next : `${next}\n`);
 }
 
+/** Remove one explicit override so the next lower-precedence source becomes effective. */
+export async function unsetConfigValue(key: string): Promise<boolean> {
+  const path = configPath();
+  let text: string;
+  try {
+    text = await readFile(path, "utf8");
+  } catch (error) {
+    if (isNotFound(error)) return false;
+    throw error;
+  }
+  parseConfigText(text, path);
+  const pathSegments = configPathSegments(key);
+  const tree = parseTree(text);
+  if (!tree) throw new Error(`invalid configuration in ${path}`);
+  const next = applyEdits(
+    text,
+    modify(text, pathSegments, undefined, {
+      formattingOptions: { insertSpaces: true, tabSize: 2, eol: "\n" },
+    }),
+  );
+  if (next === text) return false;
+  parseConfigText(next, path);
+  await writeTextAtomic(path, next.endsWith("\n") ? next : `${next}\n`);
+  return true;
+}
+
+export interface ConfigDraft {
+  path: string;
+  draftPath: string;
+}
+
+/** Create a sibling draft so editor schema resolution works and a broken save cannot replace config. */
+export async function createConfigDraft(): Promise<ConfigDraft> {
+  const path = configPath();
+  await mkdir(dirname(path), { recursive: true });
+  await ensureSchema();
+  const draftPath = join(dirname(path), `.${CONFIG_FILENAME}.${randomUUID()}.edit`);
+  try {
+    await copyFile(path, draftPath);
+  } catch (error) {
+    if (!isNotFound(error)) throw error;
+    await writeFile(draftPath, initialConfigText(), "utf8");
+  }
+  return { path, draftPath };
+}
+
+/** Validate and atomically install a draft created by createConfigDraft(). */
+export async function applyConfigDraft(draftPath: string): Promise<void> {
+  const text = await readFile(draftPath, "utf8");
+  parseConfigText(text, draftPath);
+  await writeTextAtomic(configPath(), text.endsWith("\n") ? text : `${text}\n`);
+  await rm(draftPath, { force: true });
+}
+
 export function parseConfigText(text: string, path = "configuration"): ConfigFile {
   const errors: ParseError[] = [];
   const value: unknown = parse(text, errors, { allowTrailingComma: true, disallowComments: false });
@@ -164,8 +237,9 @@ export function parseConfigText(text: string, path = "configuration"): ConfigFil
 }
 
 function parseConfigFile(value: unknown, path: string): ConfigFile {
-  const root = object(value, path, ["$schema", "browser", "hub", "retention", "ui"]);
+  const root = object(value, path, ["$schema", "browser", "tools", "hub", "retention", "ui"]);
   const browser = optionalObject(root, "browser", ["opener"]);
+  const tools = optionalObject(root, "tools", ["editor"]);
   const hub = optionalObject(root, "hub", ["port", "pollIntervalMs"]);
   const retention = optionalObject(root, "retention", [
     "orphanArchiveAfterDays",
@@ -177,6 +251,7 @@ function parseConfigFile(value: unknown, path: string): ConfigFile {
   return {
     $schema: optionalString(root, "$schema"),
     browser: browser ? { opener: optionalStringArray(browser, "opener") } : undefined,
+    tools: tools ? { editor: optionalStringArray(tools, "editor") } : undefined,
     hub: hub
       ? {
           port: optionalPort(hub, "port"),
@@ -207,6 +282,7 @@ function applyEnvironment(config: Config): Config {
   return {
     ...config,
     browser: { opener: environmentOpener() ?? config.browser.opener },
+    tools: { editor: environmentEditor() ?? config.tools.editor },
     hub: {
       port: environmentPort(ENV.PORT) ?? config.hub.port,
       pollIntervalMs: environmentPositiveInteger(ENV.POLL_MS) ?? config.hub.pollIntervalMs,
@@ -215,12 +291,39 @@ function applyEnvironment(config: Config): Config {
   };
 }
 
+export function environmentNameForKey(key: string): string | null {
+  switch (key) {
+    case "browser.opener":
+      return process.env[ENV.BROWSER] === undefined ? null : ENV.BROWSER;
+    case "tools.editor":
+      return process.env["LIVEDIFF_EDITOR"] === undefined ? null : "LIVEDIFF_EDITOR";
+    case "hub.port":
+      return process.env[ENV.PORT] === undefined ? null : ENV.PORT;
+    case "hub.pollIntervalMs":
+      return process.env[ENV.POLL_MS] === undefined ? null : ENV.POLL_MS;
+    case "ui.defaultRenderer":
+      return process.env[ENV.RENDERER] === undefined ? null : ENV.RENDERER;
+    default:
+      return null;
+  }
+}
+
+function environmentEditor(): readonly string[] | null {
+  const value = process.env["LIVEDIFF_EDITOR"];
+  if (value === undefined) return null;
+  return commandFromText(value, "LIVEDIFF_EDITOR");
+}
+
 function environmentOpener(): readonly string[] | null {
   const value = process.env[ENV.BROWSER];
   if (value === undefined) return null;
-  const opener = value.trim().split(/\s+/).filter(Boolean);
-  if (opener.length === 0) throw new Error(`${ENV.BROWSER} must name an executable`);
-  return opener;
+  return commandFromText(value, ENV.BROWSER);
+}
+
+function commandFromText(value: string, name: string): readonly string[] {
+  const command = value.trim().split(/\s+/).filter(Boolean);
+  if (command.length === 0) throw new Error(`${name} must name an executable`);
+  return command;
 }
 
 function environmentPort(name: string): number | null {
@@ -325,6 +428,7 @@ function configPathSegments(key: string): string[] {
   const segments = key.split(".");
   const allowed = new Set([
     "browser.opener",
+    "tools.editor",
     "hub.port",
     "hub.pollIntervalMs",
     "retention.orphanArchiveAfterDays",
@@ -340,7 +444,7 @@ function configPathSegments(key: string): string[] {
 function initialConfigText(): string {
   return `{
   "$schema": "${CONFIG_SCHEMA_REFERENCE}",
-  // Add only settings you want to override. Run \`livediff config list --effective\` to see defaults.
+  // Add only settings you want to override. Run \`livediff config list\` to see effective values.
 }
 `;
 }

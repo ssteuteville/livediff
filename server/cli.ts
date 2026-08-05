@@ -1,11 +1,15 @@
 #!/usr/bin/env node
 import { stat } from "node:fs/promises";
+import { spawn } from "node:child_process";
 import { relative, resolve } from "node:path";
+import { renderCompletion } from "./cli-completion.js";
 import { ensureHub, hubVersion } from "./ensure-hub.js";
-import { readState, shutdownHub } from "./hub-state.js";
+import { probeMeta, readState, shutdownHub } from "./hub-state.js";
 import {
   findCommand,
+  findConfigCommand,
   renderCommandHelp,
+  renderConfigCommandHelp,
   renderMainHelp,
   suggest,
   VALUE_FLAGS,
@@ -13,11 +17,15 @@ import {
 import { openBrowser } from "./open-browser.js";
 import {
   configPath,
+  configValueSource,
+  createConfigDraft,
+  applyConfigDraft,
   ensureSchema,
   initConfig,
   loadConfig,
   schemaPath,
   setConfigValue,
+  unsetConfigValue,
   updateSchema,
 } from "./config.js";
 import { sseEvents } from "./sse.js";
@@ -182,6 +190,35 @@ const JSON_OUT = flags.has("--json");
 const WANTS_HELP = flags.has("-h") || flags.has("--help");
 const WANTS_VERSION = flags.has("-v") || flags.has("--version");
 
+const GLOBAL_FLAG_NAMES = new Set(["--json", "-h", "--help", "-v", "--version"]);
+const COMMAND_FLAG_NAMES: Readonly<Record<string, ReadonlySet<string>>> = {
+  open: new Set(["--no-open", "--wait", "--timeout"]),
+  hub: new Set(["--no-open"]),
+  review: new Set(["--no-open", "--timeout"]),
+  link: new Set(),
+  list: new Set(),
+  ls: new Set(),
+  rm: new Set(),
+  remove: new Set(),
+  comments: new Set(["--status", "--branch", "--stale", "--archived"]),
+  resolve: new Set(),
+  reply: new Set(),
+  restore: new Set(),
+  archive: new Set(["--stale", "--resolved"]),
+  prune: new Set(["--keep-days", "--all", "--dry-run", "--yes"]),
+  restart: new Set(),
+  status: new Set(),
+  stop: new Set(),
+  doctor: new Set(),
+  completion: new Set(),
+  help: new Set(),
+};
+
+const CONFIG_FLAG_NAMES: Readonly<Record<string, ReadonlySet<string>>> = {
+  edit: new Set(["--editor"]),
+  schema: new Set(["--update"]),
+};
+
 /** stdout writes to a pipe are queued; exiting without draining them truncates output. */
 async function exit(code: number): Promise<never> {
   await new Promise<void>((resolveOutput, rejectOutput) =>
@@ -197,6 +234,95 @@ function out(human: string, data: unknown): void {
 async function die(message: string, code = EXIT_ERROR): Promise<never> {
   console.error(message);
   return exit(code);
+}
+
+async function validateInvocation(
+  command: string | undefined,
+  rest: readonly string[],
+): Promise<void> {
+  const allowed = new Set(GLOBAL_FLAG_NAMES);
+  if (command === undefined) {
+    for (const flag of COMMAND_FLAG_NAMES["hub"] ?? []) allowed.add(flag);
+  } else if (command === "config") {
+    for (const flag of CONFIG_FLAG_NAMES[rest[0] ?? ""] ?? []) allowed.add(flag);
+  } else if (await isPathArg(command)) {
+    for (const flag of COMMAND_FLAG_NAMES["open"] ?? []) allowed.add(flag);
+  } else {
+    for (const flag of COMMAND_FLAG_NAMES[command] ?? []) allowed.add(flag);
+  }
+  for (const flag of flags) {
+    if (allowed.has(flag)) continue;
+    await die(`unknown option '${flag}'${command ? ` for 'livediff ${command}'` : ""}`, EXIT_USAGE);
+  }
+  for (const [flag, value] of values) {
+    if (value === null) await die(`${flag} requires a value`, EXIT_USAGE);
+  }
+  await validatePositionals(command, rest);
+}
+
+async function validatePositionals(
+  command: string | undefined,
+  rest: readonly string[],
+): Promise<void> {
+  const error = async (unexpected: string | undefined): Promise<never> =>
+    die(
+      `unexpected argument${unexpected === undefined ? "" : ` '${unexpected}'`}${command ? ` for 'livediff ${command}'` : ""}\n\n` +
+        `Run \`livediff ${command === "config" ? "config " : ""}--help\` for details.`,
+      EXIT_USAGE,
+    );
+  if (command === undefined) {
+    if (rest.length > 0) await error(rest[0]);
+    return;
+  }
+  if (command === "config") {
+    const [action, ...configArgs] = rest;
+    switch (action) {
+      case undefined:
+      case "edit":
+      case "path":
+      case "init":
+      case "validate":
+      case "list":
+      case "schema":
+        if (configArgs.length > 0) await error(configArgs[0]);
+        return;
+      case "get":
+      case "unset":
+      case "explain":
+        if (configArgs.length > 1) await error(configArgs[1]);
+        return;
+      case "set":
+        return;
+      default:
+        return;
+    }
+  }
+  const pathCommand =
+    command === "open" || command === "review" || command === "link" || (await isPathArg(command));
+  if (
+    pathCommand ||
+    command === "rm" ||
+    command === "remove" ||
+    command === "comments" ||
+    command === "archive" ||
+    command === "prune"
+  ) {
+    if (rest.length > 1) await error(rest[1]);
+    return;
+  }
+  if (command === "help") {
+    if (rest.length > 2) await error(rest[2]);
+    return;
+  }
+  if (
+    ["hub", "list", "ls", "restore", "restart", "status", "stop", "doctor", "completion"].includes(
+      command,
+    )
+  ) {
+    const maxArgs = command === "restore" ? 1 : 0;
+    const completionMaxArgs = command === "completion" ? 1 : maxArgs;
+    if (rest.length > completionMaxArgs) await error(rest[completionMaxArgs]);
+  }
 }
 
 async function api<T>(
@@ -265,7 +391,10 @@ async function waitForReview(base: string, ws: Workspace): Promise<boolean> {
   return false;
 }
 
-async function cmdOpen(pathArg: string): Promise<void> {
+async function cmdOpen(
+  pathArg: string | undefined,
+  behavior: { open?: boolean | undefined; wait?: boolean | undefined } = {},
+): Promise<void> {
   const base = await ensureHub();
   const path = resolve(pathArg || process.cwd());
   const ws = await api(base, "/api/workspaces", parseWorkspace, {
@@ -278,7 +407,7 @@ async function cmdOpen(pathArg: string): Promise<void> {
   const dir = relative(ws.path, path);
   const scope = dir && !dir.startsWith("..") ? `&dir=${encodeURIComponent(dir)}` : "";
   const url = `http://localhost:${new URL(base).port}/?ws=${ws.id}&focus=1${scope}`;
-  const quiet = flags.has("--no-open");
+  const quiet = behavior.open === false || flags.has("--no-open");
   const opened = quiet ? false : await openBrowser(url);
   const name = scope ? `${ws.label}/${dir}` : ws.label;
   const human = quiet
@@ -288,7 +417,7 @@ async function cmdOpen(pathArg: string): Promise<void> {
       : `registered ${name} → ${url} (could not open a browser)`;
   out(human, { ...ws, url, opened, dir: scope ? dir : null });
 
-  if (!flags.has("--wait")) return;
+  if (behavior.wait !== true && !flags.has("--wait")) return;
 
   const completed = await waitForReview(base, ws);
   const { comments } = await api(base, `/api/comments?ws=${ws.id}`, parseComments);
@@ -484,6 +613,37 @@ async function cmdStop(): Promise<void> {
   out("hub stopped", { running: false });
 }
 
+async function cmdRestart(): Promise<void> {
+  const state = await readState();
+  if (state) {
+    const stopped = await shutdownHub(state);
+    if (!stopped) await die("hub did not stop; it may be wedged");
+  }
+  const base = await ensureHub();
+  out(`hub restarted → ${base}`, { running: true, url: base });
+}
+
+async function cmdStatus(): Promise<void> {
+  const state = await readState();
+  const meta = state === null ? null : await probeMeta(state.port);
+  const status = state === null ? "stopped" : meta === null ? "stale" : "running";
+  const url = state === null ? null : `http://localhost:${state.port}`;
+  out([`hub: ${status}${url === null ? "" : ` (${url})`}`, `config: ${configPath()}`].join("\n"), {
+    hub:
+      state === null
+        ? { status }
+        : {
+            status,
+            port: state.port,
+            version: state.version,
+            startedAt: state.startedAt,
+            clients: meta?.clients ?? null,
+            polling: meta?.polling ?? null,
+          },
+    configPath: configPath(),
+  });
+}
+
 const MARK: Record<"ok" | "warn" | "error", string> = { ok: "✓", warn: "!", error: "✗" };
 
 async function cmdDoctor(): Promise<void> {
@@ -512,6 +672,8 @@ function configValue(key: string): unknown {
   switch (key) {
     case "browser.opener":
       return config.browser.opener;
+    case "tools.editor":
+      return config.tools.editor;
     case "hub.port":
       return config.hub.port;
     case "hub.pollIntervalMs":
@@ -539,6 +701,41 @@ function parseConfigValue(value: string): unknown {
   }
 }
 
+function parseHumanValue(key: string, value: string): unknown {
+  const byteMatch = /^([0-9]+)\s*(b|kb|kib|mb|mib|gb|gib)$/i.exec(value);
+  if (key === "retention.archiveWarningBytes" && byteMatch) {
+    const amount = Number(byteMatch[1]);
+    const unit = byteMatch[2]?.toLowerCase();
+    const multipliers: Readonly<Record<string, number>> = {
+      b: 1,
+      kb: 1_000,
+      kib: 1_024,
+      mb: 1_000_000,
+      mib: 1_048_576,
+      gb: 1_000_000_000,
+      gib: 1_073_741_824,
+    };
+    return amount * (unit === undefined ? 1 : (multipliers[unit] ?? 1));
+  }
+  const durationMatch = /^([0-9]+)\s*(ms|s|m|h|d)$/i.exec(value);
+  if (durationMatch) {
+    const amount = Number(durationMatch[1]);
+    const unit = durationMatch[2]?.toLowerCase();
+    if (key === "hub.pollIntervalMs") {
+      const multipliers: Readonly<Record<string, number>> = {
+        ms: 1,
+        s: 1_000,
+        m: 60_000,
+        h: 3_600_000,
+        d: 86_400_000,
+      };
+      return amount * (unit === undefined ? 1 : (multipliers[unit] ?? 1));
+    }
+    if (key.startsWith("retention.") && unit === "d") return amount;
+  }
+  return parseConfigValue(value);
+}
+
 function requiresHubRestart(key: string): boolean {
   return (
     key.startsWith("hub.") ||
@@ -549,27 +746,88 @@ function requiresHubRestart(key: string): boolean {
   );
 }
 
+async function cmdCompletion(shell?: string): Promise<void> {
+  if (shell === undefined) {
+    await die("completion requires a shell: bash, zsh, or fish", EXIT_USAGE);
+  }
+  const requestedShell = shell ?? "";
+  try {
+    return out(renderCompletion(requestedShell), { shell: requestedShell });
+  } catch (error) {
+    await die(error instanceof Error ? error.message : String(error), EXIT_USAGE);
+  }
+}
+
 function configSetValue(key: string, inputValues: readonly string[]): unknown {
-  if (key === "browser.opener") {
+  if (key === "browser.opener" || key === "tools.editor") {
     if (inputValues.length === 0)
-      throw new Error("usage: livediff config set browser.opener <command> [args...]");
+      throw new Error(`usage: livediff config set ${key} <command> [args...]`);
     if (inputValues.length === 1 && inputValues[0]?.trim().startsWith("["))
       return parseConfigValue(inputValues[0]);
-    return inputValues.flatMap((value) => value.trim().split(/\s+/).filter(Boolean));
+    const first = inputValues[0];
+    if (inputValues.length === 1 && first !== undefined)
+      return first.trim().split(/\s+/).filter(Boolean);
+    return [...inputValues];
   }
   if (inputValues.length !== 1) throw new Error(`configuration setting ${key} accepts one value`);
   const value = inputValues[0];
   if (value === undefined) throw new Error(`configuration setting ${key} requires a value`);
-  return parseConfigValue(value);
+  return parseHumanValue(key, value);
+}
+
+function editorCommand(): readonly string[] {
+  const override = values.get("--editor");
+  if (override !== undefined && override !== null) {
+    const command = override.trim().split(/\s+/).filter(Boolean);
+    if (command.length === 0) throw new Error("--editor must name an executable");
+    return command;
+  }
+  const configured = loadConfig().tools.editor;
+  if (configured !== null) return configured;
+  const fallback = process.env["VISUAL"] ?? process.env["EDITOR"];
+  if (fallback === undefined) return ["vim"];
+  const command = fallback.trim().split(/\s+/).filter(Boolean);
+  if (command.length === 0) throw new Error("VISUAL or EDITOR must name an executable");
+  return command;
+}
+
+async function runEditor(command: readonly string[], path: string): Promise<void> {
+  const executable = command[0];
+  if (executable === undefined) throw new Error("editor command must name an executable");
+  await new Promise<void>((resolveEditor, rejectEditor) => {
+    const child = spawn(executable, [...command.slice(1), path], { stdio: "inherit" });
+    child.once("error", rejectEditor);
+    child.once("exit", (code, signal) => {
+      if (code === 0) return resolveEditor();
+      rejectEditor(
+        new Error(`editor exited ${signal ? `from ${signal}` : `with code ${code ?? 1}`}`),
+      );
+    });
+  });
 }
 
 async function cmdConfig(rest: readonly string[]): Promise<void> {
   const [action = "list", key, ...configValues] = rest;
   switch (action) {
+    case "edit": {
+      const draft = await createConfigDraft();
+      const command = editorCommand();
+      await runEditor(command, draft.draftPath);
+      try {
+        await applyConfigDraft(draft.draftPath);
+      } catch (error) {
+        throw new Error(
+          `${error instanceof Error ? error.message : String(error)}\n\n` +
+            `Your current config was not changed. Draft preserved at ${draft.draftPath}.`,
+          { cause: error },
+        );
+      }
+      return out(`updated ${draft.path}`, { path: draft.path, updated: true });
+    }
     case "path":
       return out(configPath(), { path: configPath() });
     case "schema":
-      if (key === "--update") {
+      if (flags.has("--update")) {
         const path = await updateSchema();
         return out(`updated ${path}`, { path, updated: true });
       }
@@ -601,41 +859,81 @@ async function cmdConfig(rest: readonly string[]): Promise<void> {
         value: configValue(key),
         restartRequired,
       });
+    case "unset": {
+      if (!key) return die("usage: livediff config unset <key>", EXIT_USAGE);
+      const removed = await unsetConfigValue(key);
+      const needsRestart = requiresHubRestart(key);
+      return out(
+        removed
+          ? `unset ${key}${needsRestart ? " — run livediff restart to apply it" : ""}`
+          : `${key} already uses the next lower-precedence value`,
+        { key, value: configValue(key), removed, restartRequired: needsRestart },
+      );
+    }
+    case "explain": {
+      if (!key) return die("usage: livediff config explain <key>", EXIT_USAGE);
+      const value = configValue(key);
+      const source = configValueSource(key);
+      const needsRestart = requiresHubRestart(key);
+      return out(
+        `${key}\n  value: ${JSON.stringify(value)}\n  source: ${source}\n  ${needsRestart ? "restart required" : "applies without a hub restart"}`,
+        { key, value, source, restartRequired: needsRestart },
+      );
+    }
     default:
-      return die(`unknown config command: ${action}`, EXIT_USAGE);
+      return die(
+        `unknown config command: ${action}\n\nRun \`livediff config --help\` to see available commands.`,
+        EXIT_USAGE,
+      );
   }
 }
 
-function helpFor(token?: string): string | null {
+function helpFor(tokens: readonly string[]): string | null {
+  const [token, subcommand] = tokens;
   if (!token) return renderMainHelp(hubVersion());
+  if (token === "config" && subcommand) {
+    const command = findConfigCommand(subcommand);
+    return command ? renderConfigCommandHelp(command) : null;
+  }
   const cmd = findCommand(token);
   if (cmd) return renderCommandHelp(cmd);
   return null;
 }
 
-async function cmdHelp(token?: string): Promise<void> {
-  const text = helpFor(token);
+async function cmdHelp(tokens: readonly string[] = []): Promise<void> {
+  const text = helpFor(tokens);
   if (text === null) {
-    const hint = suggest(token ?? "");
+    const token = tokens.join(" ");
+    const hint = suggest(tokens[0] ?? "");
     await die(
       `unknown command: ${token}${hint ? `\n\nDid you mean \`livediff ${hint}\`?` : ""}\n\nRun \`livediff --help\` to see available commands.`,
       EXIT_USAGE,
     );
   }
-  console.log(text);
+  const helpText = text ?? "";
+  out(helpText, { help: helpText });
 }
 
 async function main(): Promise<void> {
   const [cmd, ...rest] = args;
 
   if (WANTS_VERSION) return out(hubVersion(), { version: hubVersion() });
-  if (WANTS_HELP) return cmdHelp(cmd);
+  if (WANTS_HELP) return cmdHelp(cmd === undefined ? [] : [cmd, ...rest]);
+  await validateInvocation(cmd, rest);
 
   switch (cmd) {
     case undefined:
       return cmdHubUi();
+    case "hub":
+      return cmdHubUi();
+    case "open":
+      return cmdOpen(rest[0]);
+    case "review":
+      return cmdOpen(rest[0], { wait: true });
+    case "link":
+      return cmdOpen(rest[0], { open: false });
     case "help":
-      return cmdHelp(rest[0]);
+      return cmdHelp(rest);
     case "list":
     case "ls":
       return cmdList();
@@ -654,15 +952,21 @@ async function main(): Promise<void> {
       return cmdArchive(rest[0]);
     case "prune":
       return cmdPrune(rest[0]);
+    case "restart":
+      return cmdRestart();
+    case "status":
+      return cmdStatus();
     case "stop":
       return cmdStop();
     case "doctor":
       return cmdDoctor();
+    case "completion":
+      return cmdCompletion(rest[0]);
     case "config":
       return cmdConfig(rest);
     default:
       if (await isPathArg(cmd)) return cmdOpen(cmd);
-      return cmdHelp(cmd);
+      return cmdHelp([cmd]);
   }
 }
 

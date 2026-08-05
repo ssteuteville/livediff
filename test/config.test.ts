@@ -3,10 +3,13 @@ import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   DEFAULT_CONFIG,
+  applyConfigDraft,
   configPath,
+  createConfigDraft,
   initConfig,
   loadConfig,
   setConfigValue,
+  unsetConfigValue,
   updateSchema,
 } from "../server/config.js";
 import { withTempXdg } from "./helpers.js";
@@ -98,6 +101,21 @@ describe("configuration", () => {
       await expect(readFile(schema, "utf8")).resolves.toContain(
         '"title": "LiveDiff configuration"',
       );
+    });
+  });
+
+  it("keeps invalid editor drafts out of the live config and installs valid drafts atomically", async () => {
+    await withTempXdg(async () => {
+      const draft = await createConfigDraft();
+      await writeFile(draft.draftPath, '{ "hub": { "port": 0 } }', "utf8");
+      await expect(applyConfigDraft(draft.draftPath)).rejects.toThrow(/port/);
+      expect(loadConfig()).toEqual(DEFAULT_CONFIG);
+
+      await writeFile(draft.draftPath, '{ "hub": { "port": 4910 } }', "utf8");
+      await applyConfigDraft(draft.draftPath);
+      expect(loadConfig().hub.port).toBe(4910);
+      expect(await unsetConfigValue("hub.port")).toBe(true);
+      expect(loadConfig().hub.port).toBe(DEFAULT_CONFIG.hub.port);
     });
   });
 });

@@ -27,19 +27,25 @@ export const GLOBAL_FLAGS: readonly HelpRow[] = [
 ];
 
 /** Flags that consume the next token as their value. The parser needs this to keep it out of args. */
-export const VALUE_FLAGS = new Set(["--timeout", "--status", "--branch", "--keep-days"]);
+export const VALUE_FLAGS = new Set([
+  "--timeout",
+  "--status",
+  "--branch",
+  "--keep-days",
+  "--editor",
+]);
 
 export const COMMANDS: readonly CommandHelp[] = [
   {
     id: "open",
-    name: "<path>",
-    usage: "livediff <path> [--no-open] [--wait] [--timeout <sec>]",
+    name: "open",
+    usage: "livediff open [path] [--no-open] [--wait] [--timeout <sec>]",
     summary: "register a worktree and open its focused view",
     details:
-      "Registers the git worktree containing <path> and opens it in the browser.\n" +
-      "Any subdirectory resolves to its worktree root, so the same worktree never\n" +
-      "registers twice — the subdirectory becomes a view filter instead, showing\n" +
-      "only files under it. The hub is started automatically if it is not running.\n" +
+      "Registers the selected worktree (the current directory by default) and opens it in the browser.\n" +
+      "The shorthand `livediff <path>` remains supported. Any subdirectory resolves to its worktree\n" +
+      "root, so the same worktree never registers twice — the subdirectory becomes a view filter\n" +
+      "instead, showing only files under it. The hub is started automatically if it is not running.\n" +
       "\n" +
       'With --wait, the command blocks until you click "Done reviewing" in the\n' +
       "browser, then prints a summary. Open comments are expected at that point —\n" +
@@ -50,7 +56,8 @@ export const COMMANDS: readonly CommandHelp[] = [
       ["--timeout <sec>", "give up waiting after <sec> seconds (default: never)"],
     ],
     examples: [
-      ["livediff .", "register the current worktree and open it"],
+      ["livediff open", "register the current worktree and open it"],
+      ["livediff .", "the shorthand for opening the current worktree"],
       ["livediff ~/work/feat-a", "register a worktree by path"],
       ["livediff apps/expo", "open the worktree, scoped to one directory"],
       ["livediff . --no-open --json", "register quietly and print JSON"],
@@ -59,15 +66,41 @@ export const COMMANDS: readonly CommandHelp[] = [
   },
   {
     id: "hub",
-    name: "(no arguments)",
-    usage: "livediff [--no-open]",
+    name: "hub",
+    usage: "livediff hub [--no-open]",
     summary: "open the hub UI showing every registered workspace",
-    details: "Starts the hub if needed, then opens the browser to the workspace rail.",
+    details:
+      "Starts the hub if needed, then opens the browser to the workspace rail.\n" +
+      "`livediff` without arguments is the shorthand for this command.",
     flags: [["--no-open", "start the hub and print its URL without launching a browser"]],
     examples: [
-      ["livediff", "open the hub UI"],
+      ["livediff hub", "open the hub UI"],
+      ["livediff", "the shorthand for opening the hub UI"],
       ["livediff --no-open", "start the hub and print its URL"],
     ],
+  },
+  {
+    id: "review",
+    name: "review",
+    usage: "livediff review [path] [--no-open] [--timeout <sec>]",
+    summary: "open a worktree and wait for the reviewer to finish",
+    details:
+      "Equivalent to `livediff open [path] --wait`. This is the clearest command for\n" +
+      "agent and human review handoffs; it prints the comment summary after Done reviewing.",
+    flags: [
+      ["--no-open", "register only; print the URL instead of launching a browser"],
+      ["--timeout <sec>", "give up waiting after <sec> seconds (default: never)"],
+    ],
+    examples: [["livediff review", "review the current worktree and wait"]],
+  },
+  {
+    id: "link",
+    name: "link",
+    usage: "livediff link [path]",
+    summary: "print a focused worktree URL without opening a browser",
+    details: "Registers the worktree if needed, then prints its URL for a human, script, or agent.",
+    flags: [],
+    examples: [["livediff link .", "print the current worktree's focused URL"]],
   },
   {
     id: "list",
@@ -194,7 +227,7 @@ export const COMMANDS: readonly CommandHelp[] = [
   {
     id: "config",
     name: "config",
-    usage: "livediff config [path|init|validate|list|get|set|schema]",
+    usage: "livediff config [edit|path|init|validate|list|get|set|unset|explain|schema]",
     summary: "view and manage per-user LiveDiff settings",
     details:
       "Settings live in $XDG_CONFIG_HOME/livediff/config.jsonc (default: ~/.config/livediff).\n" +
@@ -202,12 +235,35 @@ export const COMMANDS: readonly CommandHelp[] = [
       "then explicit command flags. Hub settings take effect after the hub restarts.",
     flags: [],
     examples: [
+      ["livediff config edit", "open a validated, schema-backed config draft in an editor"],
       ["livediff config init", "create a commented config file without overwriting"],
       ["livediff config set browser.opener cmux browser open", "use cmux to open URLs"],
       ["livediff config set retention.archiveWarningBytes 10485760", "warn at 10 MiB"],
       ["livediff config list", "show effective settings"],
       ["livediff config schema --update", "refresh editor completion without changing settings"],
     ],
+  },
+  {
+    id: "restart",
+    name: "restart",
+    usage: "livediff restart",
+    summary: "restart the hub to apply cached settings",
+    details:
+      "Stops the running hub if there is one, then starts the current CLI version.\n" +
+      "Use this after changing hub, retention, or default-renderer configuration.",
+    flags: [],
+    examples: [["livediff restart", "apply cached configuration changes"]],
+  },
+  {
+    id: "status",
+    name: "status",
+    usage: "livediff status",
+    summary: "show whether the hub is running and where settings live",
+    details:
+      "Does not start the hub. A stale result means LiveDiff found previous hub state but could not\n" +
+      "reach that process; run `livediff restart` to recover.",
+    flags: [],
+    examples: [["livediff status", "check LiveDiff without changing anything"]],
   },
   {
     id: "stop",
@@ -237,6 +293,23 @@ export const COMMANDS: readonly CommandHelp[] = [
     ],
   },
   {
+    id: "completion",
+    name: "completion",
+    usage: "livediff completion <bash|zsh|fish>",
+    summary: "print a shell completion script",
+    details:
+      "Source the generated script in your shell startup file. It is generated from LiveDiff's\n" +
+      "own command metadata, so installed completions track the CLI's documented commands.",
+    flags: [],
+    examples: [
+      ["source <(livediff completion zsh)", "enable completions in the current zsh session"],
+      [
+        "livediff completion fish > ~/.config/fish/completions/livediff.fish",
+        "install fish completions",
+      ],
+    ],
+  },
+  {
     id: "help",
     name: "help",
     usage: "livediff help [command]",
@@ -246,6 +319,112 @@ export const COMMANDS: readonly CommandHelp[] = [
     examples: [["livediff help resolve", "show help for the resolve command"]],
   },
 ];
+
+export const CONFIG_COMMANDS: readonly CommandHelp[] = [
+  {
+    id: "edit",
+    name: "edit",
+    usage: "livediff config edit [--editor <command>]",
+    summary: "edit configuration safely in your preferred editor",
+    details:
+      "Creates a schema-linked config if needed, edits a sibling draft, and only installs it after\n" +
+      "validation succeeds. Editor precedence: --editor, LIVEDIFF_EDITOR, tools.editor, VISUAL, EDITOR, vim.",
+    flags: [["--editor <command>", "override the editor command for this edit"]],
+    examples: [
+      ["livediff config edit", "edit with the configured or detected editor"],
+      ["livediff config edit --editor 'code --wait'", "edit with a one-off editor command"],
+    ],
+  },
+  {
+    id: "path",
+    name: "path",
+    usage: "livediff config path",
+    summary: "print the config file path",
+    details: "",
+    flags: [],
+    examples: [],
+  },
+  {
+    id: "init",
+    name: "init",
+    usage: "livediff config init",
+    summary: "create a minimal config without overwriting",
+    details: "",
+    flags: [],
+    examples: [],
+  },
+  {
+    id: "validate",
+    name: "validate",
+    usage: "livediff config validate",
+    summary: "validate effective configuration",
+    details: "",
+    flags: [],
+    examples: [],
+  },
+  {
+    id: "list",
+    name: "list",
+    usage: "livediff config list",
+    summary: "show effective configuration values",
+    details: "",
+    flags: [],
+    examples: [],
+  },
+  {
+    id: "get",
+    name: "get",
+    usage: "livediff config get <key>",
+    summary: "print one effective setting",
+    details: "",
+    flags: [],
+    examples: [],
+  },
+  {
+    id: "set",
+    name: "set",
+    usage: "livediff config set <key> <value...>",
+    summary: "set one user configuration override",
+    details: "Use ordinary shell arguments for command settings, or a JSON array for exact argv.",
+    flags: [],
+    examples: [],
+  },
+  {
+    id: "unset",
+    name: "unset",
+    usage: "livediff config unset <key>",
+    summary: "remove one user configuration override",
+    details: "The next lower-precedence source becomes effective.",
+    flags: [],
+    examples: [],
+  },
+  {
+    id: "explain",
+    name: "explain",
+    usage: "livediff config explain <key>",
+    summary: "explain one setting's effective value and source",
+    details: "",
+    flags: [],
+    examples: [],
+  },
+  {
+    id: "schema",
+    name: "schema",
+    usage: "livediff config schema [--update]",
+    summary: "print or refresh the editor schema",
+    details: "",
+    flags: [["--update", "replace only the bundled schema file"]],
+    examples: [],
+  },
+];
+
+export function findConfigCommand(token: string): CommandHelp | null {
+  return CONFIG_COMMANDS.find((command) => command.name === token) ?? null;
+}
+
+export function renderConfigCommandHelp(command: CommandHelp): string {
+  return renderCommandHelp({ ...command, name: `config ${command.name}` });
+}
 
 /** Every name a user could type to reach a command. */
 export function commandNames(): string[] {
@@ -293,6 +472,7 @@ export function renderMainHelp(version: string): string {
       ["LIVEDIFF_PORT", "preferred hub port (default 4180)"],
       ["LIVEDIFF_POLL_MS", "live-update poll interval in ms (default 1000)"],
       ["LIVEDIFF_BROWSER", "command used to open URLs, args allowed (default: the OS opener)"],
+      ["LIVEDIFF_EDITOR", "command used by `config edit`, args allowed"],
       ["NO_COLOR", "disable colored output"],
     ]),
     "",

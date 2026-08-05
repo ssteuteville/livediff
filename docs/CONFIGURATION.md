@@ -1,6 +1,6 @@
 # Configuration
 
-LiveDiff works without configuration. Use `livediff config init` only when you want to override a default.
+LiveDiff works without configuration. Use `livediff config edit` when you want to explore or override a default.
 
 The per-user configuration file is `$XDG_CONFIG_HOME/livediff/config.jsonc`, or
 `~/.config/livediff/config.jsonc` when `XDG_CONFIG_HOME` is unset. It is intentionally global:
@@ -15,8 +15,9 @@ For each setting, the most specific source wins:
 3. `LIVEDIFF_*` environment variable
 4. Explicit CLI flag, where a command provides one
 
-`livediff config list` shows the effective values. Hub settings are read when the hub starts;
-restart it with `livediff stop` and run any LiveDiff command to apply a changed port or poll interval.
+`livediff config list` shows the effective values. `livediff config explain <key>` also shows which
+layer won. Hub settings are read when the hub starts; run `livediff restart` after changing a cached
+setting.
 
 ## Example
 
@@ -25,6 +26,9 @@ restart it with `livediff stop` and run any LiveDiff command to apply a changed 
   "$schema": "./config.schema.json",
   "browser": {
     "opener": ["cmux", "open-window"],
+  },
+  "tools": {
+    "editor": ["vim"],
   },
   "hub": {
     "port": 4180,
@@ -46,28 +50,42 @@ restart it with `livediff stop` and run any LiveDiff command to apply a changed 
 never runs it through a shell. The existing `LIVEDIFF_BROWSER="cmux open-window"` environment
 variable remains available for scripts and takes precedence.
 
+`tools.editor` is also argv, used by `livediff config edit`. Its resolution order is
+`--editor`, `LIVEDIFF_EDITOR`, `tools.editor`, `VISUAL`, `EDITOR`, then `vim`.
+
 ## Commands
 
 ```text
+livediff config edit [--editor <command>]
 livediff config path
 livediff config init
 livediff config validate
 livediff config list
 livediff config get <key>
 livediff config set <key> <value>
+livediff config unset <key>
+livediff config explain <key>
 livediff config schema
 livediff config schema --update
 ```
 
-`init` never overwrites an existing file. `set` validates the updated JSONC and writes atomically.
+`edit` creates a schema-linked draft beside the config, opens it in your editor, validates it when
+the editor exits, and only then atomically replaces the live file. Invalid drafts are preserved and
+never break a working configuration. `init` never overwrites an existing file. `set` validates the
+updated JSONC and writes atomically. `unset` removes an explicit override so the next lower-precedence
+source becomes effective.
 `browser.opener` accepts a command followed by ordinary arguments:
 
 ```text
 livediff config set browser.opener cmux browser open
 ```
 
-It is stored as structured argv. For an argument that itself needs whitespace or other exact
-preservation, pass the JSON array form instead.
+It is stored as structured argv. Normal shell tokens are preserved; a single quoted command string
+is split for convenience. For an argument that itself needs whitespace or other exact preservation,
+pass the JSON array form instead.
+
+Sizes and durations are accepted where they make sense, so `10MiB` may be used for
+`retention.archiveWarningBytes`, `1s` for `hub.pollIntervalMs`, and `30d` for retention ages.
 
 `livediff config init` installs `config.schema.json` beside the config. Its relative `$schema`
 reference provides completion, validation, descriptions, and defaults in editors that support JSON
@@ -79,6 +97,7 @@ with the current LiveDiff CLI; it never changes `config.jsonc` or its values.
 | Setting                              |   Default | Meaning                                               |
 | ------------------------------------ | --------: | ----------------------------------------------------- |
 | `browser.opener`                     | OS opener | argv used to open a LiveDiff URL                      |
+| `tools.editor`                       |     `vim` | argv used to edit a configuration draft               |
 | `hub.port`                           |    `4180` | preferred loopback port                               |
 | `hub.pollIntervalMs`                 |    `1000` | worktree polling interval while a browser is attached |
 | `retention.orphanArchiveAfterDays`   |       `5` | archive age for comments whose file left the diff     |
