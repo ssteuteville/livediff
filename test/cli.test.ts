@@ -4,7 +4,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
 import { join } from "node:path";
-import { writeFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { withTempXdg, makeRepo } from "./helpers.js";
 import { readState, probeMeta } from "../server/hub-state.js";
 
@@ -28,6 +28,23 @@ function isProcessError(
 ): error is { code?: unknown; stderr?: unknown; stdout?: unknown } {
   return typeof error === "object" && error !== null;
 }
+
+test("config commands initialize, validate, and update JSONC settings", async () => {
+  await withTempXdg(async ({ config }) => {
+    const initialized = await cli(["config", "init"]);
+    assert.equal(initialized.code, 0);
+
+    const path = join(config, "livediff", "config.jsonc");
+    assert.match(await readFile(path, "utf8"), /\$schema/);
+
+    const set = await cli(["config", "set", "retention.archiveWarningBytes", "8000000"]);
+    assert.equal(set.code, 0);
+    const get = await cli(["config", "get", "retention.archiveWarningBytes"]);
+    assert.equal(get.stdout.trim(), "8000000");
+    const valid = await cli(["config", "validate"]);
+    assert.equal(valid.code, 0);
+  });
+});
 
 async function cli(args: readonly string[], opts: CliOptions = {}): Promise<CliResult> {
   try {

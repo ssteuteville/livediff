@@ -243,7 +243,7 @@ dormancy transitions, path normalization, the registry migration, and CLI exit c
 
 ## Agent integration
 
-Five skills, shipped by the plugin, with no MCP server. An MCP tool definition costs
+Six skills, shipped by the plugin, with no MCP server. An MCP tool definition costs
 context in every conversation whether or not it is used; livediff is a local binary on
 `PATH` with no auth, so MCP would charge permanently to wrap a 240ms subprocess — and would
 drop every agent that speaks shell but not MCP.

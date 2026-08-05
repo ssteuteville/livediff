@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { ENV } from "./constants.js";
+import { loadConfig } from "./config.js";
 
 const exec = promisify(execFile);
 
@@ -15,9 +15,11 @@ const exec = promisify(execFile);
 type CommandArgv = [command: string, ...args: string[]];
 
 function openerArgv(): CommandArgv {
-  const configured = process.env[ENV.BROWSER];
+  const configured = loadConfig().browser.opener;
   if (configured) {
-    const [command = "", ...args] = configured.trim().split(/\s+/);
+    const command = configured[0];
+    if (command === undefined) throw new Error("browser opener must name an executable");
+    const args = configured.slice(1);
     return [command, ...args];
   }
   if (process.platform === "darwin") return ["open"];
@@ -30,6 +32,7 @@ function openerArgv(): CommandArgv {
  * reporting but never worth failing a command over — the workspace is registered either way.
  */
 export async function openBrowser(url: string): Promise<boolean> {
+  const configured = loadConfig().browser.opener;
   const [command, ...args] = openerArgv();
   try {
     await exec(command, [...args, url]);
@@ -37,6 +40,6 @@ export async function openBrowser(url: string): Promise<boolean> {
   } catch {
     // `explorer` exits non-zero even when it succeeds, so its status carries no information.
     // An explicit LIVEDIFF_BROWSER is still reported honestly.
-    return process.platform === "win32" && !process.env[ENV.BROWSER];
+    return process.platform === "win32" && configured === null;
   }
 }

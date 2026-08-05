@@ -1,4 +1,5 @@
 import type { Comment, Diff, Reply, Review, Workspace } from "../shared/types.ts";
+import type { Renderer } from "../shared/constants.ts";
 
 /** The payload every hub event carries: which workspace moved, and why. */
 export interface HubEvent {
@@ -24,6 +25,12 @@ export interface WorkspaceSummary extends Workspace {
 
 export type NewComment = Pick<Comment, "file" | "side" | "line" | "body"> &
   Partial<Pick<Comment, "lineContent">>;
+
+export function fetchDefaultRenderer(): Promise<Renderer> {
+  return fetch("/api/config")
+    .then(asJson<{ defaultRenderer: Renderer }>())
+    .then((config) => config.defaultRenderer);
+}
 
 async function json<T>(res: Response): Promise<T> {
   if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);

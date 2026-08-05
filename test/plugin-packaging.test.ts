@@ -37,6 +37,7 @@ test("the shared LiveDiff plugin is listed in both native marketplaces", async (
   await Promise.all([
     access(codexManifestPath),
     access(claudeManifestPath),
+    access(join(pluginRoot, "skills", "config", "SKILL.md")),
     access(join(pluginRoot, "skills", "review", "SKILL.md")),
   ]);
 
@@ -65,4 +66,5 @@ test("the installer registers and installs both native plugins", async () => {
   assert.match(installer, /claude plugin install livediff@livediff/);
   assert.match(installer, /codex plugin marketplace add "\$SCRIPT_DIR"/);
   assert.match(installer, /codex plugin add livediff@livediff/);
+  assert.doesNotMatch(installer, /livediff config init/);
 });

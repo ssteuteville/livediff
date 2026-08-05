@@ -192,6 +192,24 @@ export const COMMANDS: readonly CommandHelp[] = [
     examples: [["livediff reply a1b2c3d4 what did you mean here?", "reply only"]],
   },
   {
+    id: "config",
+    name: "config",
+    usage: "livediff config [path|init|validate|list|get|set|schema]",
+    summary: "view and manage per-user LiveDiff settings",
+    details:
+      "Settings live in $XDG_CONFIG_HOME/livediff/config.jsonc (default: ~/.config/livediff).\n" +
+      "Built-in defaults are overridden by this file, then LIVEDIFF_* environment variables,\n" +
+      "then explicit command flags. Hub settings take effect after the hub restarts.",
+    flags: [],
+    examples: [
+      ["livediff config init", "create a commented config file without overwriting"],
+      ['livediff config set browser.opener \'["cmux", "open-window"]\'', "use cmux to open URLs"],
+      ["livediff config set retention.archiveWarningBytes 10485760", "warn at 10 MiB"],
+      ["livediff config list", "show effective settings"],
+      ["livediff config schema --update", "refresh editor completion without changing settings"],
+    ],
+  },
+  {
     id: "stop",
     name: "stop",
     usage: "livediff stop",

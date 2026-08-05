@@ -74,3 +74,22 @@ test("daysUntilPurge counts down from 200", () => {
   assert.equal(daysUntilPurge(comment({ archivedAt: daysAgo(6) }), NOW), 194);
   assert.equal(daysUntilPurge(comment({ archivedAt: null }), NOW), null);
 });
+
+test("a configured retention policy changes archive and purge thresholds", () => {
+  const policy = {
+    orphanArchiveAfterDays: 10,
+    resolvedArchiveAfterDays: 20,
+    purgeAfterDays: 40,
+  };
+  assert.equal(
+    shouldArchive(comment({ updatedAt: daysAgo(6) }), { orphaned: true, now: NOW }, policy),
+    false,
+  );
+  assert.equal(
+    shouldArchive(comment({ updatedAt: daysAgo(11) }), { orphaned: true, now: NOW }, policy),
+    true,
+  );
+  assert.equal(shouldPurge(comment({ archivedAt: daysAgo(39) }), NOW, policy), false);
+  assert.equal(shouldPurge(comment({ archivedAt: daysAgo(41) }), NOW, policy), true);
+  assert.equal(daysUntilPurge(comment({ archivedAt: daysAgo(6) }), NOW, policy), 34);
+});

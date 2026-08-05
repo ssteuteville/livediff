@@ -10,6 +10,7 @@ import {
 } from "./constants.js";
 import { writeJsonAtomic } from "./atomic.js";
 import { currentBranch } from "./git.js";
+import type { RetentionPolicy } from "./comment-lifecycle.js";
 import {
   isOrphaned,
   shouldArchive,
@@ -51,6 +52,7 @@ interface SweepOptions {
     stale?: boolean;
     resolved?: boolean;
   };
+  policy?: RetentionPolicy;
 }
 
 interface PurgeArchivedOptions {
@@ -360,7 +362,7 @@ export async function sweep(
   wsId: string,
   repoPath: string | null,
   changed: readonly string[],
-  { now = Date.now(), force = {} }: SweepOptions = {},
+  { now = Date.now(), force = {}, policy }: SweepOptions = {},
 ): Promise<{ archived: number; purged: number }> {
   const store = await readStore(wsId, repoPath);
   const branch = repoPath ? await currentBranch(repoPath).catch(() => null) : null;
@@ -369,7 +371,7 @@ export async function sweep(
   let purged = 0;
 
   for (const [id, comment] of Object.entries(store)) {
-    if (shouldPurge(comment, now)) {
+    if (shouldPurge(comment, now, policy)) {
       delete store[id];
       purged++;
       continue;
@@ -379,7 +381,7 @@ export async function sweep(
     const forced =
       !comment.archivedAt &&
       ((force.stale && orphaned) || (force.resolved && comment.status === "resolved"));
-    if (forced || shouldArchive(comment, { orphaned, now })) {
+    if (forced || shouldArchive(comment, { orphaned, now }, policy)) {
       comment.archivedAt = new Date(now).toISOString();
       archived++;
     }

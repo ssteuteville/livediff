@@ -5,9 +5,9 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 import { configDir, readRegistry, idFor } from "./registry.js";
 import { listComments } from "./comments.js";
+import { loadConfig } from "./config.js";
 import {
   APP_DIR_NAME,
-  ARCHIVE_WARN_BYTES,
   COMMENTS_DIR_NAME,
   DAY_MS,
   LEGACY_COMMENT_DIR,
@@ -270,6 +270,7 @@ async function checkPlugin(version: string): Promise<Finding> {
  * carries a fix, so this one does too.
  */
 async function checkArchive(): Promise<Finding> {
+  const warningBytes = loadConfig().retention.archiveWarningBytes;
   const workspaces = await readRegistry();
   let bytes = 0;
   let archived = 0;
@@ -305,7 +306,7 @@ async function checkArchive(): Promise<Finding> {
     `${workspaces.length} workspaces, ${archived} ${noun}, ${size}\n` +
     `oldest archived ${days} days ago`;
   const fix = "livediff prune --dry-run";
-  return bytes > ARCHIVE_WARN_BYTES
+  return bytes > warningBytes
     ? warn("comment archive is large", detail, fix)
     : { level: "ok", title: "comment archive", detail, fix };
 }

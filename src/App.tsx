@@ -10,7 +10,12 @@ import {
   type SetStateAction,
 } from "react";
 import type { Comment, Diff, Reply, Review } from "../shared/types.ts";
-import type { HubEvent, NewComment, WorkspaceSummary } from "./api.ts";
+import {
+  fetchDefaultRenderer,
+  type HubEvent,
+  type NewComment,
+  type WorkspaceSummary,
+} from "./api.ts";
 import FastDiff from "./components/FastDiff.tsx";
 import CommentDrawer from "./components/CommentDrawer.tsx";
 import WorkspaceRail from "./components/WorkspaceRail.tsx";
@@ -125,6 +130,7 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [jump, setJump] = useState<{ path: string; nonce: number } | null>(null);
   const [showAll, setShowAll] = useState(0);
+  const [configuredRenderer, setConfiguredRenderer] = useState(RENDERER);
   const theme = useTheme();
   const fileRefs = useRef<Record<number, HTMLDivElement | null>>({});
 
@@ -139,8 +145,15 @@ export default function App() {
   // ?renderer=classic|fast overrides the build-time default for one tab, so the two can be
   // compared on the same diff without a rebuild. See RENDERER in server/constants.js.
   const requested = urlParams.get("renderer");
-  const renderer = isRenderer(requested) ? requested : RENDERER;
+  const renderer = isRenderer(requested) ? requested : configuredRenderer;
   const fast = renderer === "fast";
+
+  useEffect(() => {
+    if (requested !== null) return;
+    void fetchDefaultRenderer()
+      .then(setConfiguredRenderer)
+      .catch(() => undefined);
+  }, [requested]);
 
   // Mirrors for use inside the once-only SSE subscription.
   const selectedRef = useRef<string | null>(null);

@@ -11,6 +11,15 @@ import {
   VALUE_FLAGS,
 } from "./cli-help.js";
 import { openBrowser } from "./open-browser.js";
+import {
+  configPath,
+  ensureSchema,
+  initConfig,
+  loadConfig,
+  schemaPath,
+  setConfigValue,
+  updateSchema,
+} from "./config.js";
 import { sseEvents } from "./sse.js";
 import { diagnose } from "./doctor.js";
 import {
@@ -498,6 +507,80 @@ async function cmdDoctor(): Promise<void> {
   if (failed) await exit(EXIT_ERROR);
 }
 
+function configValue(key: string): unknown {
+  const config = loadConfig();
+  switch (key) {
+    case "browser.opener":
+      return config.browser.opener;
+    case "hub.port":
+      return config.hub.port;
+    case "hub.pollIntervalMs":
+      return config.hub.pollIntervalMs;
+    case "retention.orphanArchiveAfterDays":
+      return config.retention.orphanArchiveAfterDays;
+    case "retention.resolvedArchiveAfterDays":
+      return config.retention.resolvedArchiveAfterDays;
+    case "retention.purgeAfterDays":
+      return config.retention.purgeAfterDays;
+    case "retention.archiveWarningBytes":
+      return config.retention.archiveWarningBytes;
+    case "ui.defaultRenderer":
+      return config.ui.defaultRenderer;
+    default:
+      throw new Error(`unknown configuration setting: ${key}`);
+  }
+}
+
+function parseConfigValue(value: string): unknown {
+  try {
+    return JSON.parse(value) as unknown;
+  } catch {
+    return value;
+  }
+}
+
+async function cmdConfig(rest: readonly string[]): Promise<void> {
+  const [action = "list", key, rawValue] = rest;
+  switch (action) {
+    case "path":
+      return out(configPath(), { path: configPath() });
+    case "schema":
+      if (key === "--update") {
+        const path = await updateSchema();
+        return out(`updated ${path}`, { path, updated: true });
+      }
+      if (key !== undefined) return die("usage: livediff config schema [--update]", EXIT_USAGE);
+      await ensureSchema();
+      return out(schemaPath(), { schema: schemaPath() });
+    case "init": {
+      const path = await initConfig();
+      return out(`created ${path}`, { path });
+    }
+    case "validate": {
+      const config = loadConfig();
+      return out("configuration is valid", { config });
+    }
+    case "list": {
+      const config = loadConfig();
+      return out(JSON.stringify(config, null, 2), { config });
+    }
+    case "get":
+      if (!key) return die("usage: livediff config get <key>", EXIT_USAGE);
+      return out(String(configValue(key)), { key, value: configValue(key) });
+    case "set":
+      if (!key || rawValue === undefined)
+        return die("usage: livediff config set <key> <value>", EXIT_USAGE);
+      await setConfigValue(key, parseConfigValue(rawValue));
+      return out(`set ${key}`, {
+        key,
+        value: configValue(key),
+        restartRequired: key.startsWith("hub."),
+      });
+    default:
+      return die(`unknown config command: ${action}`, EXIT_USAGE);
+  }
+}
+
 function helpFor(token?: string): string | null {
   if (!token) return renderMainHelp(hubVersion());
   const cmd = findCommand(token);
@@ -550,6 +633,8 @@ async function main(): Promise<void> {
       return cmdStop();
     case "doctor":
       return cmdDoctor();
+    case "config":
+      return cmdConfig(rest);
     default:
       if (await isPathArg(cmd)) return cmdOpen(cmd);
       return cmdHelp(cmd);

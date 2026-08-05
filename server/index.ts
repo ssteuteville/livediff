@@ -35,12 +35,11 @@ import {
 } from "./registry.js";
 import type { Workspace } from "./registry.js";
 import { writeState, clearState, probeMeta, isBlockedPort } from "./hub-state.js";
+import { loadConfig } from "./config.js";
 import {
   APP_DIR_NAME,
   COMMENTS_DIR_NAME,
   DAY_MS,
-  DEFAULT_POLL_MS,
-  DEFAULT_PORT,
   ENV,
   ID_LENGTH,
   LOOPBACK_HOST,
@@ -58,9 +57,10 @@ const projectRoot = import.meta.url.endsWith(".ts")
   : join(__dirname, "..", "..");
 const DIST = join(projectRoot, "dist");
 
-const PREFERRED_PORT = Number(process.env[ENV.PORT] || DEFAULT_PORT);
+const CONFIG = loadConfig();
+const PREFERRED_PORT = CONFIG.hub.port;
 let BOUND_PORT = PREFERRED_PORT;
-const POLL_MS = Number(process.env[ENV.POLL_MS] || DEFAULT_POLL_MS);
+const POLL_MS = CONFIG.hub.pollIntervalMs;
 
 let VERSION = "0.0.0";
 try {
@@ -207,7 +207,12 @@ const server = createServer(async (req, res) => {
         version: VERSION,
         clients: sseClients.size,
         polling: pollTimer !== null,
+        defaultRenderer: CONFIG.ui.defaultRenderer,
       });
+    }
+
+    if (pathname === "/api/config") {
+      return send(res, 200, { defaultRenderer: CONFIG.ui.defaultRenderer });
     }
 
     if (pathname === "/api/shutdown" && req.method === "POST") {
@@ -310,7 +315,10 @@ const server = createServer(async (req, res) => {
       let purged = 0;
       for (const w of targets) {
         const changed = await changedPaths(w.path).catch(() => []);
-        const result = await sweep(w.id, w.path, changed, { force: force ?? {} });
+        const result = await sweep(w.id, w.path, changed, {
+          force: force ?? {},
+          policy: CONFIG.retention,
+        });
         archived += result.archived;
         purged += result.purged;
       }
@@ -531,7 +539,9 @@ async function poll() {
     registered.map(async (w, i) => {
       const workspaceChanged = changed[i];
       if (workspaceChanged === null || workspaceChanged === undefined) return; // transient git state
-      const { archived, purged } = await sweep(w.id, w.path, workspaceChanged, {});
+      const { archived, purged } = await sweep(w.id, w.path, workspaceChanged, {
+        policy: CONFIG.retention,
+      });
       if (archived || purged) broadcast("comments", { reason: "swept", ws: w.id });
     }),
   );

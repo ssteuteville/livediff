@@ -1,0 +1,89 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://livediff.dev/schemas/config-v1.json",
+  "title": "LiveDiff configuration",
+  "description": "Per-user LiveDiff settings. Omitted properties use LiveDiff defaults.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "JSON Schema URL for editor completion and validation."
+    },
+    "browser": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "opener": {
+          "type": "array",
+          "description": "Executable and literal arguments used to open a LiveDiff URL. This is argv, not a shell command.",
+          "minItems": 1,
+          "items": { "type": "string", "minLength": 1 },
+          "examples": [["cmux", "open-window"]]
+        }
+      }
+    },
+    "hub": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "port": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535,
+          "default": 4180,
+          "description": "Preferred loopback port. LiveDiff uses the next available port when this one is occupied."
+        },
+        "pollIntervalMs": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 1000,
+          "description": "Milliseconds between live worktree checks while a browser is attached."
+        }
+      }
+    },
+    "retention": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "orphanArchiveAfterDays": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 5,
+          "description": "Archive an open comment after its file has been absent from the diff for this many days."
+        },
+        "resolvedArchiveAfterDays": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 30,
+          "description": "Archive a resolved comment after this many untouched days."
+        },
+        "purgeAfterDays": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 200,
+          "description": "Permanently delete an archived comment after this many days."
+        },
+        "archiveWarningBytes": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 5242880,
+          "description": "Archive size in bytes at which livediff doctor recommends pruning.",
+          "examples": [10485760]
+        }
+      }
+    },
+    "ui": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "defaultRenderer": {
+          "type": "string",
+          "enum": ["classic", "fast"],
+          "default": "fast",
+          "description": "Default diff renderer. A ?renderer= URL parameter still overrides this per tab."
+        }
+      }
+    }
+  }
+}

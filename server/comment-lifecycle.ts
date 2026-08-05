@@ -22,6 +22,18 @@ export interface ArchiveContext {
   now: number;
 }
 
+export interface RetentionPolicy {
+  orphanArchiveAfterDays: number;
+  resolvedArchiveAfterDays: number;
+  purgeAfterDays: number;
+}
+
+const DEFAULT_RETENTION: RetentionPolicy = {
+  orphanArchiveAfterDays: ORPHAN_ARCHIVE_DAYS,
+  resolvedArchiveAfterDays: RESOLVED_ARCHIVE_DAYS,
+  purgeAfterDays: PURGE_DAYS,
+};
+
 const ageInDays = (iso: string, now: number): number => (now - Date.parse(iso)) / DAY_MS;
 
 /** A comment is orphaned when the file it was left on is no longer part of the diff. */
@@ -39,23 +51,29 @@ export function isOrphaned(
 export function shouldArchive(
   comment: LifecycleComment,
   { orphaned, now }: ArchiveContext,
+  policy: RetentionPolicy = DEFAULT_RETENTION,
 ): boolean {
   if (comment.archivedAt) return false;
   const age = ageInDays(comment.updatedAt, now);
-  if (orphaned && age > ORPHAN_ARCHIVE_DAYS) return true;
-  return comment.status === "resolved" && age > RESOLVED_ARCHIVE_DAYS;
+  if (orphaned && age > policy.orphanArchiveAfterDays) return true;
+  return comment.status === "resolved" && age > policy.resolvedArchiveAfterDays;
 }
 
-export function shouldPurge(comment: Pick<LifecycleComment, "archivedAt">, now: number): boolean {
+export function shouldPurge(
+  comment: Pick<LifecycleComment, "archivedAt">,
+  now: number,
+  policy: RetentionPolicy = DEFAULT_RETENTION,
+): boolean {
   if (!comment.archivedAt) return false;
-  return ageInDays(comment.archivedAt, now) > PURGE_DAYS;
+  return ageInDays(comment.archivedAt, now) > policy.purgeAfterDays;
 }
 
 /** Days left before purge, or null when the comment is not archived. */
 export function daysUntilPurge(
   comment: Pick<LifecycleComment, "archivedAt">,
   now: number,
+  policy: RetentionPolicy = DEFAULT_RETENTION,
 ): number | null {
   if (!comment.archivedAt) return null;
-  return Math.ceil(PURGE_DAYS - ageInDays(comment.archivedAt, now));
+  return Math.ceil(policy.purgeAfterDays - ageInDays(comment.archivedAt, now));
 }
