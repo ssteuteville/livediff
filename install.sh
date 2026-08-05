@@ -107,7 +107,10 @@ fi
 if command -v claude >/dev/null 2>&1; then
   info "Installing the Claude Code plugin…"
   claude plugin marketplace add "$SCRIPT_DIR" || warn "Claude marketplace already registered or could not be added."
-  claude plugin install livediff@livediff || claude plugin update livediff@livediff || warn "Claude plugin could not be installed."
+  # `install` reports success when the plugin is already present, without upgrading it, so an
+  # `install || update` chain would leave the old version pinned on every re-run. Always update.
+  claude plugin install livediff@livediff || warn "Claude plugin could not be installed."
+  claude plugin update livediff@livediff || warn "Claude plugin could not be updated."
 else
   warn "Claude Code is not installed; skipped its plugin."
 fi
