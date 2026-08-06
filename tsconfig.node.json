@@ -6,5 +6,5 @@
     "outDir": "dist-server",
     "rootDir": "."
   },
-  "include": ["server/**/*", "shared/**/*"]
+  "include": ["server/**/*", "shared/**/*", "scripts/**/*"]
 }
