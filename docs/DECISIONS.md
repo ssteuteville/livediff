@@ -57,3 +57,11 @@ These are the durable choices that shape LiveDiff. Detailed implementation histo
 **Why:** The server, web app, tests, and package boundary share structured data. Static checks make migrations and refactors safer.
 
 **Consequence:** New code must avoid `any`, preserve typed boundaries, and pass typecheck, lint, formatting, and relevant tests before release.
+
+## One typed command registry, no parser framework
+
+**Decision:** A hand-written typed registry in `server/cli-help.ts` is the single source for command names, aliases, arguments, options, and examples. Commander, Stricli, and oclif were evaluated and rejected.
+
+**Why:** The registry now drives strict validation, human help, nested help, shell completion, and JSON introspection from one declaration, which is what a framework was wanted for. LiveDiff's unusual grammar — the bare `livediff <path>` shorthand, hub-starting side effects, and dynamic completion that must never start a hub — is exactly the part a framework would fight. Declaring arguments once and deriving arity from them removed the drift that motivated the search, after `resolve` had accumulated an arity contradicting its own documented usage.
+
+**Consequence:** Parsing edge cases, completion generation, and help rendering are owned here rather than delegated. Every surface must be derived from the registry rather than restated: a command's behavior is only a product contract if validation, help, completion, and `help --json` all agree by construction. Handlers stay separate from metadata by design.
