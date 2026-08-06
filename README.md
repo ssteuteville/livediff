@@ -103,6 +103,10 @@ livediff config explain <key>  show a setting's value and where it came from
 Every command takes `--json` for machine-readable output. Exit codes are `0` success, `1` error,
 `2` usage mistake. `livediff help <command>` documents any of them.
 
+`livediff help --json` prints a versioned description of the whole command tree — every command,
+nested action, argument, and option — so an agent can read the installed version's contract instead
+of guessing. `livediff help <command> --json` prints one command's entry.
+
 For shell completion, run `livediff completion install`. It detects bash, zsh, or fish and writes
 a generated completion file under LiveDiff's XDG configuration directory. Add `--activate` only
 when you want it to append LiveDiff's clearly marked source block to your shell startup file:

@@ -20,11 +20,16 @@ first slice now delivers the core P0/P1 contract:
 - State-aware completion for registered workspace paths and open/archived comment IDs, via hidden
   `__complete-workspaces`/`__complete-comments` commands that query a running hub and never start
   one — so a cold shell never blocks on Tab.
+- Declarative per-argument specs. Positional arity is derived from them rather than maintained
+  alongside the usage string, which had already drifted: `resolve <id>` with no reply text was
+  rejected despite being documented as valid.
+- Versioned `help --json` introspection covering every command, nested action, argument, and
+  option, so agents can read the installed version's contract instead of prose.
 
-Still intentionally deferred: branch-name completion for `comments --branch`, a richer
-machine-readable command-introspection protocol, consistent JSON contracts for every command, and
-end-to-end runtime verification where the host permits local port binding. Those are the next
-highest-value items, rather than a parser-framework rewrite for its own sake.
+Still intentionally deferred: branch-name completion for `comments --branch`, consistent JSON
+contracts for every command, and end-to-end runtime verification where the host permits local port
+binding. Those are the next highest-value items, rather than a parser-framework rewrite for its own
+sake.
 
 ## Executive take
 
@@ -208,6 +213,11 @@ This follows uv's useful distinction between condensed `--help` and longer, page
 keeping LiveDiff's current examples and explanatory prose.
 
 #### 7. `--json` is promised more broadly than it is defined
+
+**Status: resolved in 0.8.** `livediff help --json` emits a versioned descriptor of every command,
+nested action, argument, and option; `livediff help <command> --json` emits one, alongside the
+rendered text. Arguments are declared per command, so arity, help, and introspection cannot drift.
+`mayPrompt`/`mutates` annotations are not modelled yet.
 
 The README says every command accepts `--json`, but help output remains human text and the command
 tree itself has no machine-readable form. For agents, shell completion, docs generation, and plugin

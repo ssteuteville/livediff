@@ -6,8 +6,26 @@ import { tmpdir } from "node:os";
 import { promisify } from "node:util";
 import { test } from "vitest";
 import { renderCompletion } from "../server/cli-completion.js";
+import { arity, findCommand } from "../server/cli-help.js";
 
 const exec = promisify(execFile);
+
+test("arity() agrees with each command's usage string", () => {
+  const resolve = findCommand("resolve");
+  assert.ok(resolve);
+  assert.deepEqual(arity(resolve.args), { min: 1, max: null });
+  assert.match(resolve.usage, /livediff resolve <id> \[text\.\.\.\]/);
+
+  const reply = findCommand("reply");
+  assert.ok(reply);
+  assert.deepEqual(arity(reply.args), { min: 2, max: null });
+  assert.match(reply.usage, /livediff reply <id> <text\.\.\.>/);
+
+  const list = findCommand("list");
+  assert.ok(list);
+  assert.deepEqual(arity(list.args), { min: 0, max: 0 });
+  assert.match(list.usage, /livediff list$/);
+});
 
 test("shell completions are generated from the command metadata", () => {
   const bash = renderCompletion("bash");

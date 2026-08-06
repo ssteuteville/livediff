@@ -198,6 +198,70 @@ test("help honors the global JSON output contract", async () => {
   });
 });
 
+test("help --json emits a full CLI introspection descriptor", async () => {
+  await withTempXdg(async () => {
+    const result = await cli(["help", "--json"]);
+    assert.equal(result.code, 0);
+    const body: unknown = JSON.parse(result.stdout);
+    assert.ok(isRecord(body));
+    assert.equal(body["schemaVersion"], 1);
+    assert.equal(typeof body["version"], "string");
+    const commands = body["commands"];
+    assert.ok(Array.isArray(commands));
+    const configSet = (commands as unknown[]).find(
+      (c) => isRecord(c) && c["name"] === "config set",
+    );
+    assert.ok(isRecord(configSet));
+    const configSetArgs = configSet["arguments"];
+    assert.ok(Array.isArray(configSetArgs));
+    const key = (configSetArgs as unknown[]).find((a) => isRecord(a) && a["name"] === "key");
+    assert.ok(isRecord(key));
+    assert.equal(key["required"], true);
+    assert.equal(await readState(), null);
+  });
+});
+
+test("resolve still requires an id", async () => {
+  await withTempXdg(async () => {
+    // `resolve <id>` with no reply text is now valid, but running it here would start a hub —
+    // its arity is asserted from the registry instead. This covers the remaining boundary.
+    const res = await cli(["resolve"]);
+    assert.equal(res.code, 2);
+    assert.match(res.stderr, /missing required argument/);
+    assert.equal(await readState(), null);
+  });
+});
+
+test("help config renders the top-level command, not a nested action", async () => {
+  await withTempXdg(async () => {
+    const config = await cli(["help", "config"]);
+    assert.equal(config.code, 0);
+    assert.match(config.stdout, /^livediff config —/);
+
+    const completion = await cli(["help", "completion"]);
+    assert.equal(completion.code, 0);
+    assert.match(completion.stdout, /^livediff completion —/);
+    assert.equal(await readState(), null);
+  });
+});
+
+test("help resolve --json includes the rendered help text and structured arguments", async () => {
+  await withTempXdg(async () => {
+    const result = await cli(["help", "resolve", "--json"]);
+    assert.equal(result.code, 0);
+    const body: unknown = JSON.parse(result.stdout);
+    assert.ok(isRecord(body));
+    assert.equal(typeof body["help"], "string");
+    const args = body["arguments"];
+    assert.ok(Array.isArray(args));
+    const text = (args as unknown[]).find((a) => isRecord(a) && a["name"] === "text");
+    assert.ok(isRecord(text));
+    assert.equal(text["required"], false);
+    assert.equal(text["variadic"], true);
+    assert.equal(await readState(), null);
+  });
+});
+
 async function cli(args: readonly string[], opts: CliOptions = {}): Promise<CliResult> {
   try {
     const { stdout, stderr } = await exec(process.execPath, [CLI, ...args], {

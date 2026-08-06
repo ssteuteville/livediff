@@ -6,6 +6,9 @@ import { renderCompletion } from "./cli-completion.js";
 import { ensureHub, hubVersion } from "./ensure-hub.js";
 import { probeMeta, readState, shutdownHub } from "./hub-state.js";
 import {
+  arity,
+  describeCli,
+  describeCommand,
   findCommand,
   findCompletionCommand,
   findConfigCommand,
@@ -17,6 +20,7 @@ import {
   renderMainHelp,
   suggest,
   VALUE_FLAGS,
+  type CommandHelp,
 } from "./cli-help.js";
 import {
   completionInstallPath,
@@ -254,11 +258,12 @@ async function validateInvocation(
   const helpTarget = nested ? command + " " : "";
   /** The shape of the invocation is wrong, so show the shape it should have had. */
   const shape = `\n\nusage: ${resolved.usage}\n  try: livediff help ${helpTarget}${label}`;
-  if (positionalArgs.length < resolved.positionals.min) {
+  const positionals = arity(resolved.args);
+  if (positionalArgs.length < positionals.min) {
     await die(`missing required argument for 'livediff ${label}'${shape}`, EXIT_USAGE);
   }
-  if (resolved.positionals.max !== null && positionalArgs.length > resolved.positionals.max) {
-    const unexpected = positionalArgs[resolved.positionals.max];
+  if (positionals.max !== null && positionalArgs.length > positionals.max) {
+    const unexpected = positionalArgs[positionals.max];
     await die(
       `unexpected argument${unexpected === undefined ? "" : ` '${unexpected}'`} for 'livediff ${label}'${shape}`,
       EXIT_USAGE,
@@ -938,24 +943,41 @@ async function cmdConfig(rest: readonly string[]): Promise<void> {
   }
 }
 
-function helpFor(tokens: readonly string[]): string | null {
+function resolveHelpCommand(
+  tokens: readonly string[],
+): { command: CommandHelp; path: readonly string[] } | null {
   const [token, subcommand] = tokens;
-  if (!token) return renderMainHelp(hubVersion());
+  if (!token) return null;
   if (token === "config" && subcommand) {
     const command = findConfigCommand(subcommand);
-    return command ? renderConfigCommandHelp(command) : null;
+    return command ? { command, path: ["config", command.name] } : null;
   }
   if (token === "completion" && subcommand) {
     const command = findCompletionCommand(subcommand);
-    return command ? renderCompletionCommandHelp(command) : null;
+    return command ? { command, path: ["completion", command.name] } : null;
   }
   const cmd = findCommand(token);
-  if (cmd) return renderCommandHelp(cmd);
-  return null;
+  return cmd ? { command: cmd, path: [token] } : null;
+}
+
+function helpFor(tokens: readonly string[]): string | null {
+  const [token] = tokens;
+  if (!token) return renderMainHelp(hubVersion());
+  const resolved = resolveHelpCommand(tokens);
+  if (resolved === null) return null;
+  // Only a resolved nested action renders with its parent prefix; bare `help config` is the
+  // top-level command and must not become "config config".
+  if (resolved.path.length === 2) {
+    return resolved.path[0] === "config"
+      ? renderConfigCommandHelp(resolved.command)
+      : renderCompletionCommandHelp(resolved.command);
+  }
+  return renderCommandHelp(resolved.command);
 }
 
 async function cmdHelp(tokens: readonly string[] = []): Promise<void> {
   const text = helpFor(tokens);
+  const resolved = tokens.length === 0 ? null : resolveHelpCommand(tokens);
   if (text === null) {
     const token = tokens.join(" ");
     const hint = suggest(tokens[0] ?? "");
@@ -965,6 +987,20 @@ async function cmdHelp(tokens: readonly string[] = []): Promise<void> {
     );
   }
   const helpText = text ?? "";
+  if (JSON_OUT && tokens.length === 0) {
+    console.log(JSON.stringify(describeCli(hubVersion()), null, 2));
+    return;
+  }
+  if (JSON_OUT && resolved) {
+    console.log(
+      JSON.stringify(
+        { ...describeCommand(resolved.command, resolved.path), help: helpText },
+        null,
+        2,
+      ),
+    );
+    return;
+  }
   out(helpText, { help: helpText });
 }
 

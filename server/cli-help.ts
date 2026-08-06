@@ -10,16 +10,38 @@ export interface PositionalArity {
   max: number | null;
 }
 
+export type CompletionKind =
+  | "path"
+  | "workspace"
+  | "comment-open"
+  | "comment-archived"
+  | "config-key"
+  | "shell";
+
+export interface ArgSpec {
+  name: string;
+  required: boolean;
+  variadic?: boolean;
+  completion?: CompletionKind;
+}
+
 export interface CommandHelp {
   id: string;
   name: string;
   usage: string;
   summary: string;
   details: string;
-  positionals: PositionalArity;
+  args: readonly ArgSpec[];
   flags: readonly HelpRow[];
   examples: readonly HelpRow[];
   aliases?: readonly string[];
+}
+
+export function arity(args: readonly ArgSpec[]): PositionalArity {
+  return {
+    min: args.filter((arg) => arg.required).length,
+    max: args.some((arg) => arg.variadic) ? null : args.length,
+  };
 }
 
 const flagNamePattern = /(?<!\S)(?:--[a-z][a-z-]*|-[a-zA-Z])(?=\s|,|$)/g;
@@ -56,7 +78,7 @@ export const COMMANDS: readonly CommandHelp[] = [
     name: "open",
     usage: "livediff open [path] [--no-open] [--wait] [--timeout <sec>]",
     summary: "register a worktree and open its focused view",
-    positionals: { min: 0, max: 1 },
+    args: [{ name: "path", required: false, completion: "workspace" }],
     details:
       "Registers the selected worktree (the current directory by default) and opens it in the browser.\n" +
       "The shorthand `livediff <path>` remains supported. Any subdirectory resolves to its worktree\n" +
@@ -85,7 +107,7 @@ export const COMMANDS: readonly CommandHelp[] = [
     name: "hub",
     usage: "livediff hub [--no-open]",
     summary: "open the hub UI showing every registered workspace",
-    positionals: { min: 0, max: 0 },
+    args: [],
     details:
       "Starts the hub if needed, then opens the browser to the workspace rail.\n" +
       "`livediff` without arguments is the shorthand for this command.",
@@ -101,7 +123,7 @@ export const COMMANDS: readonly CommandHelp[] = [
     name: "review",
     usage: "livediff review [path] [--no-open] [--timeout <sec>]",
     summary: "open a worktree and wait for the reviewer to finish",
-    positionals: { min: 0, max: 1 },
+    args: [{ name: "path", required: false, completion: "workspace" }],
     details:
       "Equivalent to `livediff open [path] --wait`. This is the clearest command for\n" +
       "agent and human review handoffs; it prints the comment summary after Done reviewing.",
@@ -116,7 +138,7 @@ export const COMMANDS: readonly CommandHelp[] = [
     name: "link",
     usage: "livediff link [path]",
     summary: "print a focused worktree URL without opening a browser",
-    positionals: { min: 0, max: 1 },
+    args: [{ name: "path", required: false, completion: "workspace" }],
     details: "Registers the worktree if needed, then prints its URL for a human, script, or agent.",
     flags: [],
     examples: [["livediff link .", "print the current worktree's focused URL"]],
@@ -127,7 +149,7 @@ export const COMMANDS: readonly CommandHelp[] = [
     aliases: ["ls"],
     usage: "livediff list",
     summary: "list registered workspaces",
-    positionals: { min: 0, max: 0 },
+    args: [],
     details: "Shows each workspace's id, label, and path, with live branch and change counts.",
     flags: [],
     examples: [["livediff list --json", "list workspaces as JSON"]],
@@ -138,7 +160,7 @@ export const COMMANDS: readonly CommandHelp[] = [
     aliases: ["remove"],
     usage: "livediff rm [path|id]",
     summary: "unregister a workspace",
-    positionals: { min: 0, max: 1 },
+    args: [{ name: "path|id", required: false, completion: "workspace" }],
     details:
       "Unregisters the workspace. The repository and its comments are left untouched,\n" +
       "so re-registering the same path restores its comment history.",
@@ -154,7 +176,7 @@ export const COMMANDS: readonly CommandHelp[] = [
     usage:
       "livediff comments [path] [--status open|resolved|all] [--branch <name>] [--stale|--archived]",
     summary: "print review comments for a worktree",
-    positionals: { min: 0, max: 1 },
+    args: [{ name: "path", required: false, completion: "workspace" }],
     details:
       "Defaults to the worktree containing the current directory, to the branch that is\n" +
       "checked out, and to open comments only. Each comment prints the quoted source line\n" +
@@ -178,7 +200,7 @@ export const COMMANDS: readonly CommandHelp[] = [
     name: "restore",
     usage: "livediff restore <id>",
     summary: "return an archived comment to the live view",
-    positionals: { min: 1, max: 1 },
+    args: [{ name: "id", required: true, completion: "comment-archived" }],
     details:
       "Clears the archive flag and resets the comment's age, so the next sweep does not\n" +
       "immediately archive it again. Resolves the workspace from the current directory.",
@@ -190,7 +212,7 @@ export const COMMANDS: readonly CommandHelp[] = [
     name: "archive",
     usage: "livediff archive [path] [--stale] [--resolved]",
     summary: "archive comments that are no longer live",
-    positionals: { min: 0, max: 1 },
+    args: [{ name: "path", required: false, completion: "workspace" }],
     details:
       "Archives comments whose file has left the diff for more than 5 days, and resolved\n" +
       "comments untouched for more than 30. Archived comments are hidden but restorable\n" +
@@ -212,7 +234,7 @@ export const COMMANDS: readonly CommandHelp[] = [
     name: "prune",
     usage: "livediff prune [path] [--keep-days <n> | --all] [--dry-run] [--yes]",
     summary: "delete archived comments",
-    positionals: { min: 0, max: 1 },
+    args: [{ name: "path", required: false, completion: "workspace" }],
     details:
       "Deletes archived comments older than 200 days by default. Deleting sooner than that\n" +
       "asks for confirmation first, unless --yes is passed.\n" +
@@ -236,7 +258,10 @@ export const COMMANDS: readonly CommandHelp[] = [
     name: "resolve",
     usage: "livediff resolve <id> [text...]",
     summary: "reply to a comment and mark it resolved",
-    positionals: { min: 2, max: null },
+    args: [
+      { name: "id", required: true, completion: "comment-open" },
+      { name: "text", required: false, variadic: true },
+    ],
     details: "The reply text is optional; omitting it resolves the comment silently.",
     flags: [],
     examples: [["livediff resolve a1b2c3d4 fixed in the latest commit", "reply and resolve"]],
@@ -246,7 +271,10 @@ export const COMMANDS: readonly CommandHelp[] = [
     name: "reply",
     usage: "livediff reply <id> <text...>",
     summary: "reply to a comment without resolving it",
-    positionals: { min: 2, max: null },
+    args: [
+      { name: "id", required: true, completion: "comment-open" },
+      { name: "text", required: true, variadic: true },
+    ],
     details: "",
     flags: [],
     examples: [["livediff reply a1b2c3d4 what did you mean here?", "reply only"]],
@@ -256,7 +284,11 @@ export const COMMANDS: readonly CommandHelp[] = [
     name: "config",
     usage: "livediff config [edit|path|init|validate|list|get|set|unset|explain|schema]",
     summary: "view and manage per-user LiveDiff settings",
-    positionals: { min: 0, max: null },
+    args: [
+      { name: "action", required: false },
+      { name: "key", required: false, completion: "config-key" },
+      { name: "value", required: false, variadic: true },
+    ],
     details:
       "Settings live in $XDG_CONFIG_HOME/livediff/config.jsonc (default: ~/.config/livediff).\n" +
       "Built-in defaults are overridden by this file, then LIVEDIFF_* environment variables,\n" +
@@ -276,7 +308,7 @@ export const COMMANDS: readonly CommandHelp[] = [
     name: "restart",
     usage: "livediff restart",
     summary: "restart the hub to apply cached settings",
-    positionals: { min: 0, max: 0 },
+    args: [],
     details:
       "Stops the running hub if there is one, then starts the current CLI version.\n" +
       "Use this after changing hub, retention, or default-renderer configuration.",
@@ -288,7 +320,7 @@ export const COMMANDS: readonly CommandHelp[] = [
     name: "status",
     usage: "livediff status",
     summary: "show whether the hub is running and where settings live",
-    positionals: { min: 0, max: 0 },
+    args: [],
     details:
       "Does not start the hub. A stale result means LiveDiff found previous hub state but could not\n" +
       "reach that process; run `livediff restart` to recover.",
@@ -300,7 +332,7 @@ export const COMMANDS: readonly CommandHelp[] = [
     name: "stop",
     usage: "livediff stop",
     summary: "shut the hub down",
-    positionals: { min: 0, max: 0 },
+    args: [],
     details:
       "The hub normally runs until you stop it or the machine reboots. Any command\n" +
       "will start it again.",
@@ -312,7 +344,7 @@ export const COMMANDS: readonly CommandHelp[] = [
     name: "doctor",
     usage: "livediff doctor",
     summary: "diagnose install and state problems",
-    positionals: { min: 0, max: 0 },
+    args: [],
     details:
       "Checks that livediff resolves to exactly one binary, that the running hub\n" +
       "matches this CLI's version, that no stale state or unmigrated registry\n" +
@@ -329,7 +361,10 @@ export const COMMANDS: readonly CommandHelp[] = [
     name: "completion",
     usage: "livediff completion <bash|zsh|fish|install|path|status|uninstall> [shell]",
     summary: "generate, install, or inspect shell completion",
-    positionals: { min: 0, max: 2 },
+    args: [
+      { name: "action", required: false },
+      { name: "shell", required: false, completion: "shell" },
+    ],
     details:
       "Source the generated script in your shell startup file. It is generated from LiveDiff's\n" +
       "own command metadata, so installed completions track the CLI's documented commands.",
@@ -347,7 +382,10 @@ export const COMMANDS: readonly CommandHelp[] = [
     name: "help",
     usage: "livediff help [command]",
     summary: "show help for livediff or a specific command",
-    positionals: { min: 0, max: 2 },
+    args: [
+      { name: "command", required: false },
+      { name: "subcommand", required: false },
+    ],
     details: "",
     flags: [],
     examples: [["livediff help resolve", "show help for the resolve command"]],
@@ -360,7 +398,7 @@ export const CONFIG_COMMANDS: readonly CommandHelp[] = [
     name: "edit",
     usage: "livediff config edit [--editor <command>]",
     summary: "edit configuration safely in your preferred editor",
-    positionals: { min: 0, max: 0 },
+    args: [],
     details:
       "Creates a schema-linked config if needed, edits a sibling draft, and only installs it after\n" +
       "validation succeeds. Editor precedence: --editor, LIVEDIFF_EDITOR, tools.editor, VISUAL, EDITOR, vim.",
@@ -375,7 +413,7 @@ export const CONFIG_COMMANDS: readonly CommandHelp[] = [
     name: "path",
     usage: "livediff config path",
     summary: "print the config file path",
-    positionals: { min: 0, max: 0 },
+    args: [],
     details: "",
     flags: [],
     examples: [],
@@ -385,7 +423,7 @@ export const CONFIG_COMMANDS: readonly CommandHelp[] = [
     name: "init",
     usage: "livediff config init",
     summary: "create a minimal config without overwriting",
-    positionals: { min: 0, max: 0 },
+    args: [],
     details: "",
     flags: [],
     examples: [],
@@ -395,7 +433,7 @@ export const CONFIG_COMMANDS: readonly CommandHelp[] = [
     name: "validate",
     usage: "livediff config validate",
     summary: "validate effective configuration",
-    positionals: { min: 0, max: 0 },
+    args: [],
     details: "",
     flags: [],
     examples: [],
@@ -405,7 +443,7 @@ export const CONFIG_COMMANDS: readonly CommandHelp[] = [
     name: "list",
     usage: "livediff config list",
     summary: "show effective configuration values",
-    positionals: { min: 0, max: 0 },
+    args: [],
     details: "",
     flags: [],
     examples: [],
@@ -415,7 +453,7 @@ export const CONFIG_COMMANDS: readonly CommandHelp[] = [
     name: "get",
     usage: "livediff config get <key>",
     summary: "print one effective setting",
-    positionals: { min: 1, max: 1 },
+    args: [{ name: "key", required: true, completion: "config-key" }],
     details: "",
     flags: [],
     examples: [],
@@ -425,7 +463,10 @@ export const CONFIG_COMMANDS: readonly CommandHelp[] = [
     name: "set",
     usage: "livediff config set <key> <value...>",
     summary: "set one user configuration override",
-    positionals: { min: 2, max: null },
+    args: [
+      { name: "key", required: true, completion: "config-key" },
+      { name: "value", required: true, variadic: true },
+    ],
     details: "Use ordinary shell arguments for command settings, or a JSON array for exact argv.",
     flags: [],
     examples: [],
@@ -435,7 +476,7 @@ export const CONFIG_COMMANDS: readonly CommandHelp[] = [
     name: "unset",
     usage: "livediff config unset <key>",
     summary: "remove one user configuration override",
-    positionals: { min: 1, max: 1 },
+    args: [{ name: "key", required: true, completion: "config-key" }],
     details: "The next lower-precedence source becomes effective.",
     flags: [],
     examples: [],
@@ -445,7 +486,7 @@ export const CONFIG_COMMANDS: readonly CommandHelp[] = [
     name: "explain",
     usage: "livediff config explain <key>",
     summary: "explain one setting's effective value and source",
-    positionals: { min: 1, max: 1 },
+    args: [{ name: "key", required: true, completion: "config-key" }],
     details: "",
     flags: [],
     examples: [],
@@ -455,7 +496,7 @@ export const CONFIG_COMMANDS: readonly CommandHelp[] = [
     name: "schema",
     usage: "livediff config schema [--update]",
     summary: "print or refresh the editor schema",
-    positionals: { min: 0, max: 0 },
+    args: [],
     details: "",
     flags: [["--update", "replace only the bundled schema file"]],
     examples: [],
@@ -469,7 +510,7 @@ export const COMPLETION_COMMANDS: readonly CommandHelp[] = [
     usage: "livediff completion bash",
     summary: "print bash completion",
     details: "",
-    positionals: { min: 0, max: 0 },
+    args: [],
     flags: [],
     examples: [],
   },
@@ -479,7 +520,7 @@ export const COMPLETION_COMMANDS: readonly CommandHelp[] = [
     usage: "livediff completion zsh",
     summary: "print zsh completion",
     details: "",
-    positionals: { min: 0, max: 0 },
+    args: [],
     flags: [],
     examples: [],
   },
@@ -489,7 +530,7 @@ export const COMPLETION_COMMANDS: readonly CommandHelp[] = [
     usage: "livediff completion fish",
     summary: "print fish completion",
     details: "",
-    positionals: { min: 0, max: 0 },
+    args: [],
     flags: [],
     examples: [],
   },
@@ -499,7 +540,7 @@ export const COMPLETION_COMMANDS: readonly CommandHelp[] = [
     usage: "livediff completion install [bash|zsh|fish] [--activate]",
     summary: "write a generated completion script",
     details: "Uses the current shell when omitted. --activate adds a marked startup block.",
-    positionals: { min: 0, max: 1 },
+    args: [{ name: "shell", required: false, completion: "shell" }],
     flags: [["--activate", "source the installed completion from the shell startup file"]],
     examples: [],
   },
@@ -509,7 +550,7 @@ export const COMPLETION_COMMANDS: readonly CommandHelp[] = [
     usage: "livediff completion path [bash|zsh|fish]",
     summary: "print the generated completion file path",
     details: "",
-    positionals: { min: 0, max: 1 },
+    args: [{ name: "shell", required: false, completion: "shell" }],
     flags: [],
     examples: [],
   },
@@ -519,7 +560,7 @@ export const COMPLETION_COMMANDS: readonly CommandHelp[] = [
     usage: "livediff completion status [bash|zsh|fish]",
     summary: "show whether completion is installed and activated",
     details: "",
-    positionals: { min: 0, max: 1 },
+    args: [{ name: "shell", required: false, completion: "shell" }],
     flags: [],
     examples: [],
   },
@@ -529,7 +570,7 @@ export const COMPLETION_COMMANDS: readonly CommandHelp[] = [
     usage: "livediff completion uninstall [bash|zsh|fish] [--deactivate]",
     summary: "remove an installed completion script",
     details: "--deactivate removes only LiveDiff's marked startup block.",
-    positionals: { min: 0, max: 1 },
+    args: [{ name: "shell", required: false, completion: "shell" }],
     flags: [["--deactivate", "also remove LiveDiff's startup block"]],
     examples: [],
   },
@@ -660,4 +701,61 @@ export function suggest(token: string): string | null {
     }
   }
   return bestScore <= Math.max(2, Math.floor(token.length / 3)) ? best : null;
+}
+
+export const INTROSPECTION_SCHEMA_VERSION = 1;
+
+export interface OptionDescriptor {
+  flags: readonly string[];
+  description: string;
+  takesValue: boolean;
+}
+
+export interface CommandDescriptor {
+  name: string;
+  path: readonly string[];
+  summary: string;
+  usage: string;
+  aliases: readonly string[];
+  arguments: readonly ArgSpec[];
+  options: readonly OptionDescriptor[];
+  examples: readonly { command: string; description: string }[];
+}
+
+export interface CliDescriptor {
+  schemaVersion: number;
+  version: string;
+  globalOptions: readonly OptionDescriptor[];
+  commands: readonly CommandDescriptor[];
+}
+
+function describeOptions(options: readonly HelpRow[]): readonly OptionDescriptor[] {
+  return options.map(([usage, description]) => ({
+    flags: usage.match(flagNamePattern) ?? [],
+    description,
+    takesValue: /<[^>]+>/.test(usage),
+  }));
+}
+
+export function describeCommand(command: CommandHelp, path: readonly string[]): CommandDescriptor {
+  return {
+    name: path.join(" "),
+    path,
+    summary: command.summary,
+    usage: command.usage,
+    aliases: command.aliases ?? [],
+    arguments: command.args,
+    options: describeOptions(command.flags),
+    examples: command.examples.map(([cmd, description]) => ({ command: cmd, description })),
+  };
+}
+
+export function describeCli(version: string): CliDescriptor {
+  const globalOptions = describeOptions(GLOBAL_FLAGS);
+  const commands = [
+    ...COMMANDS.map((command) => describeCommand(command, [command.name])),
+    ...CONFIG_COMMANDS.map((command) => describeCommand(command, ["config", command.name])),
+    ...COMPLETION_COMMANDS.map((command) => describeCommand(command, ["completion", command.name])),
+  ];
+  return { schemaVersion: INTROSPECTION_SCHEMA_VERSION, version, globalOptions, commands };
 }
