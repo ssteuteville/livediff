@@ -173,6 +173,15 @@ function errorMessage(value: unknown, fallback: string): string {
   return isRecord(value) && typeof value["error"] === "string" ? value["error"] : fallback;
 }
 
+const TIMEOUT_REASON = "livediff:review-timeout";
+
+// undici reports a dropped body as a bare "terminated"; the reason it was dropped is only on `cause`.
+function exceptionMessage(value: unknown): string {
+  if (!(value instanceof Error)) return String(value);
+  const cause = value.cause;
+  return cause instanceof Error ? `${value.message} (${cause.message})` : value.message;
+}
+
 /**
  * One pass over argv, so "is this flag set" and "what is its value" can't disagree. A flag that
  * takes a value consumes the next token, keeping it out of positionals; everything else — including
@@ -318,7 +327,7 @@ async function waitForReview(base: string, ws: Workspace): Promise<boolean> {
   process.once("SIGINT", cancel);
 
   const seconds = Number(values.get("--timeout") || 0);
-  const timer = seconds > 0 ? setTimeout(() => ac.abort(), seconds * 1000) : null;
+  const timer = seconds > 0 ? setTimeout(() => ac.abort(TIMEOUT_REASON), seconds * 1000) : null;
 
   if (!JSON_OUT) console.log('waiting for review… (click "Done reviewing" in the browser)');
 
@@ -329,12 +338,16 @@ async function waitForReview(base: string, ws: Workspace): Promise<boolean> {
       if (data["state"] === "done") return true;
       if (data["state"] === "cancelled") return false;
     }
-  } catch {
+  } catch (err) {
     if (timer) clearTimeout(timer);
-    await die(`timed out after ${seconds}s waiting for review`);
+    if (ac.signal.reason === TIMEOUT_REASON) {
+      await die(`timed out after ${seconds}s waiting for review`);
+    }
+    await die(`lost the hub connection while waiting for review: ${exceptionMessage(err)}`);
   }
   if (timer) clearTimeout(timer);
-  return false;
+  // The loop ending without a verdict means the stream died, which is not a human clicking cancel.
+  return await die("lost the hub connection while waiting for review: the event stream ended");
 }
 
 async function cmdOpen(
@@ -366,9 +379,9 @@ async function cmdOpen(
   if (behavior.wait !== true && !flags.has("--wait")) return;
 
   const completed = await waitForReview(base, ws);
+  if (!completed) await die("review cancelled");
   const { comments } = await api(base, `/api/comments?ws=${ws.id}`, parseComments);
   const open = comments.filter((c) => c.status === "open").length;
-  if (!completed) await die("review cancelled");
   out(`review complete ✓ — ${plural(comments.length, "comment")} (${open} open)`, {
     ...ws,
     url,
@@ -1068,5 +1081,5 @@ try {
   await main();
   await exit(EXIT_OK);
 } catch (err) {
-  await die(err instanceof Error ? err.message : String(err));
+  await die(exceptionMessage(err));
 }

@@ -43,6 +43,9 @@ export const LOOPBACK_HOST = "127.0.0.1";
 /** Retry hint sent to EventSource clients, in ms. */
 export const SSE_RETRY_MS = 2000;
 
+/** Keepalive interval, in ms. Must stay under undici's 300s body-inactivity timeout, which kills an otherwise-idle `livediff --wait`. */
+export const SSE_HEARTBEAT_MS = 30_000;
+
 // ─── Timing ──────────────────────────────────────────────────────────────────
 
 /** Worktree poll interval while at least one browser is attached. */

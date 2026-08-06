@@ -45,6 +45,7 @@ import {
   LOOPBACK_HOST,
   PORT_FALLBACK_ATTEMPTS,
   REGISTRY_FILENAME,
+  SSE_HEARTBEAT_MS,
   SSE_RETRY_MS,
   SWEEP_INTERVAL_MS,
 } from "./constants.js";
@@ -424,7 +425,16 @@ const server = createServer(async (req, res) => {
       res.write(`retry: ${SSE_RETRY_MS}\n\n`);
       sseClients.add(res);
       startPolling();
+      const heartbeat = setInterval(() => {
+        // Writing to an already-destroyed response emits an unhandled `error` and takes the hub down.
+        if (res.writableEnded || res.destroyed) return;
+        res.write(":\n\n");
+      }, SSE_HEARTBEAT_MS);
+      // A connection dropped before this handler ran already emitted `close`, so no listener fires.
+      if (res.destroyed) clearInterval(heartbeat);
+      res.on("close", () => clearInterval(heartbeat));
       req.on("close", () => {
+        clearInterval(heartbeat);
         sseClients.delete(res);
         if (sseClients.size === 0) stopPolling();
       });
