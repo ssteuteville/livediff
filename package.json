@@ -1,6 +1,6 @@
 {
   "name": "livediff",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "private": true,
   "description": "Local, live-updating git worktree diff hub with agent-readable review comments",
   "license": "MIT",
