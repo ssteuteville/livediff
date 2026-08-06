@@ -16,6 +16,7 @@ MODE=install
 info() { printf '\033[36m›\033[0m %s\n' "$1"; }
 ok()   { printf '\033[32m✓\033[0m %s\n' "$1"; }
 warn() { printf '\033[33m!\033[0m %s\n' "$1"; }
+die()  { printf '\033[31m✗\033[0m %s\n' "$1" >&2; exit 1; }
 
 # --- Node ---
 if ! command -v node >/dev/null 2>&1; then
@@ -39,6 +40,17 @@ else
   exit 1
 fi
 
+# Global ops must ignore our `packageManager` pin: corepack would otherwise point the user's global dir at a store their own pnpm can't read.
+user_pm() { COREPACK_ENABLE_PROJECT_SPEC=0 COREPACK_ENABLE_DOWNLOAD_PROMPT=0 "$@"; }
+
+livediff_runnable() { livediff --version >/dev/null 2>&1; }
+
+npm_global_bin() {
+  local prefix
+  prefix="$(user_pm npm prefix -g 2>/dev/null || true)"
+  if [ -n "$prefix" ]; then printf '%s/bin' "$prefix"; else printf '<unknown — check `npm prefix -g`>'; fi
+}
+
 # --- Stop any running hub, so the new version isn't shadowed by an old process ---
 if command -v livediff >/dev/null 2>&1; then
   livediff stop >/dev/null 2>&1 || true
@@ -48,8 +60,8 @@ fi
 # A `pnpm link --global` symlink and an installed package can both sit on PATH; which one runs
 # then depends on directory order, so an "upgrade" can silently keep running old code.
 info "Removing any previous global install…"
-pnpm uninstall --global livediff >/dev/null 2>&1 || true
-npm  uninstall --global livediff >/dev/null 2>&1 || true
+user_pm pnpm uninstall --global livediff >/dev/null 2>&1 || true
+user_pm npm  uninstall --global livediff >/dev/null 2>&1 || true
 
 info "Installing dependencies…"
 "$PM" install
@@ -62,9 +74,9 @@ chmod +x dist-server/server/cli.js
 if [ "$MODE" = dev ]; then
   info "Linking the working tree globally (--dev)…"
   if [ "$PM" = pnpm ]; then
-    pnpm link --global || warn "pnpm link failed — run \`pnpm setup\` once, then re-run."
+    user_pm pnpm link --global || die "pnpm link --global failed. If it mentions \`pnpm setup\`, run that once and re-run this installer."
   else
-    npm link || warn "npm link failed — try adding npm's global bin dir to PATH."
+    user_pm npm link || die "npm link failed. Check that npm's global bin dir is writable."
   fi
 else
   info "Packing and installing globally…"
@@ -80,25 +92,23 @@ else
   TARBALL="$DIST_DIR/livediff.tgz"
   mv -f "$BUILT" "$TARBALL"
   if [ "$PM" = pnpm ]; then
-    pnpm add --global "$TARBALL" || warn "pnpm add --global failed — run \`pnpm setup\` once, then re-run."
+    user_pm pnpm add --global "$TARBALL" || die "pnpm add --global failed. If it mentions \`pnpm setup\`, run that once and re-run this installer."
   else
-    npm install --global "$TARBALL" || warn "npm install --global failed."
+    user_pm npm install --global "$TARBALL" || die "npm install --global failed."
   fi
 fi
 
+# `livediff stop` hashed the old binary's path, and bash keeps resolving that deleted path afterwards.
+hash -r
+
 # --- Verify livediff actually runs ---
 # `command -v` succeeds for a dangling symlink, so check that it executes, not that it exists.
-if livediff --version >/dev/null 2>&1; then
+if livediff_runnable; then
   ok "\`livediff\` v$(livediff --version) → $(command -v livediff)"
+elif command -v livediff >/dev/null 2>&1; then
+  warn "$(command -v livediff) exists but does not run — likely a stale symlink. Remove it, then re-run this installer."
 else
-  warn "\`livediff\` is not runnable yet."
-  if command -v livediff >/dev/null 2>&1; then
-    warn "  $(command -v livediff) exists but does not run — likely a stale symlink."
-    warn "  Remove it, then re-run this installer."
-  else
-    warn "  pnpm: run \`pnpm setup\` and open a new shell. Or run it directly:"
-    warn "  node \"$SCRIPT_DIR/dist-server/server/cli.js\""
-  fi
+  warn "The package installed, but \`livediff\` is not on PATH in this shell yet."
 fi
 
 # --- Native agent plugins ---
@@ -135,10 +145,28 @@ fi
 
 echo
 info "Checking the install…"
-if livediff --version >/dev/null 2>&1; then
+if livediff_runnable; then
   livediff doctor || true
 else
   node "$SCRIPT_DIR/dist-server/server/cli.js" doctor || true
+fi
+
+if ! livediff_runnable; then
+  echo
+  if command -v livediff >/dev/null 2>&1; then
+    warn "Installed, but $(command -v livediff) does not run — likely a stale symlink."
+    warn "  Remove it, then re-run this installer."
+  else
+    warn "Installed, but not usable from this shell yet."
+    if [ "$PM" = pnpm ]; then
+      warn "  Run \`pnpm setup\`, open a new shell, and re-run this installer."
+      warn "  pnpm's global bin dir is: $(user_pm pnpm bin -g 2>/dev/null || echo '<unset — that is the problem>')"
+    else
+      warn "  Add npm's global bin dir to PATH: $(npm_global_bin)"
+    fi
+  fi
+  warn "  Until then, run it directly: node \"$SCRIPT_DIR/dist-server/server/cli.js\""
+  exit 1
 fi
 
 cat <<EOF
