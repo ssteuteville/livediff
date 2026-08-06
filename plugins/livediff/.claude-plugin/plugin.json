@@ -1,7 +1,7 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
   "name": "livediff",
-  "version": "0.8.0",
+  "version": "0.8.1",
   "description": "Show a git worktree as a live browser diff and act on the review comments left on it",
   "author": {
     "name": "Shane"
