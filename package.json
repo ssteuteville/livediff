@@ -9,6 +9,8 @@
   },
   "files": [
     "dist-server",
+    "!dist-server/scripts",
+    "!dist-server/*.tsbuildinfo",
     "dist",
     "schemas"
   ],
