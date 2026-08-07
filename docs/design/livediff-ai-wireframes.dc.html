@@ -1,0 +1,657 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet data-dc-atomics>
+<meta name="design_doc_mode" content="canvas">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Kalam:wght@400;700&family=Patrick+Hand&display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#eeece4;font-family:'Kalam',cursive}
+.dv-turn{padding:40px 44px 60px;border-bottom:1px solid rgba(0,0,0,.08)}
+.dv-thd{display:flex;align-items:baseline;gap:10px;margin:0 0 22px}
+.dv-tid{font:700 11px 'Patrick Hand',monospace;padding:3px 8px;background:#1a1a1a;color:#faf8f0;border-radius:4px;text-decoration:none}
+.dv-tname{font:700 15px 'Kalam',cursive;color:#1a1a1a}
+.dv-opts{display:flex;flex-wrap:wrap;gap:32px;align-items:flex-start}
+.dv-opt{flex:none;display:flex;flex-direction:column;gap:10px}
+.dv-oid{font:700 12px 'Patrick Hand',monospace;padding:3px 9px;background:rgba(0,0,0,.08);color:#1a1a1a;border-radius:5px;text-decoration:none}
+.dv-olabel{display:flex;align-items:baseline;gap:8px;font:400 13px 'Kalam',cursive;color:rgba(0,0,0,.6)}
+.dv-oldesc{font:400 13px 'Kalam',cursive;color:rgba(0,0,0,.55);max-width:560px;margin:0}
+.dv-next{margin:26px 0 0;font:15px/1.6 'Kalam',cursive;color:rgba(0,0,0,.55)}
+.dv-next a{color:#a8391f}
+</style>
+</helmet>
+
+<section class="dv-turn" id="t6">
+<div class="dv-thd"><a class="dv-tid" href="#t6">6</a><span class="dv-tname">FAB overlay lens gallery + inline comment/question threads (riffing off the earlier orb idea)</span></div>
+<div class="dv-opts">
+
+<div class="dv-opt" id="6a">
+<div class="dv-olabel"><a class="dv-oid" href="#6a">6a</a>Top-bar lens pills, alive lens cards, +/? on every line</div>
+<p class="dv-oldesc">FAB opens a full-screen lens gallery; lens cards can "apply to diff" (inline tags) or, when a lens has one, "view high level" (a diagram/flow/stop-list). Top bar carries every lens as a pill so you can gauge how busy it gets, plus a "full diff" reset. Hovering a line reveals + (comment, reviewed later) and ? (question, answered live); a line with both renders as a comment thread with a tab to flip to the question.</p>
+<div style="width:1160px;height:780px;background:#faf8f0;border:2.5px solid #1a1a1a;border-radius:6px;overflow:hidden;position:relative;box-shadow:4px 4px 0 rgba(0,0,0,.08)">
+  <div style="display:flex;flex-direction:column;height:100%">
+    <div style="display:flex;align-items:center;gap:10px;padding:10px 16px;border-bottom:2px solid #1a1a1a;background:#fffdf8;flex-wrap:wrap">
+      <span style="font-weight:700;font-size:16px">livediff</span>
+      <span style="font-size:12px;color:#8a8578">main@2358bda · live · 3 files +505 -0</span>
+      <span style="font-size:12px;border:2px solid #1a1a1a;border-radius:6px;padding:5px 10px;background:#fff">vs HEAD ▾</span>
+      <div style="display:flex;border:2px solid #1a1a1a;border-radius:6px;overflow:hidden">
+        <span style="font-size:12px;padding:5px 10px;background:#1a1a1a;color:#faf8f0">Split</span>
+        <span style="font-size:12px;padding:5px 10px;background:#fff">Unified</span>
+      </div>
+      <div style="display:flex;border:2px solid #1a1a1a;border-radius:6px;overflow:hidden">
+        <span style="font-size:12px;padding:5px 10px;background:#f3f0e6">All</span>
+        <span style="font-size:12px;padding:5px 10px;background:#fff">Open</span>
+        <span style="font-size:12px;padding:5px 10px;background:#fff">Resolved</span>
+      </div>
+      <span onClick="{{ openLensPicker }}" style="margin-left:auto;cursor:pointer;font-size:12px;padding:5px 12px;border:2px solid #1a1a1a;border-radius:6px;background:{{ lensTriggerBg }};color:{{ lensTriggerFg }}">lens: {{ appliedLensLabel }} — change in overlay ▸</span>
+    </div>
+    <div style="display:flex;flex:1;min-height:0">
+      <div style="width:190px;border-right:2px solid #1a1a1a;background:#f3f0e6;padding:10px 0">
+        <sc-for list="{{ fileRows }}" as="f" hint-placeholder-count="3">
+          <div style="{{ f.rowStyle }}">
+            <span style="flex:1">{{ f.name }}</span>
+            <sc-if value="{{ f.hasActivity }}" hint-placeholder-val="{{ false }}">
+              <span onClick="{{ f.onOpenPanel }}" style="cursor:pointer;font-size:11px;background:#1a1a1a;color:#faf8f0;border-radius:8px;padding:1px 7px">{{ f.count }}</span>
+            </sc-if>
+          </div>
+        </sc-for>
+      </div>
+      <div style="flex:1;padding:16px 18px;overflow:auto">
+        <div style="font:13px monospace;background:#f3f0e6;border:2px solid #1a1a1a;border-radius:4px;padding:10px 14px;line-height:2.1">
+          <sc-for list="{{ diffLines }}" as="ln" hint-placeholder-count="6">
+            <div onMouseEnter="{{ ln.onEnter }}" onMouseLeave="{{ ln.onLeave }}" style="{{ ln.rowStyle }}">
+              <span>{{ ln.num }}&nbsp;&nbsp;{{ ln.marker }}&nbsp;&nbsp;{{ ln.code }}</span>
+              <sc-if value="{{ ln.tagText }}" hint-placeholder-val="{{ false }}">
+                <span style="{{ ln.tagStyle }}">{{ ln.tagText }}</span>
+              </sc-if>
+              <sc-if value="{{ ln.showHoverBtns }}" hint-placeholder-val="{{ false }}">
+                <span onClick="{{ ln.onPlus }}" style="cursor:pointer;margin-left:8px;font-size:11px;border:1px solid #1a1a1a;border-radius:3px;padding:0 6px">+</span>
+                <span onClick="{{ ln.onQuestion }}" style="cursor:pointer;margin-left:4px;font-size:11px;border:1px solid #1a1a1a;border-radius:3px;padding:0 6px">?</span>
+              </sc-if>
+              <sc-if value="{{ ln.hasThread }}" hint-placeholder-val="{{ false }}">
+                <span onClick="{{ ln.onToggleThread }}" style="cursor:pointer;margin-left:6px;font-size:11px;color:#a8391f;text-decoration:underline">thread ({{ ln.threadCount }})</span>
+              </sc-if>
+
+              <sc-if value="{{ ln.panelOpen }}" hint-placeholder-val="{{ false }}">
+                <div style="font-family:'Kalam',cursive;background:#fffdf8;border:2px solid #1a1a1a;border-radius:5px;margin:6px 0 6px 20px;padding:8px 12px;max-width:520px">
+                  <sc-if value="{{ ln.bothExist }}" hint-placeholder-val="{{ false }}">
+                    <div style="display:flex;gap:6px;margin-bottom:8px">
+                      <span onClick="{{ ln.onTabComment }}" style="{{ ln.tabCommentStyle }}">comments</span>
+                      <span onClick="{{ ln.onTabQuestion }}" style="{{ ln.tabQuestionStyle }}">question</span>
+                    </div>
+                  </sc-if>
+                  <sc-if value="{{ ln.activeIsComment }}" hint-placeholder-val="{{ true }}">
+                    <div style="font-size:11px;color:#8a8578;margin-bottom:4px">comment · agent sees this once you finish the review</div>
+                    <div style="font-size:13px"><b>you:</b> {{ ln.commentMsg1 }}</div>
+                    <sc-if value="{{ ln.hasCommentMsg2 }}" hint-placeholder-val="{{ false }}">
+                      <div style="font-size:13px;margin-top:4px"><b>{{ ln.commentMsg2Author }}:</b> {{ ln.commentMsg2 }}</div>
+                    </sc-if>
+                  </sc-if>
+                  <sc-if value="{{ ln.activeIsQuestion }}" hint-placeholder-val="{{ false }}">
+                    <div style="font-size:11px;color:#8a8578;margin-bottom:4px">question · agent answers live</div>
+                    <div style="font-size:13px"><b>you:</b> {{ ln.questionMsg1 }}</div>
+                    <sc-if value="{{ ln.questionPending }}" hint-placeholder-val="{{ false }}">
+                      <div style="font-size:12px;color:#8a8578;margin-top:4px">agent is answering…</div>
+                    </sc-if>
+                    <sc-if value="{{ ln.hasQuestionMsg2 }}" hint-placeholder-val="{{ false }}">
+                      <div style="font-size:13px;margin-top:4px"><b>agent:</b> {{ ln.questionMsg2 }}</div>
+                    </sc-if>
+                  </sc-if>
+                </div>
+              </sc-if>
+            </div>
+          </sc-for>
+        </div>
+      </div>
+      <sc-if value="{{ sidePanelOpen }}" hint-placeholder-val="{{ false }}">
+        <div style="width:300px;border-left:2px solid #1a1a1a;background:#f3f0e6;display:flex;flex-direction:column">
+          <div style="display:flex;align-items:center;padding:10px 12px;border-bottom:2px solid #1a1a1a">
+            <span style="font-weight:700;font-size:13px">{{ sidePanelFile }}</span>
+            <span onClick="{{ closeSidePanel }}" style="margin-left:auto;cursor:pointer;font-size:13px">✕</span>
+          </div>
+          <div style="display:flex;border-bottom:2px solid #1a1a1a">
+            <span onClick="{{ setSideComments }}" style="{{ sideCommentsStyle }}">comments</span>
+            <span onClick="{{ setSideQuestions }}" style="{{ sideQuestionsStyle }}">questions</span>
+            <span onClick="{{ setSideNotes }}" style="{{ sideNotesStyle }}">notes</span>
+          </div>
+          <div style="padding:12px;overflow:auto">
+            <sc-if value="{{ sideIsComments }}" hint-placeholder-val="{{ true }}">
+              <sc-for list="{{ sideComments }}" as="c" hint-placeholder-count="1">
+                <div style="border:2px solid #1a1a1a;border-radius:5px;padding:8px;margin-bottom:8px;background:#fffdf8;font-size:12px">
+                  <div style="color:#8a8578;margin-bottom:3px">{{ c.line }}</div>{{ c.text }}
+                </div>
+              </sc-for>
+              <sc-if value="{{ sideCommentsEmpty }}" hint-placeholder-val="{{ false }}"><div style="font-size:12px;color:#8a8578">no comments in this file yet</div></sc-if>
+            </sc-if>
+            <sc-if value="{{ sideIsQuestions }}" hint-placeholder-val="{{ false }}">
+              <sc-for list="{{ sideQuestions }}" as="q" hint-placeholder-count="1">
+                <div style="border:2px solid #1a1a1a;border-radius:5px;padding:8px;margin-bottom:8px;background:#fffdf8;font-size:12px">
+                  <div style="color:#8a8578;margin-bottom:3px">{{ q.line }}</div>{{ q.text }}
+                </div>
+              </sc-for>
+              <sc-if value="{{ sideQuestionsEmpty }}" hint-placeholder-val="{{ false }}"><div style="font-size:12px;color:#8a8578">no questions in this file yet</div></sc-if>
+            </sc-if>
+            <sc-if value="{{ sideIsNotes }}" hint-placeholder-val="{{ false }}">
+              <sc-for list="{{ sideNotes }}" as="n" hint-placeholder-count="1">
+                <div style="border:2px solid #1a1a1a;border-radius:5px;padding:8px;margin-bottom:8px;background:#fffdf8;font-size:12px">
+                  <div style="color:#8a8578;margin-bottom:3px">{{ n.line }}</div>{{ n.text }}
+                </div>
+              </sc-for>
+              <sc-if value="{{ sideNotesEmpty }}" hint-placeholder-val="{{ false }}"><div style="font-size:12px;color:#8a8578">no agent notes in this file</div></sc-if>
+            </sc-if>
+          </div>
+        </div>
+      </sc-if>
+    </div>
+    <div onClick="{{ openOverlay }}" style-hover="transform:scale(1.08)" style="position:absolute;right:26px;bottom:26px;width:64px;height:64px;border-radius:50%;background:#1a1a1a;color:#faf8f0;display:flex;align-items:center;justify-content:center;font-size:24px;cursor:pointer;box-shadow:3px 3px 0 rgba(0,0,0,.2);transition:transform .15s">✦</div>
+  </div>
+
+  <sc-if value="{{ overlayOpen }}" hint-placeholder-val="{{ false }}">
+  <div style="position:absolute;inset:0;background:#faf8f0;display:flex;flex-direction:column;z-index:10">
+    <div style="display:flex;align-items:center;gap:14px;padding:12px 18px;border-bottom:2px solid #1a1a1a;background:#fffdf8">
+      <span onClick="{{ closeOverlay }}" style="cursor:pointer;font-size:13px;border:2px solid #1a1a1a;border-radius:5px;padding:5px 10px">← back to diff</span>
+      <div style="display:flex;border:2px solid #1a1a1a;border-radius:6px;overflow:hidden">
+        <span onClick="{{ setTabLenses }}" style="{{ tabLensesStyle }}">lenses</span>
+        <span onClick="{{ setTabWalkthroughs }}" style="{{ tabWalkthroughsStyle }}">walkthroughs</span>
+        <span onClick="{{ setTabQuestions }}" style="{{ tabQuestionsStyle }}">questions · {{ pendingQCount }}</span>
+        <span onClick="{{ setTabNotes }}" style="{{ tabNotesStyle }}">agent notes · {{ notesCount }}</span>
+      </div>
+    </div>
+    <div style="flex:1;padding:26px;overflow:auto">
+
+      <sc-if value="{{ tabIsLenses }}" hint-placeholder-val="{{ true }}">
+      <sc-if value="{{ highLevelIsNone }}" hint-placeholder-val="{{ true }}">
+
+      <sc-if value="{{ inWalkthrough }}" hint-placeholder-val="{{ false }}">
+        <div style="font-size:12px;color:#8a8578;margin-bottom:6px">inside "{{ activeWalkthroughTitle }}" — lens picker is scoped to this walkthrough's steps</div>
+        <div onClick="{{ exitWalkthrough }}" style="cursor:pointer;font-size:12px;color:#a8391f;text-decoration:underline;margin-bottom:16px">exit walkthrough → show all lenses</div>
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:20px;max-width:900px">
+          <sc-for list="{{ scopedStepCards }}" as="c" hint-placeholder-count="3">
+            <div style="{{ c.cardStyle }}">
+              <div style="{{ c.iconStyle }}"></div>
+              <div style="font-weight:700;margin:8px 0 2px">{{ c.title }}</div>
+              <div style="font-size:12px;color:#8a8578;margin-bottom:14px">{{ c.desc }}</div>
+              <button onClick="{{ c.onApply }}" style="font-family:inherit;font-size:12px;padding:5px 12px;border:2px solid #1a1a1a;border-radius:4px;background:#fbe6df;cursor:pointer">{{ c.btnLabel }}</button>
+            </div>
+          </sc-for>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ notInWalkthrough }}" hint-placeholder-val="{{ true }}">
+        <input value="{{ searchQuery }}" onChange="{{ onSearchChange }}" placeholder="search lenses…" style="font-family:inherit;font-size:13px;padding:8px 12px;border:2px solid #1a1a1a;border-radius:6px;width:280px;margin-bottom:20px;background:#fffdf8"></input>
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:20px;max-width:900px">
+          <sc-for list="{{ lensCards }}" as="c" hint-placeholder-count="5">
+            <div style-hover="transform:translateY(-4px);box-shadow:6px 6px 0 rgba(0,0,0,.15)" style="{{ c.cardStyle }}">
+              <div style="{{ c.iconStyle }}"></div>
+              <div style="font-weight:700;margin:8px 0 2px">{{ c.title }}</div>
+              <div style="font-size:12px;color:#8a8578;margin-bottom:14px">{{ c.desc }}</div>
+              <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap">
+                <button onClick="{{ c.onApply }}" style="font-family:inherit;font-size:12px;padding:5px 12px;border:2px solid #1a1a1a;border-radius:4px;background:#fbe6df;cursor:pointer">apply to diff →</button>
+                <sc-if value="{{ c.hasHigh }}" hint-placeholder-val="{{ false }}">
+                  <button onClick="{{ c.onHigh }}" style="font-family:inherit;font-size:12px;padding:5px 12px;border:2px solid #1a1a1a;border-radius:4px;background:#fff;cursor:pointer">view high level ⤢</button>
+                </sc-if>
+              </div>
+            </div>
+          </sc-for>
+        </div>
+      </sc-if>
+      </sc-if>
+
+      <sc-if value="{{ highLevelIsBlast }}" hint-placeholder-val="{{ false }}">
+        <div onClick="{{ backToGrid }}" style="cursor:pointer;font-size:12px;color:#8a8578;margin-bottom:14px">← all lenses</div>
+        <div style="position:relative;height:420px;border:2px dashed #8a8578;border-radius:6px">
+          <div style="position:absolute;left:40px;top:170px;border:2px solid #1a1a1a;background:#fbe6df;border-radius:5px;padding:10px 14px;font-size:13px">withRetry()<br><span style="font-size:11px;color:#8a8578">changed</span></div>
+          <div style="position:absolute;left:300px;top:60px;border:2px solid #1a1a1a;background:#fffdf8;border-radius:5px;padding:10px 14px;font-size:13px">login flow<br><span style="font-size:11px;color:#8a8578">in this diff</span></div>
+          <div style="position:absolute;left:560px;top:80px;border:2px dashed #d1472c;background:#fbe6df;border-radius:5px;padding:10px 14px;font-size:13px;color:#a8391f">webhookRetry.ts<br><span style="font-size:11px">not in diff</span></div>
+          <div style="position:absolute;left:560px;top:300px;border:2px dashed #d1472c;background:#fbe6df;border-radius:5px;padding:10px 14px;font-size:13px;color:#a8391f">batchJob.ts<br><span style="font-size:11px">not in diff</span></div>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ highLevelIsErrorflow }}" hint-placeholder-val="{{ false }}">
+        <div onClick="{{ backToGrid }}" style="cursor:pointer;font-size:12px;color:#8a8578;margin-bottom:14px">← all lenses</div>
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+          <div style="border:2px solid #1a1a1a;border-radius:5px;padding:10px 14px;font-size:13px;background:#fffdf8">request fails</div><span>→</span>
+          <div style="border:2px solid #1a1a1a;border-radius:5px;padding:10px 14px;font-size:13px;background:#fbe6df">retried ×3</div><span>→</span>
+          <div style="border:2px dashed #d1472c;border-radius:5px;padding:10px 14px;font-size:13px;color:#a8391f">still fails — uncaught</div>
+        </div>
+      </sc-if>
+
+      </sc-if>
+
+      <sc-if value="{{ tabIsWalkthroughs }}" hint-placeholder-val="{{ false }}">
+        <sc-for list="{{ walkthroughCards }}" as="w" hint-placeholder-count="1">
+          <div style="border:2px solid #1a1a1a;border-radius:8px;padding:16px;margin-bottom:16px;max-width:640px;background:#fffdf8">
+            <div style="display:flex;align-items:center;gap:10px">
+              <span style="font-weight:700">{{ w.title }}</span>
+              <sc-if value="{{ w.isActive }}" hint-placeholder-val="{{ false }}"><span style="font-size:11px;background:#fbe6df;border:1px solid #1a1a1a;border-radius:8px;padding:1px 8px">active — step {{ w.activeStepNum }}</span></sc-if>
+              <button onClick="{{ w.onStart }}" style="margin-left:auto;font-family:inherit;font-size:12px;padding:5px 10px;border:2px solid #1a1a1a;border-radius:4px;background:#fbe6df;cursor:pointer">{{ w.startLabel }}</button>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:8px;margin-top:12px">
+              <sc-for list="{{ w.steps }}" as="st" hint-placeholder-count="3">
+                <div onClick="{{ st.onClick }}" style="{{ st.style }}">
+                  <b>{{ st.label }}</b> — {{ st.narration }} <span style="font-size:11px;color:#8a8578">(lens: {{ st.lensLabel }})</span>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+        </sc-for>
+      </sc-if>
+
+      <sc-if value="{{ tabIsQuestions }}" hint-placeholder-val="{{ false }}">
+        <div style="display:flex;flex-direction:column;gap:10px;max-width:560px">
+          <sc-for list="{{ overlayQuestions }}" as="q" hint-placeholder-count="1">
+            <div style="border:2px solid #1a1a1a;border-radius:6px;padding:12px 14px;background:#fffdf8">
+              <div onClick="{{ q.onJump }}" style="cursor:pointer;color:#a8391f;font-size:12px;text-decoration:underline">→ {{ q.line }} — jump to diff</div>
+              <div style="margin:6px 0;font-size:14px">{{ q.text }}</div>
+              <sc-if value="{{ q.isPending }}" hint-placeholder-val="{{ false }}"><span style="font-size:11px;background:#e0a24a;border-radius:8px;padding:1px 7px">waiting on agent</span></sc-if>
+              <sc-if value="{{ q.isAnswered }}" hint-placeholder-val="{{ false }}"><div style="border-top:1px dashed #c9c4b4;padding-top:6px;font-size:13px"><b>agent:</b> {{ q.answer }}</div></sc-if>
+            </div>
+          </sc-for>
+          <sc-if value="{{ noQuestions }}" hint-placeholder-val="{{ false }}"><div style="font-size:13px;color:#8a8578">no questions yet — ask one with "?" on any diff line</div></sc-if>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ tabIsNotes }}" hint-placeholder-val="{{ false }}">
+        <div style="font-size:12px;color:#8a8578;margin-bottom:12px">the reverse of questions — the agent flags something, unprompted</div>
+        <div style="display:flex;flex-direction:column;gap:10px;max-width:560px">
+          <sc-for list="{{ agentNotes }}" as="n" hint-placeholder-count="2">
+            <div style="border:2px solid #1a1a1a;border-radius:6px;padding:12px 14px;background:#fffdf8">
+              <div onClick="{{ n.onJump }}" style="cursor:pointer;color:#a8391f;font-size:12px;text-decoration:underline">→ {{ n.line }} — jump to diff</div>
+              <div style="margin-top:6px;font-size:14px">{{ n.text }}</div>
+            </div>
+          </sc-for>
+        </div>
+      </sc-if>
+
+    </div>
+  </div>
+  </sc-if>
+</div>
+</div>
+
+</div>
+<p class="dv-next">Try next: "trim the top bar pills down to just the applied one + a lens menu" · "let the composer take real typed text" · "add a way to resolve/close a thread"</p>
+</section>
+
+<section class="dv-turn" id="t1">
+<div class="dv-thd"><a class="dv-tid" href="#t1">1</a><span class="dv-tname">Kept from the first round — becomes the start of a "view file" ux</span></div>
+<div class="dv-opts">
+
+<div class="dv-opt" id="1b">
+<div class="dv-olabel"><a class="dv-oid" href="#1b">1b</a>Question flow — asking, waiting, answered</div>
+<p class="dv-oldesc">Author's decisions-for-humans open the review. Reviewer questions live in a persistent tracker, not scattered comments; answers arrive in place.</p>
+<div style="width:1020px;height:740px;background:#faf8f0;border:2.5px solid #1a1a1a;border-radius:6px;overflow:hidden;display:flex;flex-direction:column;box-shadow:4px 4px 0 rgba(0,0,0,.08)">
+  <div style="display:flex;align-items:center;gap:14px;padding:12px 18px;border-bottom:2px solid #1a1a1a;background:#fffdf8">
+    <span style="font-weight:700;font-size:17px">livediff</span>
+    <span style="font-size:13px;color:#8a8578">2 decisions need you · {{ bPendingCount }} question{{ bPendingSuffix }} open</span>
+  </div>
+  <div style="display:flex;flex:1;min-height:0">
+    <div style="width:340px;border-right:2px solid #1a1a1a;padding:16px;overflow:auto;background:#f3f0e6">
+      <div style="font-weight:700;font-size:13px;margin-bottom:10px">the author is asking you</div>
+      <sc-for list="{{ bAuthorQs }}" as="q" hint-placeholder-count="2">
+        <div style="border:2px solid #1a1a1a;border-radius:5px;padding:10px 12px;margin-bottom:10px;background:#fffdf8">
+          <div style="font-size:13px;margin-bottom:8px">{{ q.text }}</div>
+          <sc-if value="{{ q.resolved }}" hint-placeholder-val="{{ false }}">
+            <div style="font-size:12px;color:#4a4640">→ you said: <b>{{ q.choiceLabel }}</b></div>
+          </sc-if>
+          <sc-if value="{{ q.notResolved }}" hint-placeholder-val="{{ true }}">
+            <div style="display:flex;gap:8px">
+              <button onClick="{{ q.onYes }}" style="font-family:inherit;font-size:12px;padding:4px 10px;border:2px solid #1a1a1a;border-radius:4px;background:#fbe6df;cursor:pointer">retry</button>
+              <button onClick="{{ q.onNo }}" style="font-family:inherit;font-size:12px;padding:4px 10px;border:2px solid #1a1a1a;border-radius:4px;background:#fff;cursor:pointer">fail fast</button>
+            </div>
+          </sc-if>
+        </div>
+      </sc-for>
+      <div style="font-weight:700;font-size:13px;margin:16px 0 10px">your open questions</div>
+      <sc-for list="{{ bQuestions }}" as="qq" hint-placeholder-count="2">
+        <div style="border:2px solid #1a1a1a;border-radius:5px;padding:10px 12px;margin-bottom:10px;background:#fffdf8">
+          <div style="font-size:12px;color:#8a8578;margin-bottom:3px">{{ qq.line }}</div>
+          <div style="font-size:13px;margin-bottom:6px">{{ qq.text }}</div>
+          <sc-if value="{{ qq.isPending }}" hint-placeholder-val="{{ false }}">
+            <div style="display:flex;align-items:center;gap:8px">
+              <span style="font-size:11px;background:#e0a24a;color:#1a1a1a;padding:1px 6px;border-radius:8px">waiting on author</span>
+              <button onClick="{{ qq.onAnswer }}" style="margin-left:auto;font-family:inherit;font-size:11px;padding:3px 8px;border:2px solid #1a1a1a;border-radius:4px;background:#fff;cursor:pointer">simulate reply</button>
+            </div>
+          </sc-if>
+          <sc-if value="{{ qq.isAnswered }}" hint-placeholder-val="{{ false }}">
+            <div style="font-size:12px;background:#eef2e4;border-top:2px dashed #c9c4b4;padding-top:6px;margin-top:4px"><b>author:</b> {{ qq.answer }}</div>
+          </sc-if>
+        </div>
+      </sc-for>
+    </div>
+    <div style="flex:1;padding:18px 20px;overflow:auto">
+      <div style="font:13px monospace;background:#f3f0e6;border:2px solid #1a1a1a;border-radius:4px;padding:10px 14px;line-height:1.9">
+        <div>40&nbsp;&nbsp;&nbsp;function login(user) {</div>
+        <div style="position:relative;background:#fbe6df;margin:0 -14px;padding:0 14px">41&nbsp;&nbsp;+&nbsp;&nbsp;const session = createSession(user)
+          <span onClick="{{ toggleLinePopover }}" style="cursor:pointer;margin-left:10px;font-size:11px;border:1px solid #1a1a1a;border-radius:3px;padding:0 5px">+ / ?</span>
+          <sc-if value="{{ linePopoverOpen }}" hint-placeholder-val="{{ false }}">
+            <div style="position:absolute;left:400px;top:-6px;background:#fffdf8;border:2px solid #1a1a1a;border-radius:5px;padding:8px;display:flex;gap:8px;z-index:2">
+              <button onClick="{{ addComment }}" style="font-family:inherit;font-size:12px;padding:4px 8px;border:2px solid #1a1a1a;border-radius:4px;background:#fff;cursor:pointer">+ comment</button>
+              <button onClick="{{ addQuestion }}" style="font-family:inherit;font-size:12px;padding:4px 8px;border:2px solid #1a1a1a;border-radius:4px;background:#fbe6df;cursor:pointer">? ask</button>
+            </div>
+          </sc-if>
+        </div>
+        <div>42&nbsp;&nbsp;+&nbsp;&nbsp;return session.token</div>
+        <div>43&nbsp;&nbsp;&nbsp;}</div>
+      </div>
+      <div style="font-size:12px;color:#8a8578;margin-top:14px">click "+ / ?" on a line to leave a comment or ask a question — questions post to the tracker on the left instead of sitting in the diff</div>
+    </div>
+  </div>
+</div>
+</div>
+
+</div>
+</section>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+class Component extends DCLogic {
+  state = {
+    bAuthorQs: [
+      { id: 1, text: 'Should this retry or fail fast?', resolved: false, choice: null },
+      { id: 2, text: 'Is silently dropping a malformed entry OK?', resolved: false, choice: null }
+    ],
+    bQuestions: [
+      { id: 1, line: 'session.ts:112', text: "is 'x' the caret fix or something else?", status: 'pending' },
+      { id: 2, line: 'auth.ts:42', text: 'why unmount on submit here?', status: 'answered', answer: 'Composer unmounts on submit — moved logic to CommentThread.' }
+    ],
+    linePopoverOpen: false,
+
+    appliedLens: null,
+    overlayOpen: false,
+    highLevel: null,
+    hoveredKey: null,
+    overlayTab: 'lenses', searchQuery: '',
+    activeWalkthrough: null, activeStepIndex: null,
+    sidePanelOpen: false, sidePanelFile: null, sidePanelTab: 'comments',
+    lineOpen: { l109: 'comment' },
+    lineActiveTab: { l109: 'comment' },
+    lineComments: { l109: [{ author: 'you', text: 'worth documenting why 3' }] },
+    lineQuestions: { l109: [{ author: 'you', text: 'is 0 intentional or should it start at 1?' }, { author: 'agent', text: 'Matches the retry util elsewhere — 0-indexed.' }] },
+    lineQPending: {}
+  };
+  AGENT_NOTES = [
+    { line: 'session.ts:110', key: 'l110', lensKey: 'blast', text: "Guessed the retry budget of 3 — nothing in the repo pins it, flagging so it's a choice, not an accident." },
+    { line: 'auth.ts:20', key: null, lensKey: null, text: "Renamed 4 exports in auth.ts that weren't requested — checked callers, all updated, but wanted you to know." }
+  ];
+
+  LINE_DEFS = [
+    { key: 'l108', num: 108, marker: ' ', code: 'function withRetry(fn) {', added: false },
+    { key: 'l109', num: 109, marker: '+', code: 'let attempt = 0', added: true },
+    { key: 'l110', num: 110, marker: '+', code: 'return attempt(fn, 0, 3)', added: true },
+    { key: 'l111', num: 111, marker: ' ', code: '}', added: false }
+  ];
+  LENS_DEFS = [
+    { key: 'unsure', label: 'Unsure', desc: 'what the agent guessed', hasHigh: false, tagLine: 'l109', tagText: '? unsure', tagStyle: 'margin-left:8px;font-size:11px;border:1px solid #1a1a1a;border-radius:3px;padding:0 5px' },
+    { key: 'request', label: 'vs Request', desc: "what landed, what didn't", hasHigh: false, tagLine: 'l110', tagText: 'unrequested: hardcoded budget', tagStyle: 'margin-left:8px;font-size:11px;border:1px dashed #a8391f;color:#a8391f;border-radius:3px;padding:0 5px' },
+    { key: 'blast', label: 'Blast radius', desc: 'a structure diagram, not a diff', hasHigh: true, tagLine: 'l110', tagText: '● 2 callers not shown', tagStyle: 'margin-left:8px;font-size:11px;border:1px solid #d1472c;color:#a8391f;border-radius:3px;padding:0 5px' },
+    { key: 'errorflow', label: 'Error flow', desc: 'what can go wrong, and where', hasHigh: true, tagLine: 'l110', tagText: '→ retried ×3 then throws', tagStyle: 'margin-left:8px;font-size:11px;border:1px solid #1a1a1a;border-radius:3px;padding:0 5px' }
+  ];
+  WALKTHROUGHS = [
+    { id: 'w1', title: 'Retry refactor walkthrough', steps: [
+      { label: 'Stop 1', lensKey: 'blast', narration: 'start with who else calls this' },
+      { label: 'Stop 2', lensKey: 'unsure', narration: "this is the part I'd argue about" },
+      { label: 'Stop 3', lensKey: 'request', narration: 'check it against what was requested' }
+    ] }
+  ];
+
+  onPlus(key) {
+    const s = this.state;
+    const comments = s.lineComments[key];
+    if (!comments || !comments.length) {
+      this.setState(st => ({
+        lineComments: { ...st.lineComments, [key]: [{ author: 'you', text: 'This retry count seems reasonable, but worth documenting why 3.' }] },
+        lineOpen: { ...st.lineOpen, [key]: 'comment' },
+        lineActiveTab: { ...st.lineActiveTab, [key]: 'comment' }
+      }));
+    } else {
+      this.setState(st => ({
+        lineOpen: { ...st.lineOpen, [key]: st.lineOpen[key] === 'none' ? 'comment' : 'none' },
+        lineActiveTab: { ...st.lineActiveTab, [key]: 'comment' }
+      }));
+    }
+  }
+  onQuestion(key) {
+    const s = this.state;
+    const qs = s.lineQuestions[key];
+    if (!qs || !qs.length) {
+      this.setState(st => ({
+        lineQuestions: { ...st.lineQuestions, [key]: [{ author: 'you', text: 'is 0 intentional or should it start at 1?' }] },
+        lineQPending: { ...st.lineQPending, [key]: true },
+        lineOpen: { ...st.lineOpen, [key]: 'question' },
+        lineActiveTab: { ...st.lineActiveTab, [key]: 'question' }
+      }));
+      setTimeout(() => {
+        this.setState(st => ({
+          lineQuestions: { ...st.lineQuestions, [key]: [...st.lineQuestions[key], { author: 'agent', text: 'Matches the retry util elsewhere — 0-indexed.' }] },
+          lineQPending: { ...st.lineQPending, [key]: false }
+        }));
+      }, 1200);
+    } else {
+      this.setState(st => ({
+        lineOpen: { ...st.lineOpen, [key]: st.lineOpen[key] === 'none' ? 'question' : 'none' },
+        lineActiveTab: { ...st.lineActiveTab, [key]: 'question' }
+      }));
+    }
+  }
+  answerAuthorQ(id, choice) {
+    this.setState(s => ({ bAuthorQs: s.bAuthorQs.map(q => q.id === id ? { ...q, resolved: true, choice } : q) }));
+  }
+  answerQuestion(id) {
+    this.setState(s => ({ bQuestions: s.bQuestions.map(q => q.id === id ? { ...q, status: 'answered', answer: "Retry budget of 3 — matches payments.ts, didn't want a fourth constant." } : q) }));
+  }
+  addQuestion() {
+    this.setState(s => ({
+      bQuestions: [...s.bQuestions, { id: s.bQuestions.length + 10, line: 'login.ts:41', text: 'is createSession safe to call twice?', status: 'pending' }],
+      linePopoverOpen: false
+    }));
+  }
+
+  renderVals() {
+    const s = this.state;
+
+    const activeLensDef = this.LENS_DEFS.find(l => l.key === s.appliedLens);
+    const activeWalkthroughDef = this.WALKTHROUGHS.find(w => w.id === s.activeWalkthrough) || null;
+
+    const activeLens = this.LENS_DEFS.find(l => l.key === s.appliedLens);
+    const diffLines = this.LINE_DEFS.map(ld => {
+      const key = ld.key;
+      const open = s.lineOpen[key] || 'none';
+      const comments = s.lineComments[key] || [];
+      const questions = s.lineQuestions[key] || [];
+      const bothExist = comments.length > 0 && questions.length > 0;
+      const activeTab = s.lineActiveTab[key] || (comments.length ? 'comment' : 'question');
+      const tag = activeLens && activeLens.tagLine === key ? activeLens : null;
+      return {
+        num: ld.num, marker: ld.marker, code: ld.code,
+        rowStyle: 'position:relative',
+        showHoverBtns: s.hoveredKey === key,
+        onEnter: () => this.setState({ hoveredKey: key }),
+        onLeave: () => this.setState({ hoveredKey: null }),
+        onPlus: () => this.onPlus(key),
+        onQuestion: () => this.onQuestion(key),
+        tagText: tag ? tag.tagText : '',
+        tagStyle: tag ? tag.tagStyle : '',
+        hasThread: comments.length > 0 || questions.length > 0,
+        threadCount: comments.length + questions.length,
+        onToggleThread: () => this.setState(st => ({ lineOpen: { ...st.lineOpen, [key]: st.lineOpen[key] === 'none' || !st.lineOpen[key] ? activeTab : 'none' } })),
+        panelOpen: open !== 'none',
+        bothExist,
+        activeIsComment: activeTab === 'comment', activeIsQuestion: activeTab === 'question',
+        onTabComment: () => this.setState(st => ({ lineActiveTab: { ...st.lineActiveTab, [key]: 'comment' } })),
+        onTabQuestion: () => this.setState(st => ({ lineActiveTab: { ...st.lineActiveTab, [key]: 'question' } })),
+        tabCommentStyle: `font-size:11px;padding:2px 8px;border-radius:8px;cursor:pointer;background:${activeTab === 'comment' ? '#1a1a1a' : '#f3f0e6'};color:${activeTab === 'comment' ? '#faf8f0' : '#1a1a1a'}`,
+        tabQuestionStyle: `font-size:11px;padding:2px 8px;border-radius:8px;cursor:pointer;background:${activeTab === 'question' ? '#1a1a1a' : '#f3f0e6'};color:${activeTab === 'question' ? '#faf8f0' : '#1a1a1a'}`,
+        commentMsg1: comments[0] ? comments[0].text : '',
+        hasCommentMsg2: comments.length > 1, commentMsg2: comments[1] ? comments[1].text : '', commentMsg2Author: comments[1] ? comments[1].author : '',
+        questionMsg1: questions[0] ? questions[0].text : '',
+        questionPending: !!s.lineQPending[key],
+        hasQuestionMsg2: questions.length > 1, questionMsg2: questions[1] ? questions[1].text : ''
+      };
+    });
+
+    const q = s.searchQuery.trim().toLowerCase();
+    const filteredLensDefs = q ? this.LENS_DEFS.filter(l => l.label.toLowerCase().includes(q) || l.desc.toLowerCase().includes(q)) : this.LENS_DEFS;
+    // lines l109 -> lensKey 'unsure' for filtering purposes; others general
+    const LINE_LENS_KEY = { l109: 'unsure' };
+
+    const overlayQuestions = [];
+    this.LINE_DEFS.forEach(ld => {
+      const qs = s.lineQuestions[ld.key];
+      const lensKey = LINE_LENS_KEY[ld.key] || null;
+      if (qs && qs.length && (!s.appliedLens || lensKey === null || lensKey === s.appliedLens)) {
+        overlayQuestions.push({
+          line: `session.ts:${ld.num}`, text: qs[0].text,
+          isPending: !!s.lineQPending[ld.key], isAnswered: qs.length > 1, answer: qs[1] ? qs[1].text : '',
+          onJump: () => this.setState({ overlayOpen: false, lineOpen: { ...s.lineOpen, [ld.key]: 'question' }, lineActiveTab: { ...s.lineActiveTab, [ld.key]: 'question' } })
+        });
+      }
+    });
+
+    const agentNotes = this.AGENT_NOTES.filter(n => !s.appliedLens || n.lensKey === null || n.lensKey === s.appliedLens).map(n => ({
+      line: n.line, text: n.text,
+      onJump: () => n.key ? this.setState({ overlayOpen: false, lineOpen: { ...s.lineOpen, [n.key]: 'comment' } }) : this.setState({ overlayOpen: false })
+    }));
+
+    const scopedStepCards = activeWalkthroughDef ? activeWalkthroughDef.steps.map((st, idx) => {
+      const ld = this.LENS_DEFS.find(l => l.key === st.lensKey);
+      const isCurrent = s.activeStepIndex === idx;
+      return {
+        title: st.label, desc: `${st.narration} (${ld ? ld.label : st.lensKey})`,
+        cardStyle: `border:2px solid #1a1a1a;border-radius:10px;padding:20px;background:${isCurrent ? '#fbe6df' : '#f3f0e6'};text-align:center`,
+        iconStyle: 'width:40px;height:40px;margin:0 auto;border:2px solid #1a1a1a;border-radius:50%',
+        btnLabel: isCurrent ? 'current step' : 'go to step →',
+        onApply: () => this.setState({ appliedLens: st.lensKey, activeStepIndex: idx, overlayOpen: false })
+      };
+    }) : [];
+
+    const walkthroughCards = this.WALKTHROUGHS.map(w => {
+      const isActive = s.activeWalkthrough === w.id;
+      return {
+        title: w.title, isActive, activeStepNum: isActive ? s.activeStepIndex + 1 : 0,
+        startLabel: isActive ? 'exit walkthrough' : 'start walkthrough',
+        onStart: () => isActive
+          ? this.setState({ activeWalkthrough: null, activeStepIndex: null, appliedLens: null })
+          : this.setState({ activeWalkthrough: w.id, activeStepIndex: 0, appliedLens: w.steps[0].lensKey, overlayOpen: false }),
+        steps: w.steps.map((st, idx) => {
+          const ld = this.LENS_DEFS.find(l => l.key === st.lensKey);
+          const isCurrent = isActive && s.activeStepIndex === idx;
+          return {
+            label: st.label, narration: st.narration, lensLabel: ld ? ld.label : st.lensKey,
+            style: `cursor:pointer;padding:8px 10px;border:1px solid #1a1a1a;border-radius:5px;font-size:13px;background:${isCurrent ? '#fbe6df' : '#fff'}`,
+            onClick: () => this.setState({ activeWalkthrough: w.id, activeStepIndex: idx, appliedLens: st.lensKey, overlayOpen: false })
+          };
+        })
+      };
+    });
+
+    const allComments = this.LINE_DEFS.filter(ld => (s.lineComments[ld.key] || []).length).map(ld => ({ line: `session.ts:${ld.num}`, text: s.lineComments[ld.key][0].text }));
+    const allQuestions = this.LINE_DEFS.filter(ld => (s.lineQuestions[ld.key] || []).length).map(ld => ({ line: `session.ts:${ld.num}`, text: s.lineQuestions[ld.key][0].text }));
+    const sessionNotes = this.AGENT_NOTES.filter(n => n.line.startsWith('session.ts')).map(n => ({ line: n.line, text: n.text }));
+    const authNotes = this.AGENT_NOTES.filter(n => n.line.startsWith('auth.ts')).map(n => ({ line: n.line, text: n.text }));
+    const FILE_ACTIVITY = {
+      'session.ts': { comments: allComments, questions: allQuestions, notes: sessionNotes },
+      'auth.ts': { comments: [], questions: [], notes: authNotes },
+      'login.ts': { comments: [], questions: [], notes: [] }
+    };
+    const fileRows = ['session.ts', 'auth.ts', 'login.ts'].map(name => {
+      const act = FILE_ACTIVITY[name];
+      const count = act.comments.length + act.questions.length + act.notes.length;
+      return {
+        name, count, hasActivity: count > 0,
+        rowStyle: `display:flex;align-items:center;gap:6px;padding:6px 12px;font-size:13px;${name === 'session.ts' ? 'background:#fbe6df;border-left:4px solid #d1472c' : ''}`,
+        onOpenPanel: () => this.setState({ sidePanelOpen: true, sidePanelFile: name, sidePanelTab: 'comments' })
+      };
+    });
+    const sidePanelAct = s.sidePanelFile ? FILE_ACTIVITY[s.sidePanelFile] : { comments: [], questions: [], notes: [] };
+
+    const lensCards = filteredLensDefs.map((l, i) => {
+      const accent = ['#fbe6df', '#eef2e4', '#f3f0e6', '#fbe6df', '#eef2e4'][i % 5];
+      return {
+        title: l.label, desc: l.desc, hasHigh: l.hasHigh,
+        cardStyle: `border:2px solid #1a1a1a;border-radius:10px;padding:20px;background:${accent};text-align:center;transition:transform .15s,box-shadow .15s;box-shadow:2px 2px 0 rgba(0,0,0,.08)`,
+        iconStyle: [
+          'width:40px;height:40px;margin:0 auto;border:2px solid #1a1a1a;border-radius:6px;transform:rotate(45deg)',
+          'width:40px;height:40px;margin:0 auto;border:2px solid #1a1a1a;border-radius:50%',
+          'width:40px;height:40px;margin:0 auto;border:2px dashed #a8391f;border-radius:50%',
+          'width:40px;height:40px;margin:0 auto;border:2px solid #1a1a1a;border-radius:6px',
+          'width:0;height:0;margin:0 auto;border-left:18px solid transparent;border-right:18px solid transparent;border-bottom:30px solid #1a1a1a'
+        ][i % 5],
+        onApply: () => this.setState({ appliedLens: l.key, overlayOpen: false }),
+        onHigh: () => this.setState({ highLevel: l.key })
+      };
+    });
+
+    return {
+      appliedLensLabel: activeLensDef ? activeLensDef.label : 'Full diff',
+      lensTriggerBg: s.appliedLens ? '#1a1a1a' : '#fff', lensTriggerFg: s.appliedLens ? '#faf8f0' : '#1a1a1a',
+      openLensPicker: () => this.setState({ overlayOpen: true, highLevel: null, overlayTab: s.activeWalkthrough ? 'walkthroughs' : 'lenses' }),
+      diffLines,
+      overlayOpen: s.overlayOpen,
+      openOverlay: () => this.setState({ overlayOpen: true, highLevel: null }),
+      closeOverlay: () => this.setState({ overlayOpen: false }),
+      inWalkthrough: !!activeWalkthroughDef, notInWalkthrough: !activeWalkthroughDef,
+      activeWalkthroughTitle: activeWalkthroughDef ? activeWalkthroughDef.title : '',
+      exitWalkthrough: () => this.setState({ activeWalkthrough: null, activeStepIndex: null, appliedLens: null }),
+      scopedStepCards,
+      walkthroughCards,
+      fileRows,
+      sidePanelOpen: s.sidePanelOpen, sidePanelFile: s.sidePanelFile,
+      closeSidePanel: () => this.setState({ sidePanelOpen: false }),
+      setSideComments: () => this.setState({ sidePanelTab: 'comments' }),
+      setSideQuestions: () => this.setState({ sidePanelTab: 'questions' }),
+      setSideNotes: () => this.setState({ sidePanelTab: 'notes' }),
+      sideCommentsStyle: `flex:1;text-align:center;padding:6px;font-size:11px;cursor:pointer;background:${s.sidePanelTab === 'comments' ? '#fbe6df' : 'transparent'}`,
+      sideQuestionsStyle: `flex:1;text-align:center;padding:6px;font-size:11px;cursor:pointer;background:${s.sidePanelTab === 'questions' ? '#fbe6df' : 'transparent'}`,
+      sideNotesStyle: `flex:1;text-align:center;padding:6px;font-size:11px;cursor:pointer;background:${s.sidePanelTab === 'notes' ? '#fbe6df' : 'transparent'}`,
+      sideIsComments: s.sidePanelTab === 'comments', sideIsQuestions: s.sidePanelTab === 'questions', sideIsNotes: s.sidePanelTab === 'notes',
+      sideComments: sidePanelAct.comments, sideCommentsEmpty: sidePanelAct.comments.length === 0,
+      sideQuestions: sidePanelAct.questions, sideQuestionsEmpty: sidePanelAct.questions.length === 0,
+      sideNotes: sidePanelAct.notes, sideNotesEmpty: sidePanelAct.notes.length === 0,
+      tabIsWalkthroughs: s.overlayTab === 'walkthroughs',
+      setTabWalkthroughs: () => this.setState({ overlayTab: 'walkthroughs' }),
+      tabWalkthroughsStyle: `padding:6px 12px;font-size:12px;cursor:pointer;background:${s.overlayTab === 'walkthroughs' ? '#1a1a1a' : '#fff'};color:${s.overlayTab === 'walkthroughs' ? '#faf8f0' : '#1a1a1a'}`,
+      lensCards,
+      highLevelIsNone: !s.highLevel, highLevelIsBlast: s.highLevel === 'blast', highLevelIsErrorflow: s.highLevel === 'errorflow',
+      backToGrid: () => this.setState({ highLevel: null }),
+      searchQuery: s.searchQuery,
+      onSearchChange: (e) => this.setState({ searchQuery: e.target.value }),
+      tabIsLenses: s.overlayTab === 'lenses', tabIsQuestions: s.overlayTab === 'questions', tabIsNotes: s.overlayTab === 'notes',
+      setTabLenses: () => this.setState({ overlayTab: 'lenses' }),
+      setTabQuestions: () => this.setState({ overlayTab: 'questions' }),
+      setTabNotes: () => this.setState({ overlayTab: 'notes' }),
+      tabLensesStyle: `padding:6px 12px;font-size:12px;cursor:pointer;background:${s.overlayTab === 'lenses' ? '#1a1a1a' : '#fff'};color:${s.overlayTab === 'lenses' ? '#faf8f0' : '#1a1a1a'}`,
+      tabQuestionsStyle: `padding:6px 12px;font-size:12px;cursor:pointer;background:${s.overlayTab === 'questions' ? '#1a1a1a' : '#fff'};color:${s.overlayTab === 'questions' ? '#faf8f0' : '#1a1a1a'}`,
+      tabNotesStyle: `padding:6px 12px;font-size:12px;cursor:pointer;background:${s.overlayTab === 'notes' ? '#1a1a1a' : '#fff'};color:${s.overlayTab === 'notes' ? '#faf8f0' : '#1a1a1a'}`,
+      pendingQCount: overlayQuestions.filter(x => x.isPending).length,
+      notesCount: agentNotes.length,
+      overlayQuestions, noQuestions: overlayQuestions.length === 0,
+      agentNotes,
+
+      bAuthorQs: s.bAuthorQs.map(q => ({
+        text: q.text, resolved: q.resolved, notResolved: !q.resolved, choiceLabel: q.choice,
+        onYes: () => this.answerAuthorQ(q.id, 'retry'), onNo: () => this.answerAuthorQ(q.id, 'fail fast')
+      })),
+      bQuestions: s.bQuestions.map(q => ({
+        line: q.line, text: q.text, isPending: q.status === 'pending', isAnswered: q.status === 'answered',
+        answer: q.answer, onAnswer: () => this.answerQuestion(q.id)
+      })),
+      bPendingCount: s.bQuestions.filter(q => q.status === 'pending').length,
+      bPendingSuffix: s.bQuestions.filter(q => q.status === 'pending').length === 1 ? '' : 's',
+      linePopoverOpen: s.linePopoverOpen,
+      toggleLinePopover: () => this.setState(st => ({ linePopoverOpen: !st.linePopoverOpen })),
+      addComment: () => this.setState({ linePopoverOpen: false }),
+      addQuestion: () => this.addQuestion()
+    };
+  }
+}
+
+</script>
+</body>
+</html>
