@@ -179,7 +179,7 @@ export function useVirtualRows({ rows, metrics, containerRef, overscan = 8 }: Vi
   /** The row currently at the top of the viewport — the anchor for keeping scroll stable. */
   const topRow = useCallback(() => rowAt(offsets, scrollTop), [offsets, scrollTop]);
 
-  return { range, offsets, totalHeight, scrollToRow, topRow, viewport };
+  return { range, offsets, totalHeight, scrollToRow, topRow, viewport, scrollTop };
 }
 
 /**

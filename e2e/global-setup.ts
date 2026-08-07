@@ -14,6 +14,7 @@ const SHAPES = {
   modfiles: "modified-not-added",
   minified: "minified-single-line",
   lockfile: "lockfile",
+  nested: "nested",
 } as const;
 
 export default async function globalSetup() {

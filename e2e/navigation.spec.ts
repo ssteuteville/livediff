@@ -3,6 +3,13 @@ import { appendFile } from "node:fs/promises";
 import { join } from "node:path";
 import { workspaceUrl, focusUrl, fixturePath } from "./harness.js";
 
+/** Focused mode starts with the file panel collapsed, so anything that clicks a file opens it. */
+async function showFiles(page: import("@playwright/test").Page) {
+  const closed = page.locator('[data-file-panel-toggle][aria-expanded="false"]');
+  if ((await closed.count()) > 0) await closed.click();
+  await page.locator("[data-file-list]").waitFor();
+}
+
 test("a ?ws= deep link selects the workspace it names", async ({ page }) => {
   // Regression guard: the "keep a valid selection" effect used to run before the workspace list
   // had loaded and clear the selection this URL just made, so a deep link opened whichever
@@ -17,6 +24,7 @@ test("clicking a file in the list jumps to it in the diff", async ({ page }) => 
   const scroller = page.locator("[data-diff-scroll]");
   await scroller.waitFor({ timeout: 30_000 });
 
+  await showFiles(page);
   const before = await scroller.evaluate((el) => el.scrollTop);
   await page.locator('[data-file-item="mod-20.ts"]').click();
 
@@ -29,7 +37,9 @@ test("clicking a file in the list jumps to it in the diff", async ({ page }) => 
 
   const offset = await header.evaluate((row) => {
     const box = row.getBoundingClientRect();
-    const view = row.closest("[data-diff-scroll]")!.getBoundingClientRect();
+    // Queried rather than walked up from the header: the header of the file you are looking at is
+    // the pinned one, and that is a sibling of the scroller rather than a descendant of it.
+    const view = document.querySelector("[data-diff-scroll]")!.getBoundingClientRect();
     return box.top - view.top;
   });
   expect(Math.abs(offset)).toBeLessThan(4);
@@ -40,24 +50,30 @@ test("the last file cannot reach the top, and that is not a bug", async ({ page 
   const scroller = page.locator("[data-diff-scroll]");
   await scroller.waitFor({ timeout: 30_000 });
 
+  await showFiles(page);
+
   // The list is sorted by path, so the last entry is mod-9.ts rather than mod-39.ts. Read it.
   const last = page.locator("[data-file-item]").last();
   const path = (await last.getAttribute("data-file-item"))!;
   await last.click();
   await expect(page.locator('[data-row-kind="file"]', { hasText: path })).toBeVisible();
 
-  // A jump puts the file's header at the top *unless* the document ends first, in which case
-  // scrollTop clamps at scrollHeight - clientHeight and the header lands mid-viewport. That
-  // clamping was chased as a 234px bug once. Both outcomes are correct; overscrolling is not.
-  const state = await scroller.evaluate((el) => {
-    const header = [...el.querySelectorAll('[data-row-kind="file"]')].at(-1)!;
-    return {
-      offset: header.getBoundingClientRect().top - el.getBoundingClientRect().top,
-      atMax: Math.abs(el.scrollTop - (el.scrollHeight - el.clientHeight)) < 2,
-    };
-  });
+  // A jump puts the file's *rows* at the top unless the document ends first, in which case
+  // scrollTop clamps at scrollHeight - clientHeight and they land lower. That clamping was chased
+  // as a 234px bug once. Both outcomes are correct; overscrolling is not.
+  //
+  // The header itself no longer distinguishes the two — it is pinned, so it is at the top either
+  // way. So this reads scrollTop directly, which is what the clamp was ever about.
+  const state = await scroller.evaluate((el) => ({
+    scrollTop: el.scrollTop,
+    max: el.scrollHeight - el.clientHeight,
+  }));
 
-  expect(Math.abs(state.offset) < 4 || state.atMax).toBe(true);
+  expect(state.scrollTop).toBeLessThanOrEqual(state.max + 2);
+  expect(state.scrollTop).toBeGreaterThan(0);
+
+  // And the pinned header must name the file that was actually asked for.
+  expect(await page.locator("[data-file-sticky]").getAttribute("data-file-sticky")).toBe(path);
 });
 
 test("an edit to an already-modified file updates the diff and holds the reader's place", async ({

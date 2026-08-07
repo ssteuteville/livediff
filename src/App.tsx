@@ -20,6 +20,9 @@ import FastDiff from "./components/FastDiff.tsx";
 import CommentDrawer from "./components/CommentDrawer.tsx";
 import WorkspaceRail from "./components/WorkspaceRail.tsx";
 import ReviewBanner from "./components/ReviewBanner.tsx";
+import FileTree from "./components/FileTree.tsx";
+import type { FileTreeEntry } from "./file-tree.ts";
+import { diffTotals, formatBytes } from "./diff-model.ts";
 import { RENDERER, RENDERERS, DIFF_REFETCH_DEBOUNCE_MS } from "../shared/constants.ts";
 import {
   fetchWorkspaces,
@@ -130,6 +133,13 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [jump, setJump] = useState<{ path: string; nonce: number } | null>(null);
   const [showAll, setShowAll] = useState(0);
+  const [activeFile, setActiveFile] = useState<string | null>(null);
+  // Focused mode opens straight into one worktree's diff, where the width matters more than the
+  // file list — you already know which worktree you asked for. The hub view keeps it open.
+  const [filesCollapsed, setFilesCollapsed] = useState(() => {
+    const focus = new URLSearchParams(window.location.search).get("focus");
+    return focus !== null && focus !== "0";
+  });
   const [configuredRenderer, setConfiguredRenderer] = useState(RENDERER);
   const theme = useTheme();
   const fileRefs = useRef<Record<number, HTMLDivElement | null>>({});
@@ -255,6 +265,9 @@ export default function App() {
   }, [workspaces, selected, focused, loaded]);
 
   useEffect(() => {
+    // A highlight left over from the previous workspace would point at a file that is no longer
+    // on screen. The diff renderer reports the real one as soon as it has rows.
+    setActiveFile(null);
     void loadDiff(selected, base);
     void loadComments(selected);
     void loadReview(selected);
@@ -364,6 +377,20 @@ export default function App() {
     return map;
   }, [visibleComments]);
 
+  const fileEntries = useMemo<FileTreeEntry[]>(
+    () =>
+      visibleFiles.map((f, index) => ({
+        path: f.path,
+        index,
+        additions: f.additions,
+        deletions: f.deletions,
+        openComments: commentsByFile.get(f.path)?.filter((c) => c.status === "open").length ?? 0,
+      })),
+    [visibleFiles, commentsByFile],
+  );
+
+  const totals = useMemo(() => diffTotals(visibleFiles), [visibleFiles]);
+
   const selectedWs = workspaces.find((w) => w.id === selected);
   const openTotal = comments.filter((c) => c.status === "open").length;
   // The two renderers scroll differently: classic has a DOM node per file, the fast one has to be
@@ -398,6 +425,35 @@ export default function App() {
           >
             <span className={"h-2 w-2 rounded-full " + (flash ? "bg-amber-400" : "bg-green-500")} />
             {flash ? "updated" : "live"}
+          </span>
+        )}
+
+        {/* In the header rather than a strip of its own: the size of the diff is worth knowing
+            before you start, but not worth a row of vertical space on every screen. */}
+        {selectedWs && totals.files > 0 && (
+          <span
+            data-diff-summary
+            className="flex items-center gap-2 text-xs text-neutral-500 dark:text-neutral-400"
+          >
+            <span data-diff-files={totals.files}>
+              {totals.files} file{totals.files === 1 ? "" : "s"}
+            </span>
+            <span
+              data-diff-additions={totals.additions}
+              className="text-green-600 dark:text-green-400"
+            >
+              +{totals.additions}
+            </span>
+            <span data-diff-deletions={totals.deletions} className="text-red-600 dark:text-red-400">
+              −{totals.deletions}
+            </span>
+            <span
+              data-diff-bytes={totals.bytes}
+              className="tabular-nums text-neutral-400 dark:text-neutral-500"
+              title="Total size of the diff text, not of the files"
+            >
+              {formatBytes(totals.bytes)}
+            </span>
           </span>
         )}
 
@@ -488,52 +544,76 @@ export default function App() {
           />
         )}
 
-        {selectedWs && (
+        {/* Collapsed, the panel keeps a spine rather than vanishing: somewhere to click to get it
+            back, and the two counts worth knowing without it. */}
+        {selectedWs && filesCollapsed && (
+          <div className="flex w-9 shrink-0 flex-col items-center gap-2 border-r border-neutral-200 bg-white pt-2 dark:border-neutral-800 dark:bg-neutral-900">
+            <button
+              type="button"
+              data-file-panel-toggle
+              aria-expanded="false"
+              aria-controls="livediff-file-list"
+              onClick={() => setFilesCollapsed(false)}
+              title="Show files"
+              className="w-full py-1 text-[11px] text-neutral-400 hover:bg-neutral-100 hover:text-neutral-600 dark:hover:bg-neutral-800"
+            >
+              ▶<span className="block text-[10px] tabular-nums">{visibleFiles.length}</span>
+            </button>
+            {/* Reaching every comment must not depend on the panel being open — collapsed is the
+                default in focused mode, and this is the one action with no other route to it. */}
+            {comments.length > 0 && (
+              <button
+                type="button"
+                data-see-all-comments
+                onClick={() => setShowAll(Date.now())}
+                title="See every comment in this worktree"
+                className={
+                  "rounded-full px-1 text-[10px] " +
+                  (openTotal > 0
+                    ? "bg-amber-100 text-amber-700 hover:bg-amber-200 dark:bg-amber-500/20 dark:text-amber-300"
+                    : "text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800")
+                }
+              >
+                {openTotal}
+              </button>
+            )}
+          </div>
+        )}
+
+        {selectedWs && !filesCollapsed && (
           <aside
+            id="livediff-file-list"
             data-file-list
             className="w-60 shrink-0 overflow-y-auto border-r border-neutral-200 bg-white p-2 dark:border-neutral-800 dark:bg-neutral-900"
           >
-            <button
-              type="button"
-              data-see-all-comments
-              onClick={() => setShowAll(Date.now())}
-              disabled={comments.length === 0}
-              title={comments.length > 0 ? "See every comment in this worktree" : undefined}
-              className="w-full rounded px-2 py-1 text-left text-[11px] font-semibold uppercase tracking-wide text-neutral-400 enabled:hover:bg-neutral-100 enabled:hover:text-neutral-600 dark:enabled:hover:bg-neutral-800"
-            >
-              {visibleFiles.length} files · {openTotal} open
-            </button>
-            {visibleFiles.map((f, i) => {
-              const fc = commentsByFile.get(f.path)?.filter((c) => c.status === "open").length ?? 0;
-              return (
-                <button
-                  key={f.path}
-                  data-file-item={f.path}
-                  onClick={() => scrollToFile(i, f.path)}
-                  className="flex w-full items-center gap-1.5 rounded px-2 py-1 text-left text-xs hover:bg-neutral-100 dark:hover:bg-neutral-800"
-                >
-                  <span
-                    className="truncate font-mono text-neutral-700 dark:text-neutral-200"
-                    title={f.path}
-                  >
-                    {f.path.split("/").pop()}
-                  </span>
-                  {fc > 0 && (
-                    <span className="ml-auto rounded-full bg-amber-100 px-1.5 text-[10px] text-amber-700 dark:bg-amber-500/20 dark:text-amber-300">
-                      {fc}
-                    </span>
-                  )}
-                  <span className={"text-[10px] text-neutral-400 " + (fc > 0 ? "" : "ml-auto")}>
-                    {f.additions > 0 && (
-                      <span className="text-green-600 dark:text-green-400">+{f.additions}</span>
-                    )}{" "}
-                    {f.deletions > 0 && (
-                      <span className="text-red-600 dark:text-red-400">−{f.deletions}</span>
-                    )}
-                  </span>
-                </button>
-              );
-            })}
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                data-see-all-comments
+                onClick={() => setShowAll(Date.now())}
+                disabled={comments.length === 0}
+                title={comments.length > 0 ? "See every comment in this worktree" : undefined}
+                className="flex-1 rounded px-2 py-1 text-left text-[11px] font-semibold uppercase tracking-wide text-neutral-400 enabled:hover:bg-neutral-100 enabled:hover:text-neutral-600 dark:enabled:hover:bg-neutral-800"
+              >
+                {visibleFiles.length} files · {openTotal} open
+              </button>
+              <button
+                type="button"
+                data-file-panel-toggle
+                aria-expanded="true"
+                aria-controls="livediff-file-list"
+                onClick={() => setFilesCollapsed(true)}
+                title="Hide files"
+                className="shrink-0 rounded px-1.5 py-1 text-[11px] text-neutral-400 hover:bg-neutral-100 hover:text-neutral-600 dark:hover:bg-neutral-800"
+              >
+                ◀
+              </button>
+            </div>
+            <FileTree
+              entries={fileEntries}
+              activePath={activeFile}
+              onSelect={(entry) => scrollToFile(entry.index, entry.path)}
+            />
           </aside>
         )}
 
@@ -597,6 +677,7 @@ export default function App() {
               showAll={showAll}
               onAddComment={onAddComment}
               onCommentAction={onCommentAction}
+              onActiveFile={setActiveFile}
             />
           )}
           {selectedWs && !fast && visibleFiles.length > 0 && (

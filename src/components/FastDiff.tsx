@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useReducer,
   useRef,
@@ -15,7 +16,12 @@ import {
   countByFile,
   nextHit,
   anchoredCommentIds,
+  fileRowIndices,
+  fileRowAt,
+  stickyPushOff,
+  diffTotals,
 } from "../diff-model.js";
+import type { DiffTotals } from "../diff-model.js";
 import type {
   CommentRow,
   DiffLine,
@@ -54,6 +60,7 @@ interface FastDiffProps {
   showAll: number;
   onAddComment: (input: NewComment) => void | Promise<void>;
   onCommentAction: (id: Comment["id"], action: CommentAction) => void | Promise<void>;
+  onActiveFile?: (path: string | null) => void;
 }
 
 interface MatchRange {
@@ -77,6 +84,12 @@ type ExpandedState = { key: string; reply: boolean };
 type DrawerState = { path: string | null };
 
 const GUTTER = "w-12 shrink-0 select-none text-right text-neutral-400";
+
+/** Shared by the height model and the pinned header, which must agree or the push-off jitters. */
+const FILE_HEADER_HEIGHT = 40;
+
+/** Width of the comment-button column. Counted as chrome, or wrapped rows come out too short. */
+const ADD_BUTTON_PX = 20;
 
 const GAP = {
   add: "bg-green-50 dark:bg-green-500/10",
@@ -173,6 +186,14 @@ function LineText({
   );
 }
 
+/**
+ * The line a comment is being written against, marked while the composer is open.
+ *
+ * The composer opens below the line rather than on it, so without this there is nothing tying the
+ * two together — on a dense diff it is genuinely easy to lose which line you clicked.
+ */
+const COMPOSING = " ring-2 ring-inset ring-blue-500 dark:ring-blue-400";
+
 function Side({
   line,
   lang,
@@ -180,6 +201,7 @@ function Side({
   query,
   options,
   onAdd,
+  composing,
 }: {
   line: DisplayLine | null;
   lang: string;
@@ -187,29 +209,34 @@ function Side({
   query: string;
   options: SearchOptions;
   onAdd: ((line: DisplayLine) => void) | undefined;
+  composing: boolean;
 }) {
   const bg = kind === "add" ? GAP.add : kind === "del" ? GAP.del : "";
   return (
-    <div className={"group flex min-w-0 flex-1 " + bg}>
+    <div className={"group flex min-w-0 flex-1 " + bg + (composing ? COMPOSING : "")}>
       <span className={GUTTER}>{line?.oldNo ?? line?.newNo ?? ""}</span>
+      {/* Its own column, always present: revealing the button on hover must not reflow the line.
+          Beside the number rather than at the far edge, where the line it acts on is obvious. */}
+      <span className="flex shrink-0 justify-center" style={{ width: ADD_BUTTON_PX }}>
+        {line && onAdd && (
+          <button
+            type="button"
+            data-add-comment
+            onClick={() => onAdd(line)}
+            className="mt-0.5 hidden h-5 w-5 items-center justify-center rounded bg-blue-600 text-sm font-semibold leading-none text-white shadow-sm transition hover:bg-blue-700 group-hover:flex focus-visible:flex"
+            title="Comment on this line"
+            aria-label="Comment on this line"
+          >
+            +
+          </button>
+        )}
+      </span>
       <span className="w-4 shrink-0 select-none text-center text-neutral-400">
         {MARKER[kind] ?? ""}
       </span>
       <div className="min-w-0 flex-1 pr-2">
         {line ? <LineText text={line.text} lang={lang} query={query} options={options} /> : null}
       </div>
-      {line && onAdd && (
-        <button
-          type="button"
-          data-add-comment
-          onClick={() => onAdd(line)}
-          className="mr-1 mt-0.5 hidden h-5 w-5 shrink-0 items-center justify-center rounded bg-blue-600 text-sm font-semibold leading-none text-white shadow-sm transition hover:bg-blue-700 group-hover:flex focus-visible:flex"
-          title="Comment on this line"
-          aria-label="Comment on this line"
-        >
-          +
-        </button>
-      )}
     </div>
   );
 }
@@ -319,6 +346,45 @@ function FileHeader({
   );
 }
 
+function plural(count: number): string {
+  return count === 1 ? "" : "s";
+}
+
+/**
+ * The end of the diff, said out loud.
+ *
+ * A virtualized list ends at whatever row happened to be last, which reads as the content having
+ * been truncated rather than finished. Giving the end a deliberate shape — and some room beneath
+ * the final row — is the difference between "that's everything" and "did it fail to load?".
+ */
+function EndOfDiff({ totals, onBackToTop }: { totals: DiffTotals; onBackToTop: () => void }) {
+  return (
+    <div
+      data-diff-end
+      className="flex flex-col items-center justify-center gap-2 border-t border-neutral-200 bg-neutral-50 py-14 text-sm text-neutral-400 dark:border-neutral-800 dark:bg-neutral-900/50"
+    >
+      <span className="font-sans">No more files</span>
+      <span className="font-sans text-xs">
+        <span data-diff-files={totals.files}>{totals.files}</span> file{plural(totals.files)} ·{" "}
+        <span data-diff-additions={totals.additions} className="text-green-600 dark:text-green-400">
+          +{totals.additions}
+        </span>{" "}
+        <span data-diff-deletions={totals.deletions} className="text-red-600 dark:text-red-400">
+          −{totals.deletions}
+        </span>
+      </span>
+      <button
+        type="button"
+        data-back-to-top
+        onClick={onBackToTop}
+        className="mt-1 rounded border border-neutral-300 px-3 py-1 font-sans text-xs text-neutral-600 hover:bg-neutral-100 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800"
+      >
+        Back to top
+      </button>
+    </div>
+  );
+}
+
 /**
  * A virtualized diff renderer.
  *
@@ -335,9 +401,11 @@ export default function FastDiff({
   showAll,
   onAddComment,
   onCommentAction,
+  onActiveFile,
 }: FastDiffProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const surfaceRef = useRef<HTMLDivElement>(null);
+  const stickyRef = useRef<HTMLDivElement>(null);
   const [composing, setComposing] = useState<ComposeState | null>(null);
   const [expanded, setExpanded] = useState<ExpandedState | null>(null);
   const [drawer, setDrawer] = useState<DrawerState | null>(null);
@@ -356,6 +424,8 @@ export default function FastDiff({
 
   const rows = useMemo(() => buildRows(diff?.files ?? [], mode, comments), [diff, mode, comments]);
 
+  const totals = useMemo(() => diffTotals(diff?.files ?? []), [diff]);
+
   const anchored = useMemo(() => anchoredCommentIds(rows), [rows]);
   const commentsByFile = useMemo(() => {
     const map = new Map<string, Comment[]>();
@@ -367,10 +437,11 @@ export default function FastDiff({
     return map;
   }, [comments]);
 
-  // Gutter and marker columns are fixed; the rest of the width is what text wraps within.
+  // Gutter, comment button, and marker columns are fixed; the rest is what text wraps within.
   const charsPerLine = useMemo(() => {
-    const chrome = 4 * 16 + 2 * 16;
-    const usable = Math.max(0, text.width - chrome) / (mode === "split" ? 2 : 1);
+    const sides = mode === "split" ? 2 : 1;
+    const chrome = 4 * 16 + 2 * 16 + ADD_BUTTON_PX * sides;
+    const usable = Math.max(0, text.width - chrome) / sides;
     return Math.max(20, Math.floor(usable / (text.charWidth || 8)));
   }, [text, mode]);
 
@@ -385,7 +456,7 @@ export default function FastDiff({
     () => ({
       lineHeight: text.lineHeight,
       charsPerLine,
-      fileHeaderHeight: 40,
+      fileHeaderHeight: FILE_HEADER_HEIGHT,
       hunkHeaderHeight: 26,
       commentCharsPerLine,
       commentLines: COMMENT_ROW_LINES,
@@ -398,13 +469,64 @@ export default function FastDiff({
     [text.lineHeight, charsPerLine, commentCharsPerLine, mode, measured],
   );
 
-  const { range, offsets, totalHeight, scrollToRow } = useVirtualRows({
+  const { range, offsets, totalHeight, scrollToRow, scrollTop } = useVirtualRows({
     rows,
     metrics,
     containerRef: scrollRef,
   });
 
   useScrollAnchor({ rows, containerRef: scrollRef, offsets });
+
+  // Which file owns the current scroll position. Recomputed per frame, but it is a binary search
+  // over the file headers alone — not a scan of the rows.
+  const fileIndices = useMemo(() => fileRowIndices(rows), [rows]);
+  const sticky = useMemo(
+    () => fileRowAt(fileIndices, offsets, scrollTop),
+    [fileIndices, offsets, scrollTop],
+  );
+  const stickyRow = sticky === null ? undefined : rows[sticky.index];
+  const stickyFile = stickyRow?.kind === ROW.FILE ? stickyRow.file : null;
+  const stickyPath = stickyFile?.path ?? null;
+
+  // Reported only on change. Without the guard this fires on every scroll frame and re-renders the
+  // whole app alongside the diff, which is exactly the cost virtualization exists to avoid.
+  //
+  // Keyed on the diff as well as the path, because loading one clears the highlight upstream. A new
+  // base against the same worktree usually leaves the governing file unchanged, and on a path-only
+  // guard that reads as "nothing to report" — leaving the tree unlit until you scroll off the file.
+  const reported = useRef<{ diff: Diff | null; path: string | null }>({ diff: null, path: null });
+  useEffect(() => {
+    if (reported.current.diff === diff && reported.current.path === stickyPath) return;
+    reported.current = { diff, path: stickyPath };
+    onActiveFile?.(stickyPath);
+  }, [diff, stickyPath, onActiveFile]);
+
+  /**
+   * Displace the pinned header directly, in the scroll handler, without waiting for React.
+   *
+   * The header is parked outside the scroll container, so doing nothing already leaves it in the
+   * right place. All this adds is the push-off near a file boundary, and it is written
+   * synchronously because a frame of delay here is a frame of the header visibly out of position.
+   */
+  const stickyState = useRef(sticky);
+  stickyState.current = sticky;
+
+  const placeSticky = useCallback(() => {
+    const el = scrollRef.current;
+    const node = stickyRef.current;
+    const at = stickyState.current;
+    if (!el || !node || !at) return;
+    node.style.transform = `translateY(${stickyPushOff(at, el.scrollTop, FILE_HEADER_HEIGHT)}px)`;
+  }, []);
+
+  useLayoutEffect(placeSticky);
+
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return undefined;
+    el.addEventListener("scroll", placeSticky, { passive: true });
+    return () => el.removeEventListener("scroll", placeSticky);
+  }, [placeSticky]);
 
   // Grammars are fetched for what is on screen, not for the diff — scrolling into a Rust file is
   // what pays for the Rust grammar. Joined into a string so the effect sees a stable dependency
@@ -516,226 +638,272 @@ export default function FastDiff({
       )}
 
       <div className="flex min-h-0 flex-1">
-        <div ref={scrollRef} data-diff-scroll className="min-h-0 flex-1 overflow-auto">
-          <div
-            ref={surfaceRef}
-            className="relative font-mono text-[13px] leading-5"
-            style={{ height: totalHeight }}
-          >
-            {slice.map((i) => {
-              const row = rows[i];
-              if (!row) return null;
-              const top = offsets[i] ?? 0;
-              const height = (offsets[i + 1] ?? top) - top;
-              const isActive = i === activeIndex;
+        {/* The pinned header is a sibling of the scroll container, not a child of the scrolling
+            content. That is the whole trick: it does not move when the content does, so staying
+            put costs nothing and cannot lag behind a fast scroll. */}
+        {/* overflow-hidden clips the pinned header as it is pushed up. Without it the header
+            leaves this pane on the way out and paints over the app header above. */}
+        <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
+          {sticky && stickyFile && (
+            <div
+              ref={stickyRef}
+              data-row-kind="file"
+              data-file-sticky={stickyFile.path}
+              className="absolute inset-x-0 top-0 z-10"
+              style={{ height: FILE_HEADER_HEIGHT }}
+            >
+              <FileHeader
+                file={stickyFile}
+                comments={(commentsByFile.get(stickyFile.path) ?? []).length}
+                hidden={
+                  (commentsByFile.get(stickyFile.path) ?? []).filter((c) => !anchored.has(c.id))
+                    .length
+                }
+                onShowComments={(p) => setDrawer({ path: p })}
+              />
+            </div>
+          )}
+          <div ref={scrollRef} data-diff-scroll className="min-h-0 flex-1 overflow-auto">
+            <div
+              ref={surfaceRef}
+              className="relative font-mono text-[13px] leading-5"
+              style={{ height: totalHeight }}
+            >
+              {slice.map((i) => {
+                const row = rows[i];
+                if (!row) return null;
+                const top = offsets[i] ?? 0;
+                const height = (offsets[i + 1] ?? top) - top;
+                const isActive = i === activeIndex;
 
-              if (row.kind === ROW.FILE) {
-                const forFile = commentsByFile.get(row.file.path) ?? [];
-                return (
-                  <div
-                    key={row.key}
-                    data-row
-                    data-row-kind="file"
-                    className="absolute inset-x-0"
-                    style={{ top, height }}
-                  >
-                    <FileHeader
-                      file={row.file}
-                      comments={forFile.length}
-                      hidden={forFile.filter((c) => !anchored.has(c.id)).length}
-                      onShowComments={(p) => setDrawer({ path: p })}
-                    />
-                  </div>
-                );
-              }
+                if (row.kind === ROW.FILE) {
+                  // The pinned header already draws this one, and at this exact position whenever
+                  // the reader has not scrolled past it. Rendering both would double it.
+                  if (i === sticky?.index) return null;
+                  const forFile = commentsByFile.get(row.file.path) ?? [];
+                  return (
+                    <div
+                      key={row.key}
+                      data-row
+                      data-row-kind="file"
+                      className="absolute inset-x-0"
+                      style={{ top, height }}
+                    >
+                      <FileHeader
+                        file={row.file}
+                        comments={forFile.length}
+                        hidden={forFile.filter((c) => !anchored.has(c.id)).length}
+                        onShowComments={(p) => setDrawer({ path: p })}
+                      />
+                    </div>
+                  );
+                }
 
-              if (row.kind === ROW.HUNK) {
-                return (
-                  <div
-                    key={row.key}
-                    data-row
-                    data-row-kind="hunk"
-                    className="absolute inset-x-0 flex items-center bg-blue-50/60 px-3 text-[11px] text-blue-700 dark:bg-blue-500/10 dark:text-blue-300"
-                    style={{ top, height }}
-                  >
-                    {row.text}
-                  </div>
-                );
-              }
+                if (row.kind === ROW.HUNK) {
+                  return (
+                    <div
+                      key={row.key}
+                      data-row
+                      data-row-kind="hunk"
+                      className="absolute inset-x-0 flex items-center bg-blue-50/60 px-3 text-[11px] text-blue-700 dark:bg-blue-500/10 dark:text-blue-300"
+                      style={{ top, height }}
+                    >
+                      {row.text}
+                    </div>
+                  );
+                }
 
-              if (row.kind === ROW.SPACER) {
-                return (
-                  <div
-                    key={row.key}
-                    data-row
-                    data-row-kind="spacer"
-                    className="absolute inset-x-0 flex items-center justify-center text-sm text-neutral-500"
-                    style={{ top, height }}
-                  >
-                    {row.text}
-                  </div>
-                );
-              }
+                if (row.kind === ROW.SPACER) {
+                  return (
+                    <div
+                      key={row.key}
+                      data-row
+                      data-row-kind="spacer"
+                      className="absolute inset-x-0 flex items-center justify-center text-sm text-neutral-500"
+                      style={{ top, height }}
+                    >
+                      {row.text}
+                    </div>
+                  );
+                }
 
-              if (row.kind === ROW.COMMENT) {
-                return (
-                  <div
-                    key={row.key}
-                    data-row
-                    data-row-kind="comment"
-                    data-comment-slot
-                    className="absolute inset-x-0"
-                    style={{ top, height }}
-                  >
-                    <CommentSlot
-                      row={row}
-                      lines={COMMENT_ROW_LINES}
-                      hidden={expanded?.key === row.key}
-                      onOpen={(toReply) => setExpanded({ key: row.key, reply: toReply })}
-                    />
-                  </div>
-                );
-              }
+                if (row.kind === ROW.COMMENT) {
+                  return (
+                    <div
+                      key={row.key}
+                      data-row
+                      data-row-kind="comment"
+                      data-comment-slot
+                      className="absolute inset-x-0"
+                      style={{ top, height }}
+                    >
+                      <CommentSlot
+                        row={row}
+                        lines={COMMENT_ROW_LINES}
+                        hidden={expanded?.key === row.key}
+                        onOpen={(toReply) => setExpanded({ key: row.key, reply: toReply })}
+                      />
+                    </div>
+                  );
+                }
 
-              if (row.kind !== ROW.LINE) return null;
+                if (row.kind !== ROW.LINE) return null;
 
-              const ring = isActive ? "ring-2 ring-inset ring-amber-400" : "";
-              const onAdd = (line: DisplayLine) => {
-                const lineNumber = line.newNo ?? line.oldNo;
-                if (lineNumber === null) return;
-                setComposing({
-                  rowKey: row.key,
-                  file: row.file.path,
-                  line: lineNumber,
-                  side: line.newNo === null ? "old" : "new",
-                  text: line.text,
-                });
-              };
+                const ring = isActive ? "ring-2 ring-inset ring-amber-400" : "";
+                const onAdd = (line: DisplayLine) => {
+                  const lineNumber = line.newNo ?? line.oldNo;
+                  if (lineNumber === null) return;
+                  setComposing({
+                    rowKey: row.key,
+                    file: row.file.path,
+                    line: lineNumber,
+                    side: line.newNo === null ? "old" : "new",
+                    text: line.text,
+                  });
+                };
 
-              const lang = row.file.lang;
+                const lang = row.file.lang;
+                // Marked per side, not per row: in split mode the comment attaches to one of the
+                // two lines, and highlighting both would misstate where it is about to land.
+                const composingHere = composing?.rowKey === row.key;
 
-              if ("text" in row) {
+                if ("text" in row) {
+                  return (
+                    <div
+                      key={row.key}
+                      data-row
+                      data-row-kind="line"
+                      data-composing={composingHere ? "true" : undefined}
+                      className={"absolute inset-x-0 flex " + ring}
+                      style={{ top, height }}
+                    >
+                      <Side
+                        line={row}
+                        lang={lang}
+                        kind={row.type}
+                        query={query}
+                        options={options}
+                        onAdd={onAdd}
+                        composing={composingHere}
+                      />
+                    </div>
+                  );
+                }
+
                 return (
                   <div
                     key={row.key}
                     data-row
                     data-row-kind="line"
+                    data-composing={composingHere ? "true" : undefined}
                     className={"absolute inset-x-0 flex " + ring}
                     style={{ top, height }}
                   >
                     <Side
-                      line={row}
+                      line={row.left}
                       lang={lang}
-                      kind={row.type}
+                      kind={sideKind(row, "left")}
                       query={query}
                       options={options}
                       onAdd={onAdd}
+                      composing={composingHere && composing?.side === "old"}
+                    />
+                    <div className="w-px shrink-0 bg-neutral-200 dark:bg-neutral-800" />
+                    <Side
+                      line={row.right}
+                      lang={lang}
+                      kind={sideKind(row, "right")}
+                      query={query}
+                      options={options}
+                      onAdd={onAdd}
+                      composing={composingHere && composing?.side === "new"}
                     />
                   </div>
                 );
-              }
+              })}
 
-              return (
+              {expanded && rows[expandedIndex]?.kind === ROW.COMMENT && (
                 <div
-                  key={row.key}
-                  data-row
-                  data-row-kind="line"
-                  className={"absolute inset-x-0 flex " + ring}
-                  style={{ top, height }}
+                  data-comment-expanded
+                  // Opaque: the thread's own tint is translucent, and the rows it covers would
+                  // otherwise read through the expanded card.
+                  className="absolute inset-x-0 z-20 overflow-auto bg-white font-sans shadow-2xl ring-1 ring-amber-400/60 dark:bg-neutral-900"
+                  style={{ top: offsets[expandedIndex] ?? 0, maxHeight: COMMENT_EXPANDED_MAX_PX }}
                 >
-                  <Side
-                    line={row.left}
-                    lang={lang}
-                    kind={sideKind(row, "left")}
-                    query={query}
-                    options={options}
-                    onAdd={onAdd}
-                  />
-                  <div className="w-px shrink-0 bg-neutral-200 dark:bg-neutral-800" />
-                  <Side
-                    line={row.right}
-                    lang={lang}
-                    kind={sideKind(row, "right")}
-                    query={query}
-                    options={options}
-                    onAdd={onAdd}
+                  <CommentThread
+                    comments={rows[expandedIndex].comments}
+                    startReplying={expanded.reply}
+                    header={
+                      <ThreadHeader
+                        comments={rows[expandedIndex].comments}
+                        file={rows[expandedIndex].file.path}
+                        line={rows[expandedIndex].line}
+                        action={
+                          <button
+                            type="button"
+                            onClick={() => setExpanded(null)}
+                            className="rounded px-1 text-[11px] text-neutral-500 hover:bg-neutral-200 dark:hover:bg-neutral-700"
+                          >
+                            collapse
+                          </button>
+                        }
+                      />
+                    }
+                    onResolve={(id) =>
+                      void Promise.resolve(onCommentAction(id, { status: "resolved" })).catch(
+                        () => {},
+                      )
+                    }
+                    onReopen={(id) =>
+                      void Promise.resolve(onCommentAction(id, { status: "open" })).catch(() => {})
+                    }
+                    onDelete={(id) =>
+                      void Promise.resolve(onCommentAction(id, { delete: true })).catch(() => {})
+                    }
+                    onReply={(id, body) =>
+                      void Promise.resolve(
+                        onCommentAction(id, { reply: { author: "user", body } }),
+                      ).catch(() => {})
+                    }
                   />
                 </div>
-              );
-            })}
+              )}
 
-            {expanded && rows[expandedIndex]?.kind === ROW.COMMENT && (
-              <div
-                data-comment-expanded
-                // Opaque: the thread's own tint is translucent, and the rows it covers would
-                // otherwise read through the expanded card.
-                className="absolute inset-x-0 z-20 overflow-auto bg-white font-sans shadow-2xl ring-1 ring-amber-400/60 dark:bg-neutral-900"
-                style={{ top: offsets[expandedIndex] ?? 0, maxHeight: COMMENT_EXPANDED_MAX_PX }}
-              >
-                <CommentThread
-                  comments={rows[expandedIndex].comments}
-                  startReplying={expanded.reply}
-                  header={
-                    <ThreadHeader
-                      comments={rows[expandedIndex].comments}
-                      file={rows[expandedIndex].file.path}
-                      line={rows[expandedIndex].line}
-                      action={
-                        <button
-                          type="button"
-                          onClick={() => setExpanded(null)}
-                          className="rounded px-1 text-[11px] text-neutral-500 hover:bg-neutral-200 dark:hover:bg-neutral-700"
-                        >
-                          collapse
-                        </button>
-                      }
-                    />
-                  }
-                  onResolve={(id) =>
-                    void Promise.resolve(onCommentAction(id, { status: "resolved" })).catch(
-                      () => {},
-                    )
-                  }
-                  onReopen={(id) =>
-                    void Promise.resolve(onCommentAction(id, { status: "open" })).catch(() => {})
-                  }
-                  onDelete={(id) =>
-                    void Promise.resolve(onCommentAction(id, { delete: true })).catch(() => {})
-                  }
-                  onReply={(id, body) =>
-                    void Promise.resolve(
-                      onCommentAction(id, { reply: { author: "user", body } }),
-                    ).catch(() => {})
-                  }
-                />
-              </div>
-            )}
-
-            {composing && composeIndex !== -1 && (
-              <div
-                data-comment-composer
-                className="absolute inset-x-0 z-20 rounded-md border border-blue-300 bg-white p-2 font-sans shadow-xl dark:border-blue-500/40 dark:bg-neutral-900"
-                style={{ top: offsets[composeIndex + 1] }}
-              >
-                <div className="mb-1 font-mono text-[11px] text-neutral-500">
-                  {composing.file}:{composing.line}
+              {composing && composeIndex !== -1 && (
+                <div
+                  data-comment-composer
+                  className="absolute inset-x-0 z-20 rounded-md border border-blue-300 bg-white p-2 font-sans shadow-xl dark:border-blue-500/40 dark:bg-neutral-900"
+                  style={{ top: offsets[composeIndex + 1] }}
+                >
+                  <div className="mb-1 font-mono text-[11px] text-neutral-500">
+                    {composing.file}:{composing.line}
+                  </div>
+                  <CommentComposer
+                    onCancel={() => setComposing(null)}
+                    onSubmit={(body) => {
+                      void Promise.resolve(
+                        onAddComment({
+                          file: composing.file,
+                          side: composing.side,
+                          line: composing.line,
+                          lineContent: composing.text,
+                          body,
+                        }),
+                      ).catch(() => {});
+                      setComposing(null);
+                    }}
+                  />
                 </div>
-                <CommentComposer
-                  onCancel={() => setComposing(null)}
-                  onSubmit={(body) => {
-                    void Promise.resolve(
-                      onAddComment({
-                        file: composing.file,
-                        side: composing.side,
-                        line: composing.line,
-                        lineContent: composing.text,
-                        body,
-                      }),
-                    ).catch(() => {});
-                    setComposing(null);
-                  }}
-                />
-              </div>
+              )}
+            </div>
+
+            {/* Outside the measured surface on purpose: it takes no place in the offset table, so
+              the row model and every scroll calculation are unchanged by its presence. */}
+            {diff && diff.files.length > 0 && (
+              <EndOfDiff
+                totals={totals}
+                onBackToTop={() => scrollRef.current?.scrollTo({ top: 0, behavior: "smooth" })}
+              />
             )}
           </div>
         </div>

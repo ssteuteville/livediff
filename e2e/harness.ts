@@ -1,4 +1,4 @@
-export type FixtureName = "tracked20k" | "modfiles" | "minified" | "lockfile";
+export type FixtureName = "tracked20k" | "modfiles" | "minified" | "lockfile" | "nested";
 
 function fromEnv(key: string): string {
   const value = process.env[key];

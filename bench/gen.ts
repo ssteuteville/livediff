@@ -63,6 +63,24 @@ const SHAPES: Record<string, () => void> = {
       writeFileSync(join(ROOT, `mod-${f}.ts`), body + "\n");
     }
   },
+  // Nested directories, including single-child chains the file tree has to compact.
+  nested() {
+    const paths = [
+      "README.md",
+      "src/app/main.ts",
+      "src/app/router.ts",
+      "src/lib/util.ts",
+      "src/components/ui/Button.tsx",
+      "src/components/ui/Input.tsx",
+      "deep/one/two/three/leaf.ts",
+    ];
+    for (const path of paths) {
+      const full = join(ROOT, path);
+      mkdirSync(join(full, ".."), { recursive: true });
+      const body = Array.from({ length: 60 }, (_, i) => line(i)).join("\n");
+      writeFileSync(full, body + "\n");
+    }
+  },
   // The pathological one: a minified bundle, all on a handful of gigantic lines.
   "minified-single-line"() {
     const chunk = Array.from({ length: 20000 }, (_, i) => `f${i}(${i}),`).join("");

@@ -437,6 +437,141 @@ export function visibleRange(
   };
 }
 
+// ─── Totals ──────────────────────────────────────────────────────────────────
+
+export interface DiffTotals {
+  files: number;
+  additions: number;
+  deletions: number;
+  bytes: number;
+}
+
+/**
+ * How many bytes a string occupies as UTF-8.
+ *
+ * Counted rather than encoded: the readout is measured over whole patches, and a minified bundle
+ * or a lockfile is exactly the case where allocating a second copy of the text to read its length
+ * would be felt. `String.length` is not an answer — it counts UTF-16 units, so a patch full of CJK
+ * reports a third of its real size under a label that says bytes.
+ */
+function utf8Bytes(text: string): number {
+  let bytes = 0;
+  for (let i = 0; i < text.length; i++) {
+    const code = text.charCodeAt(i);
+    if (code < 0x80) bytes += 1;
+    else if (code < 0x800) bytes += 2;
+    else if (code >= 0xd800 && code <= 0xdbff) {
+      // Lead surrogate: one astral code point, four bytes, and its trail is not counted again.
+      bytes += 4;
+      i++;
+    } else bytes += 3;
+  }
+  return bytes;
+}
+
+/**
+ * How big a diff is.
+ *
+ * Byte size is the patch text rather than the size of the files themselves: it is the number that
+ * predicts whether a diff will be pleasant to read, which is the question a size readout answers.
+ */
+export function diffTotals(files: readonly DiffFile[]): DiffTotals {
+  return files.reduce<DiffTotals>(
+    (total, file) => ({
+      files: total.files + 1,
+      additions: total.additions + file.additions,
+      deletions: total.deletions + file.deletions,
+      bytes: total.bytes + utf8Bytes(file.patch),
+    }),
+    { files: 0, additions: 0, deletions: 0, bytes: 0 },
+  );
+}
+
+export function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
+
+// ─── Sticky file headers ─────────────────────────────────────────────────────
+
+export interface StickyFile {
+  /** Row index of the file header governing the current scroll position. */
+  index: number;
+  offset: number;
+  /** Where this file's territory ends — the next file's offset, or the end of the document. */
+  nextOffset: number;
+}
+
+/**
+ * Indices of every file header row.
+ *
+ * Worth computing once and keeping: `fileRowAt` runs on every scroll frame, and scanning all
+ * 30,000 rows to find the handful that are headers would undo the point of an offset table.
+ */
+export function fileRowIndices(rows: readonly DiffRow[]): number[] {
+  const indices: number[] = [];
+  for (let i = 0; i < rows.length; i++) {
+    if (rows[i]!.kind === ROW.FILE) indices.push(i);
+  }
+  return indices;
+}
+
+/** The file whose rows are under `scrollTop`. Binary search, same shape as `rowAt`. */
+export function fileRowAt(
+  fileIndices: readonly number[],
+  offsets: Float64Array,
+  scrollTop: number,
+): StickyFile | null {
+  if (fileIndices.length === 0) return null;
+  let lo = 0;
+  let hi = fileIndices.length - 1;
+  while (lo < hi) {
+    const mid = (lo + hi + 1) >> 1;
+    if ((offsets[fileIndices[mid]!] ?? 0) <= scrollTop) lo = mid;
+    else hi = mid - 1;
+  }
+  const index = fileIndices[lo]!;
+  const next = fileIndices[lo + 1];
+  const total = offsets[offsets.length - 1] ?? 0;
+  return {
+    index,
+    offset: offsets[index] ?? 0,
+    nextOffset: next === undefined ? total : (offsets[next] ?? total),
+  };
+}
+
+/**
+ * Where a pinned header is drawn.
+ *
+ * It rides the top of the viewport, except near a boundary, where the next file's real header
+ * pushes it off the top rather than swapping places with it. Clamping to the file's own offset is
+ * what keeps it sitting exactly where the unpinned row would be before you have scrolled past it,
+ * so pinning is invisible until it does something.
+ */
+export function stickyTop(sticky: StickyFile, scrollTop: number, headerHeight: number): number {
+  return Math.max(sticky.offset, Math.min(scrollTop, sticky.nextOffset - headerHeight));
+}
+
+/**
+ * The same thing in viewport coordinates: how far to displace a header that is already parked at
+ * the top edge. Never positive.
+ *
+ * This is the form the renderer wants. A header positioned inside the scrolling content has to be
+ * repositioned on every frame just to stay still, and any delay in that shows up as the header
+ * sliding away and snapping back. Parked outside the scroller it is correct at rest, and this
+ * displacement — at most one header's height — is the only thing that ever needs recomputing.
+ *
+ * The floor is what holds that promise. Callers pair a live `scrollTop` with the file the last
+ * render resolved, so a jump — a scrollbar drag, a `scrollTo` — hands this a position far past the
+ * stale file's boundary. Unclamped that reads as a displacement of the whole distance travelled,
+ * which throws the header off screen until the next render puts it back: the precise flicker this
+ * arrangement exists to remove.
+ */
+export function stickyPushOff(sticky: StickyFile, scrollTop: number, headerHeight: number): number {
+  return Math.max(-headerHeight, stickyTop(sticky, scrollTop, headerHeight) - scrollTop);
+}
+
 // ─── Search ──────────────────────────────────────────────────────────────────
 
 /** Every piece of text a row displays, so a match can be found without touching the DOM. */

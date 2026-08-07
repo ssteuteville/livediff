@@ -12,6 +12,11 @@ import {
   countByFile,
   nextHit,
   anchoredCommentIds,
+  fileRowIndices,
+  fileRowAt,
+  stickyTop,
+  stickyPushOff,
+  diffTotals,
 } from "../src/diff-model.js";
 import type { DiffMetrics, DiffRow, SplitLineRow, CommentRow } from "../src/diff-model.js";
 import type { Comment, DiffFile, Reply } from "../shared/types.js";
@@ -389,4 +394,145 @@ test("anchored ids name the comments that found a line, so the rest can be offer
   assert.ok(anchored.has("kept"));
   assert.ok(!anchored.has("orphan"), "a comment with no line left is hidden, not lost");
   assert.equal(anchoredCommentIds(buildRows([file()], "split")).size, 0);
+});
+
+// ─── Sticky file headers ─────────────────────────────────────────────────────
+
+const THREE_FILES = () => [file({ path: "a.ts" }), file({ path: "b.ts" }), file({ path: "c.ts" })];
+
+/** Each file is a 36px header, a 24px hunk header, and four 20px split rows: 140px apiece. */
+function stickyFixture() {
+  const rows = buildRows(THREE_FILES(), "split");
+  const offsets = buildOffsets(rows, metrics());
+  return { rows, offsets, indices: fileRowIndices(rows) };
+}
+
+test("fileRowIndices finds every file header and nothing else", () => {
+  const { rows, indices } = stickyFixture();
+  assert.equal(indices.length, 3);
+  for (const index of indices) assert.equal(rows[index]?.kind, ROW.FILE);
+});
+
+test("the governing file is the last header at or before the scroll offset", () => {
+  const { offsets, indices } = stickyFixture();
+  assert.equal(offsets[indices[1]!], 140);
+
+  assert.equal(fileRowAt(indices, offsets, 0)?.index, indices[0]);
+  assert.equal(fileRowAt(indices, offsets, 139)?.index, indices[0], "still inside the first file");
+  assert.equal(fileRowAt(indices, offsets, 140)?.index, indices[1], "exactly on the second header");
+  assert.equal(fileRowAt(indices, offsets, 200)?.index, indices[1]);
+  assert.equal(
+    fileRowAt(indices, offsets, 9999)?.index,
+    indices[2],
+    "past the end, still the last",
+  );
+});
+
+test("the last file's territory ends at the document, not at a next header", () => {
+  const { offsets, indices } = stickyFixture();
+  const total = offsets[offsets.length - 1];
+  assert.equal(fileRowAt(indices, offsets, 300)?.nextOffset, total);
+  assert.equal(fileRowAt(indices, offsets, 0)?.nextOffset, 140);
+});
+
+test("fileRowAt returns null when there are no files", () => {
+  assert.equal(fileRowAt([], buildOffsets([], metrics()), 0), null);
+});
+
+test("a pinned header sits where the real row would be until you scroll past it", () => {
+  const { offsets, indices } = stickyFixture();
+  const first = fileRowAt(indices, offsets, 0);
+  assert.ok(first);
+  // Not yet scrolled: pinning must be invisible, so it draws at the row's own offset.
+  assert.equal(stickyTop(first, 0, 36), 0);
+});
+
+test("a pinned header rides the scroll edge through the body of its file", () => {
+  const { offsets, indices } = stickyFixture();
+  const second = fileRowAt(indices, offsets, 200);
+  assert.ok(second);
+  assert.equal(stickyTop(second, 200, 36), 200);
+});
+
+test("the next file pushes the pinned header off the top rather than swapping with it", () => {
+  const { offsets, indices } = stickyFixture();
+  // The second file starts at 280. At 260 the pinned header would overlap it, so it is displaced.
+  const governing = fileRowAt(indices, offsets, 260);
+  assert.ok(governing);
+  assert.equal(governing.nextOffset, 280);
+  assert.equal(stickyTop(governing, 260, 36), 244, "280 - 36: shoved up by the overlap");
+  assert.ok(stickyTop(governing, 260, 36) < 260, "displaced upward, never covering the newcomer");
+});
+
+test("a header parked at the top edge needs no displacement through the body of a file", () => {
+  // This is the property that fixes the jitter: doing nothing leaves the header in the right
+  // place, so a late update can no longer show as the header sliding away and snapping back.
+  const { offsets, indices } = stickyFixture();
+  const governing = fileRowAt(indices, offsets, 200);
+  assert.ok(governing);
+  assert.equal(stickyPushOff(governing, 200, 36), 0);
+  assert.equal(stickyPushOff(governing, 150, 36), 0);
+});
+
+test("displacement is negative near a boundary and never exceeds a header's height", () => {
+  const { offsets, indices } = stickyFixture();
+  const governing = fileRowAt(indices, offsets, 260);
+  assert.ok(governing);
+  assert.equal(stickyPushOff(governing, 260, 36), -16);
+  assert.ok(stickyPushOff(governing, 279, 36) >= -36);
+});
+
+test("displacement agrees with the absolute position it replaces", () => {
+  const { offsets, indices } = stickyFixture();
+  for (const scrollTop of [0, 100, 140, 200, 260, 279, 300, 419]) {
+    const governing = fileRowAt(indices, offsets, scrollTop);
+    assert.ok(governing);
+    assert.equal(
+      stickyPushOff(governing, scrollTop, 36),
+      stickyTop(governing, scrollTop, 36) - scrollTop,
+      `at ${scrollTop}`,
+    );
+  }
+});
+
+test("diff size is counted in bytes, not in UTF-16 units", () => {
+  // The readout is labelled B/KB/MB, so the count has to be the one that label promises. Text
+  // outside the BMP costs more than its `String.length`, and a patch of CJK read as code units
+  // reports a third of its real size.
+  assert.equal(diffTotals([file({ patch: "abc" })]).bytes, 3);
+  assert.equal(diffTotals([file({ patch: "é" })]).bytes, 2);
+  assert.equal(diffTotals([file({ patch: "漢字" })]).bytes, 6);
+  // An astral code point is one four-byte sequence, not two three-byte ones.
+  assert.equal(diffTotals([file({ patch: "😀" })]).bytes, 4);
+  assert.equal(diffTotals([file({ patch: "a😀漢" })]).bytes, 8);
+  assert.equal(
+    diffTotals([file({ patch: "漢" }), file({ patch: "ab" })]).bytes,
+    5,
+    "summed across files",
+  );
+});
+
+test("a stale pinned header is displaced by at most its own height, however far the jump", () => {
+  // Every case above pairs a scrollTop with the file that governs it. The renderer cannot: it
+  // pairs a live scrollTop with the file the last render resolved, so a scrollbar drag or a
+  // scrollTo hands this a position far past that file's boundary. Unclamped, the displacement is
+  // the whole distance travelled and the header leaves the screen until the next render returns
+  // it — the flicker the pinning was written to remove.
+  const { offsets, indices } = stickyFixture();
+  const stale = fileRowAt(indices, offsets, 0);
+  assert.ok(stale);
+  for (const scrollTop of [300, 419, 20_000, 200_000]) {
+    assert.ok(
+      stickyPushOff(stale, scrollTop, 36) >= -36,
+      `stale header paired with scrollTop ${scrollTop}`,
+    );
+  }
+});
+
+test("a pinned header is never dragged above its own file", () => {
+  const { offsets, indices } = stickyFixture();
+  const governing = fileRowAt(indices, offsets, 140);
+  assert.ok(governing);
+  // A file shorter than the header itself would otherwise compute a negative displacement.
+  assert.equal(stickyTop(governing, 140, 1000), 140);
 });
