@@ -13,6 +13,7 @@ import {
   isGitRepo,
   currentBranch,
   changedPaths,
+  isValidRef,
   toplevel,
   branches,
 } from "./git.js";
@@ -29,6 +30,8 @@ import {
   readRegistry,
   addWorkspace,
   removeWorkspace,
+  setWorkspaceBase,
+  normalizeBase,
   registrySignature,
   resolveWorkspace,
   configDir,
@@ -156,7 +159,7 @@ async function workspacesView() {
         changedFiles: 0,
       };
       try {
-        info = await summary(w.path);
+        info = await summary(w.path, w.base);
       } catch {
         /* leave invalid */
       }
@@ -240,10 +243,16 @@ const server = createServer(async (req, res) => {
       const body = await readBody(req);
       const path = isRecord(body) ? stringValue(body["path"]) : undefined;
       const label = isRecord(body) ? stringValue(body["label"]) : undefined;
+      // Present-but-null clears the base; absent leaves it alone. `livediff .` must not wipe the
+      // base a previous `--base main` set just by re-registering the same worktree.
+      const base = isRecord(body) && "base" in body ? normalizeBase(body["base"]) : undefined;
       if (!path) return send(res, 400, { error: "path required" });
+      if (base !== undefined && base !== null && !(await isValidRef(resolvePath(path), base))) {
+        return send(res, 400, { error: `not a ref in this worktree: ${base}` });
+      }
       let ws: Workspace;
       try {
-        ws = await addWorkspace(resolvePath(path), label);
+        ws = await addWorkspace(resolvePath(path), label, base);
       } catch (err) {
         return send(res, 400, { error: errorMessage(err) });
       }
@@ -252,6 +261,29 @@ const server = createServer(async (req, res) => {
     }
 
     const wsMatch = pathname.match(/^\/api\/workspaces\/([\w-]+)$/);
+    if (wsMatch && req.method === "PATCH") {
+      const id = wsMatch[1];
+      if (!id) return send(res, 400, { error: "workspace id required" });
+      const body = await readBody(req);
+      if (!isRecord(body) || !("base" in body)) return send(res, 400, { error: "base required" });
+      const sent = body["base"];
+      // Anything that is not a string or null is malformed, not a request to clear. Reading it as
+      // "clear" would let a buggy client silently wipe the worktree's base and get a 200 for it.
+      if (sent !== null && typeof sent !== "string") {
+        return send(res, 400, { error: "base must be a string or null" });
+      }
+      const existing = await resolveWorkspace({ ws: id });
+      if (!existing) return send(res, 404, { error: "unknown workspace" });
+      const next = normalizeBase(sent);
+      if (next !== null && !(await isValidRef(existing.path, next))) {
+        return send(res, 400, { error: `not a ref in this worktree: ${next}` });
+      }
+      const updated = await setWorkspaceBase(id, next);
+      if (!updated) return send(res, 404, { error: "unknown workspace" });
+      broadcast("workspaces", { reason: "base", ws: id });
+      return send(res, 200, updated);
+    }
+
     if (wsMatch && req.method === "DELETE") {
       const id = wsMatch[1];
       if (!id) return send(res, 400, { error: "workspace id required" });
@@ -287,7 +319,15 @@ const server = createServer(async (req, res) => {
     if (pathname === "/api/stale" && req.method === "GET") {
       const ws = await resolveWs(url);
       if (!ws) return send(res, 404, { error: "unknown workspace" });
-      const changed = new Set(await changedPaths(ws.path).catch(() => []));
+      // ?base= overrides the stored base for one query, without changing what is stored.
+      //
+      // Note this endpoint inherits ws.base when the parameter is absent and /api/diff does not.
+      // That asymmetry is deliberate: /api/diff serves a view the user can explicitly clear back to
+      // the last commit, and the client signals that by omitting the parameter. Staleness has no
+      // such "cleared" state — it is a judgement about the worktree, so it defaults to the worktree.
+      const override = url.searchParams.get("base");
+      const against = override === null ? ws.base : normalizeBase(override);
+      const changed = new Set(await changedPaths(ws.path, against).catch(() => []));
       const all = await listComments(ws.id, ws.path, { branch: "all" });
       return send(res, 200, { stale: all.filter((c) => !changed.has(c.file)).map((c) => c.id) });
     }
@@ -315,7 +355,7 @@ const server = createServer(async (req, res) => {
       let archived = 0;
       let purged = 0;
       for (const w of targets) {
-        const changed = await changedPaths(w.path).catch(() => []);
+        const changed = await changedPaths(w.path, w.base).catch(() => []);
         const result = await sweep(w.id, w.path, changed, {
           force: force ?? {},
           policy: CONFIG.retention,
@@ -531,6 +571,15 @@ async function poll() {
 
   // One git spawn per workspace, run concurrently: sequential awaits made a tick cost
   // N × spawn-latency, every second, for as long as a browser was attached.
+  //
+  // Deliberately not passed the workspace's base: that would resolve a merge base here, a second
+  // spawn per workspace per tick, for very little. Ordinary commits on the base branch do not move
+  // a merge base — only rewriting either history does — and a base changed through the UI or the
+  // CLI refetches the diff by its own route.
+  //
+  // Known gap, unchanged by this: with a base set and a clean worktree, committing again moves
+  // neither `git status` nor the merge base, so no diff event fires. Closing it needs HEAD in the
+  // signature, which `--porcelain=v2 --branch` would supply from the spawn already being paid for.
   const signatures = await Promise.all(
     registered.map((w) => worktreeSignature(w.path, null).catch(() => null)),
   );
@@ -544,7 +593,9 @@ async function poll() {
 
   if (Date.now() - lastSweep < SWEEP_INTERVAL_MS) return;
   lastSweep = Date.now();
-  const changed = await Promise.all(registered.map((w) => changedPaths(w.path).catch(() => null)));
+  const changed = await Promise.all(
+    registered.map((w) => changedPaths(w.path, w.base).catch(() => null)),
+  );
   await Promise.all(
     registered.map(async (w, i) => {
       const workspaceChanged = changed[i];

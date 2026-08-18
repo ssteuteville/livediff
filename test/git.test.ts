@@ -155,6 +155,62 @@ test("changedPaths reports modified tracked files and untracked ones", async () 
   });
 });
 
+test("changedPaths against a base sees work that is already committed", async () => {
+  // The bug this covers: an agent commits everything to a feature branch, the human reviews it
+  // against main and leaves comments, and then every comment reads as orphaned — because
+  // changedPaths was pinned to HEAD while the diff being reviewed came from the merge base.
+  await withTempXdg(async ({ root }) => {
+    const repo = await makeRepo(join(root, "repo"));
+    await writeFile(join(repo, "a.txt"), "one\n", "utf8");
+    await exec("git", ["add", "-A"], { cwd: repo });
+    await exec("git", ["commit", "-qm", "base"], { cwd: repo });
+
+    await exec("git", ["checkout", "-qb", "feature"], { cwd: repo });
+    await writeFile(join(repo, "a.txt"), "two\n", "utf8");
+    await writeFile(join(repo, "b.txt"), "new\n", "utf8");
+    await exec("git", ["add", "-A"], { cwd: repo });
+    await exec("git", ["commit", "-qm", "all of the work"], { cwd: repo });
+
+    // Nothing is uncommitted, so the old behaviour finds nothing at all.
+    assert.deepEqual(await changedPaths(repo), []);
+
+    const against = (await changedPaths(repo, "main")).toSorted();
+    assert.deepEqual(against, ["a.txt", "b.txt"]);
+  });
+});
+
+test("changedPaths against a base agrees with the diff built from the same base", async () => {
+  // These two answering differently is the defect itself, so tie them together directly: whatever
+  // getDiff shows as the diff is exactly what staleness must judge against.
+  await withTempXdg(async ({ root }) => {
+    const repo = await makeRepo(join(root, "repo"));
+    await exec("git", ["checkout", "-qb", "feature"], { cwd: repo });
+    await writeFile(join(repo, "committed.txt"), "committed\n", "utf8");
+    await exec("git", ["add", "-A"], { cwd: repo });
+    await exec("git", ["commit", "-qm", "work"], { cwd: repo });
+    await writeFile(join(repo, "dirty.txt"), "uncommitted\n", "utf8");
+
+    const diff = await getDiff(repo, "main");
+    assert.deepEqual(
+      (await changedPaths(repo, "main")).toSorted(),
+      diff.files.map((f) => f.path).toSorted(),
+    );
+  });
+});
+
+test("changedPaths with no base still means the last commit", async () => {
+  await withTempXdg(async ({ root }) => {
+    const repo = await makeRepo(join(root, "repo"));
+    await exec("git", ["checkout", "-qb", "feature"], { cwd: repo });
+    await writeFile(join(repo, "committed.txt"), "committed\n", "utf8");
+    await exec("git", ["add", "-A"], { cwd: repo });
+    await exec("git", ["commit", "-qm", "work"], { cwd: repo });
+    await writeFile(join(repo, "dirty.txt"), "uncommitted\n", "utf8");
+
+    assert.deepEqual(await changedPaths(repo), ["dirty.txt"]);
+  });
+});
+
 test("summary's changedFiles count agrees with changedPaths", async () => {
   await withTempXdg(async ({ root }) => {
     const repo = await makeRepo(join(root, "repo"));

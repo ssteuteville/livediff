@@ -339,6 +339,43 @@ test("registering from a subdirectory yields one workspace", async () => {
   });
 });
 
+test("list --json keeps the live fields the hub adds, not just the registry record", async () => {
+  // These come from the hub's summary, not the registry, and agents parse them. Naming only the
+  // fields the CLI itself reads when parsing a workspace would silently drop them.
+  await withTempXdg(async ({ root }) => {
+    const repo = await makeRepo(join(root, "repo"));
+    try {
+      await cli([repo, "--no-open", "--json"]);
+      const list = JSON.parse((await cli(["list", "--json"])).stdout);
+      const ws = list.workspaces[0];
+      for (const field of ["valid", "branch", "head", "changedFiles", "openComments", "addedAt"]) {
+        assert.ok(field in ws, `list --json lost ${field}`);
+      }
+      assert.equal(ws.base, null);
+    } finally {
+      await stopHub();
+    }
+  });
+});
+
+test("--base is refused when it does not name a ref, instead of being stored", async () => {
+  await withTempXdg(async ({ root }) => {
+    const repo = await makeRepo(join(root, "repo"));
+    try {
+      const res = await cli([repo, "--no-open", "--base", "mian"]);
+      assert.equal(res.code, 1);
+      assert.match(res.stderr, /not a ref in this worktree/);
+
+      const good = await cli([repo, "--no-open", "--base", "main", "--json"]);
+      assert.equal(good.code, 0);
+      const list = JSON.parse((await cli(["list", "--json"])).stdout);
+      assert.equal(list.workspaces[0].base, "main");
+    } finally {
+      await stopHub();
+    }
+  });
+});
+
 test("a path that is not a git worktree exits 1 with a clear message", async () => {
   await withTempXdg(async ({ root }) => {
     try {

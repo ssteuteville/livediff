@@ -11,13 +11,15 @@ export interface Workspace {
   path: string;
   label: string;
   addedAt: string;
+  /**
+   * The ref this worktree is reviewed against, or null for "the last commit". Durable because the
+   * CLI and the background sweep both have to answer "is this file still in the diff?" long after
+   * the browser tab that chose it has gone.
+   */
+  base: string | null;
 }
 
-interface RegistryFile {
-  workspaces: Workspace[];
-}
-
-function isWorkspace(value: unknown): value is Workspace {
+function isWorkspaceRecord(value: unknown): value is Record<string, unknown> {
   if (!isRecord(value)) return false;
   const workspace = value;
   return (
@@ -28,10 +30,37 @@ function isWorkspace(value: unknown): value is Workspace {
   );
 }
 
-function isRegistryFile(value: unknown): value is RegistryFile {
-  if (!isRecord(value)) return false;
+/**
+ * The one definition of what a base ref is: a non-empty string, or null for "the last commit".
+ *
+ * It crosses four boundaries — a JSON registry file, a request body, a query string, and a CLI
+ * flag — and every one of them can present "no base" as absent, null, or "". Spelling the rule out
+ * once means a change to it cannot be applied to five places and missed at the sixth.
+ */
+export function normalizeBase(value: unknown): string | null {
+  return typeof value === "string" && value !== "" ? value : null;
+}
+
+/**
+ * Migration is read-time: a registry written before `base` existed simply has no opinion about it,
+ * and null is exactly the old behaviour. No rewrite is triggered on its own account — though a
+ * registry rewritten for other reasons will serialize the field, which round-trips identically.
+ */
+function toWorkspace(value: Record<string, unknown>): Workspace {
+  return {
+    id: String(value["id"]),
+    path: String(value["path"]),
+    label: String(value["label"]),
+    addedAt: String(value["addedAt"]),
+    base: normalizeBase(value["base"]),
+  };
+}
+
+function storedWorkspaces(value: unknown): Record<string, unknown>[] | null {
+  if (!isRecord(value)) return null;
   const workspaces = value["workspaces"];
-  return Array.isArray(workspaces) && workspaces.every(isWorkspace);
+  if (!Array.isArray(workspaces) || !workspaces.every(isWorkspaceRecord)) return null;
+  return workspaces;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -79,7 +108,7 @@ export async function readRegistry(): Promise<Workspace[]> {
   try {
     const raw = await readFile(registryPath(), "utf8");
     const data: unknown = JSON.parse(raw);
-    return isRegistryFile(data) ? data.workspaces : [];
+    return (storedWorkspaces(data) ?? []).map(toWorkspace);
   } catch (err) {
     if (isNodeError(err, "ENOENT")) return [];
     throw err;
@@ -94,24 +123,48 @@ async function writeRegistry(workspaces: Workspace[]): Promise<void> {
   await writeJsonAtomic(registryPath(), { workspaces });
 }
 
-/** Add (or update the label of) a workspace. Idempotent by worktree root. */
-export async function addWorkspace(path: string, label?: string): Promise<Workspace> {
+/** Add (or update the label or base of) a workspace. Idempotent by worktree root. */
+export async function addWorkspace(
+  path: string,
+  label?: string,
+  base?: string | null,
+): Promise<Workspace> {
   const root = await toplevel(resolve(path));
   if (!root) throw new Error(`not a git worktree: ${resolve(path)}`);
   const id = idFor(root);
   const workspaces = await readRegistry();
   const existing = workspaces.find((w) => w.id === id);
   if (existing) {
-    if (label && label !== existing.label) {
-      existing.label = label;
-      await writeRegistry(workspaces);
-    }
+    // undefined means "no opinion" — re-registering must not silently clear a base someone set.
+    const nextBase = base === undefined ? existing.base : normalizeBase(base);
+    const changed = (label && label !== existing.label) || nextBase !== existing.base;
+    if (label) existing.label = label;
+    existing.base = nextBase;
+    if (changed) await writeRegistry(workspaces);
     return existing;
   }
-  const ws = { id, path: root, label: label || basename(root), addedAt: new Date().toISOString() };
+  const ws = {
+    id,
+    path: root,
+    label: label || basename(root),
+    addedAt: new Date().toISOString(),
+    base: normalizeBase(base),
+  };
   workspaces.push(ws);
   await writeRegistry(workspaces);
   return ws;
+}
+
+/** Set the ref a workspace is reviewed against. Returns the updated record, or null if unknown. */
+export async function setWorkspaceBase(id: string, base: string | null): Promise<Workspace | null> {
+  const workspaces = await readRegistry();
+  const existing = workspaces.find((w) => w.id === id);
+  if (!existing) return null;
+  const next = normalizeBase(base);
+  if (next === existing.base) return existing;
+  existing.base = next;
+  await writeRegistry(workspaces);
+  return existing;
 }
 
 /** Remove by id or by path. Returns true if something was removed. */

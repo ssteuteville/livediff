@@ -28,6 +28,7 @@ import {
   fetchWorkspaces,
   addWorkspace,
   removeWorkspace,
+  setWorkspaceBase,
   resolvePath,
   fetchDiff,
   fetchComments,
@@ -183,6 +184,52 @@ export default function App() {
   // and without this the second-to-last can land after it and put a stale diff on screen.
   const diffRequest = useRef(0);
 
+  // The workspace whose stored base is currently in `base`, and the value the registry is believed
+  // to hold for it. A ref, not state: adopting must not trigger a write, and a write must not
+  // trigger a re-render. Only ever one entry — the app shows one workspace at a time.
+  const adopted = useRef<{ ws: string; base: string } | null>(null);
+
+  // Non-zero while a base is being written. The adopt effect stands down for that window, so a
+  // `fetchWorkspaces` already in flight cannot resolve with the pre-write value and rewrite the
+  // field out from under whoever is typing in it.
+  const writingBase = useRef(0);
+
+  /**
+   * Write the base back to the registry.
+   *
+   * Called when a comparison is committed — leaving the field, pressing Enter, clearing it — and
+   * never on every keystroke. It used to fire from a successful diff load on the theory that a
+   * loaded diff proved the ref was good. It does not: `git()` on the server returns partial stdout
+   * when git exits non-zero, so an unknown ref yields an empty diff and a 200, and typing "main"
+   * would persist "m", "ma", "mai" on the way. A stored ref that resolves to nothing hides every
+   * comment in the worktree, which is the exact failure this base field exists to prevent. The
+   * server now rejects a ref it cannot resolve; this reports that rather than swallowing it.
+   */
+  const persistBase = useCallback(
+    (ws: string, b: string): void => {
+      const at = adopted.current;
+      if (at === null || at.ws !== ws || at.base === b) return;
+      adopted.current = { ws, base: b };
+      writingBase.current++;
+      void setWorkspaceBase(ws, b || null)
+        .catch((cause: unknown) => {
+          // Put the old value back so a later attempt can retry; leaving the optimistic one would
+          // make the registry and this tab disagree silently for as long as the tab stayed open.
+          adopted.current = { ws, base: at.base };
+          setError(errorMessage(cause));
+        })
+        .finally(() => {
+          writingBase.current--;
+          void loadWorkspaces();
+        });
+    },
+    [loadWorkspaces],
+  );
+
+  const commitBase = useCallback(() => {
+    if (selected) persistBase(selected, base);
+  }, [persistBase, selected, base]);
+
   const loadDiff = useCallback(async (ws: string | null, b: string): Promise<void> => {
     if (!ws) {
       setDiff(null);
@@ -263,6 +310,24 @@ export default function App() {
     const firstWorkspace = workspaces[0];
     if (firstWorkspace) setSelected(firstWorkspace.id);
   }, [workspaces, selected, focused, loaded]);
+
+  // The base belongs to the worktree, not to this tab. Adopt the stored one when a workspace is
+  // selected, so a browser opened after `livediff --base main` shows the same comparison the CLI
+  // and the background sweep are already using.
+  //
+  // Keyed on the stored value rather than on the workspace id alone, so `livediff open --base main`
+  // run while this tab is open moves the tab too — the registry write broadcasts, the list
+  // refreshes, and this re-adopts. A base this tab just wrote is already recorded as adopted, so
+  // that round trip does not fight the field the user is typing in.
+  useEffect(() => {
+    if (!selected || writingBase.current > 0) return;
+    const ws = workspaces.find((w) => w.id === selected);
+    if (!ws) return;
+    const stored = ws.base ?? "";
+    if (adopted.current?.ws === selected && adopted.current.base === stored) return;
+    adopted.current = { ws: selected, base: stored };
+    setBase(stored);
+  }, [selected, workspaces]);
 
   useEffect(() => {
     // A highlight left over from the previous workspace would point at a file that is no longer
@@ -465,9 +530,13 @@ export default function App() {
           <label className="flex items-center gap-1.5 text-neutral-500 dark:text-neutral-400">
             vs
             <span className="relative flex items-center">
+              {/* Committed on blur and on Enter, not per keystroke: the value outlives this tab,
+                  so half-typed refs must never reach the registry. */}
               <input
                 value={base}
                 onChange={(e) => setBase(e.target.value)}
+                onBlur={commitBase}
+                onKeyDown={(e) => e.key === "Enter" && commitBase()}
                 list="livediff-refs"
                 data-compare-against
                 placeholder="HEAD"
@@ -478,7 +547,10 @@ export default function App() {
                 <button
                   type="button"
                   data-clear-compare
-                  onClick={() => setBase("")}
+                  onClick={() => {
+                    setBase("");
+                    if (selected) persistBase(selected, "");
+                  }}
                   title="Back to comparing against the last commit"
                   className="absolute right-1 rounded px-1 text-[11px] leading-none text-blue-600 hover:bg-blue-100 dark:text-blue-300 dark:hover:bg-blue-500/20"
                 >
@@ -621,7 +693,10 @@ export default function App() {
           className={fast ? "flex min-w-0 flex-1 flex-col" : "min-w-0 flex-1 overflow-y-auto p-4"}
         >
           {error && (
-            <div className="mb-3 rounded border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-500/30 dark:bg-red-950/30 dark:text-red-300">
+            <div
+              data-error
+              className="mb-3 rounded border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-500/30 dark:bg-red-950/30 dark:text-red-300"
+            >
               {error}
             </div>
           )}

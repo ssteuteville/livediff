@@ -258,13 +258,13 @@ In `renderCliReference`, replace `descriptor.commands.flatMap(...)` with `ordere
 
 - [ ] **Step 9: Regenerate the reference**
 
-Run: `pnpm docs`
+Run: `pnpm docs:cli`
 Expected: `wrote docs/CLI.md`.
 
 - [ ] **Step 10: Confirm the drift guard is satisfied**
 
 Run: `pnpm test`
-Expected: 211 passed (210 plus the new group test). If `test/cli-docs.test.ts` fails, `pnpm docs` was not re-run after the last edit.
+Expected: 211 passed (210 plus the new group test). If `test/cli-docs.test.ts` fails, `pnpm docs:cli` was not re-run after the last edit.
 
 - [ ] **Step 11: Gates and commit (after Shane approves)**
 
@@ -1105,7 +1105,7 @@ The paragraph beginning "Still intentionally deferred" currently lists branch-na
 
 - [ ] **Step 5: Regenerate and run the gates**
 
-Run: `pnpm docs`
+Run: `pnpm docs:cli`
 Run: `pnpm test`
 Run: `pnpm lint`
 Run: `pnpm format:check`
