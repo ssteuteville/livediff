@@ -77,6 +77,23 @@ test("polling starts with the first SSE client and stops with the last", async (
   });
 });
 
+/**
+ * This is the only test that depends on `fs.watch` actually delivering events, so it is the one
+ * that fails when the machine's file watching gives out rather than when the hub is wrong.
+ *
+ * macOS can stop delivering FSEvents entirely — every watcher goes quiet, process-wide and
+ * user-wide, until a restart. The symptom here is an empty frame list (`saw: ["retry: 2000"]`),
+ * which reads like a broken broadcast and is not one. Before touching `watchConfigDir`, check
+ * whether watching works at all:
+ *
+ *     node -e 'const {watch}=require("fs"),{mkdtempSync,writeFileSync}=require("fs"),
+ *       d=mkdtempSync("/tmp/w-");watch(d,(e,n)=>console.log("event",e,n));
+ *       setTimeout(()=>writeFileSync(d+"/x.json","{}"),100);setTimeout(()=>process.exit(0),1500)'
+ *
+ * No output means the OS is not delivering events and this failure is environmental. The hub
+ * degrades correctly in that state — `watchConfigDir` catches and gives up — and nothing else
+ * regresses, because live diff refresh comes from the poll loop, not from a watcher.
+ */
 test("a hand-edited comments file broadcasts without a client attached", async () => {
   await withTempXdg(async ({ root, config }) => {
     const repo = await makeRepo(join(root, "handedit"));
