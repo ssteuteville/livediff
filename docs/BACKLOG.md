@@ -74,21 +74,31 @@ three tabs with per-tab empty states. Doable ahead of questions and notes existi
 a rename plus a tab bar with two empty tabs, and stops the header from needing a second and third
 button later.
 
-### Lens selector in the header, opening a full-screen overlay
+### Lens selector: the full-screen overlay
 
-A header control reading out the applied lens (`Full diff` when none), inverted while a lens is
-active, opening a full-screen overlay with tabs for lenses, walkthroughs, questions, and notes.
-The chrome shows current state; the overlay holds the catalog. Rejected alternatives: a floating
-action button, and a row of lens pills in the top bar (doesn't survive more than three or four).
+**The header control shipped** — it reads out the applied lens (`Full diff` when none) and inverts
+while one is active. It currently opens a dropdown listing the set with each lens's `why` and file
+count. Rejected alternatives: a floating action button, and a row of lens pills in the top bar
+(doesn't survive more than three or four).
 
-### Lenses that filter and annotate
+Still wanted: replacing the dropdown with the full-screen overlay, once there are walkthroughs,
+questions, and notes to fill its other three tabs. A dropdown is the right size for one tab.
 
-A lens narrows the file list and diff body to what it cares about, and decorates lines with short
-inline breadcrumbs (`? unsure`, `● 2 callers not shown`). Some breadcrumbs are buttons.
-Undefined: what a breadcrumb button can do beyond jumping to a location.
+### Lenses that annotate
 
-Wide open and needed before much else: what authors a lens. Reviewer-written, agent-proposed, or
-both — possibly a gitignored `.livediff` file the agent helps write.
+**Filtering shipped** — a lens narrows the file list and diff body to the files it matches, and
+marks new-side line ranges as a translucent tint. See
+[`superpowers/specs/2026-08-07-filter-lenses-design.md`](superpowers/specs/2026-08-07-filter-lenses-design.md).
+Authorship is settled too: the agent writes the whole set at handoff, and a `.livediff` file at the
+worktree root carries the user's standing instructions.
+
+Still wanted: decorating lines with short inline breadcrumbs (`? unsure`, `● 2 callers not shown`),
+some of which are buttons. Undefined: what a breadcrumb button can do beyond jumping to a location.
+
+Highlights render in the fast renderer only. The classic renderer is `@git-diff-view`'s `DiffView`,
+which exposes no per-line styling seam, so drawing them there would mean reaching into a third-party
+component's DOM. Filtering works in both. Classic says so on screen rather than quietly omitting the
+marks, and the notice goes away with the renderer.
 
 ### Lenses that render something other than a diff
 

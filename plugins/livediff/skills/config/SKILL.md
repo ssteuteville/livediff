@@ -5,6 +5,8 @@ disable-model-invocation: true
 allowed-tools: Bash(livediff config *)
 ---
 
+If `.livediff` exists at the worktree root, read it and follow it before doing anything else.
+
 Start by showing the effective settings:
 
 ```bash

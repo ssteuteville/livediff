@@ -9,7 +9,7 @@ import {
   type Dispatch,
   type SetStateAction,
 } from "react";
-import type { Comment, Diff, Reply, Review } from "../shared/types.ts";
+import type { Comment, Diff, Lens, Reply, Review } from "../shared/types.ts";
 import {
   fetchDefaultRenderer,
   type HubEvent,
@@ -21,8 +21,10 @@ import CommentDrawer from "./components/CommentDrawer.tsx";
 import WorkspaceRail from "./components/WorkspaceRail.tsx";
 import ReviewBanner from "./components/ReviewBanner.tsx";
 import FileTree from "./components/FileTree.tsx";
+import { LensPicker } from "./components/LensPicker.tsx";
 import type { FileTreeEntry } from "./file-tree.ts";
-import { diffTotals, formatBytes } from "./diff-model.ts";
+import { diffTotals, formatBytes, highlightedLines, NO_HIGHLIGHTS } from "./diff-model.ts";
+import { pathMatcher } from "../server/glob.ts";
 import { RENDERER, RENDERERS, DIFF_REFETCH_DEBOUNCE_MS } from "../shared/constants.ts";
 import {
   fetchWorkspaces,
@@ -38,6 +40,7 @@ import {
   removeComment,
   fetchReview,
   completeReview,
+  fetchLenses,
   subscribe,
 } from "./api.ts";
 
@@ -99,6 +102,35 @@ function isRenderer(value: string | null): value is (typeof RENDERERS)[number] {
   return value === "classic" || value === "fast";
 }
 
+/** Why the diff is empty, which is a different sentence depending on what is filtering it. */
+function emptyDiffMessage(dir: string, lens: Lens | null): string {
+  if (lens && dir) return `Nothing under ${dir} is in the ${lens.name} lens.`;
+  if (lens) return `The ${lens.name} lens matches nothing in this diff.`;
+  if (dir) return `No changes under ${dir}.`;
+  return "No changes in this worktree.";
+}
+
+/**
+ * The classic renderer is @git-diff-view's DiffView, which exposes no per-line styling seam, so a
+ * lens's highlights cannot be drawn there. Filtering still applies, so the screen looks correct;
+ * saying nothing would let a reviewer believe they had seen everything the lens marked.
+ */
+function ClassicHighlightNotice({ lens }: { lens: Lens }) {
+  const url = new URL(window.location.href);
+  url.searchParams.set("renderer", "fast");
+  const count = lens.highlights.length === 1 ? "a range" : `${lens.highlights.length} ranges`;
+  return (
+    <p className="mb-4 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-200">
+      The <span className="font-medium">{lens.name}</span> lens marks {count} worth reading, which
+      the classic renderer cannot draw.{" "}
+      <a className="underline" href={`${url.pathname}${url.search}`}>
+        Switch to the fast renderer
+      </a>{" "}
+      to see them.
+    </p>
+  );
+}
+
 function isReviewEvent(event: HubEvent): event is ReviewEvent {
   return (
     "state" in event &&
@@ -153,6 +185,10 @@ export default function App() {
   // ?dir=<subpath> narrows the view to one directory. It is a filter, not a workspace: comments
   // stay keyed to the worktree, so nothing is hidden from the CLI by scoping the browser.
   const dir = (urlParams.get("dir") || "").replace(/\/+$/, "");
+  // ?lens=<name> applies one lens on arrival. Like ?dir=, it filters the same diff rather than
+  // changing which diff is shown, so the URL stays the whole shareable state.
+  const [lensName, setLensName] = useState(() => urlParams.get("lens"));
+  const [lenses, setLenses] = useState<Lens[]>([]);
   // ?renderer=classic|fast overrides the build-time default for one tab, so the two can be
   // compared on the same diff without a rebuild. See RENDERER in server/constants.js.
   const requested = urlParams.get("renderer");
@@ -254,6 +290,16 @@ export default function App() {
     } catch {}
   }, []);
 
+  const loadLenses = useCallback(async (ws: string | null): Promise<void> => {
+    if (!ws) {
+      setLenses([]);
+      return;
+    }
+    try {
+      keepIfSame(setLenses)(await fetchLenses(ws));
+    } catch {}
+  }, []);
+
   // A save that touches twenty files arrives as twenty events. Coalesce them into one fetch.
   const diffTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const refetchDiffSoon = useCallback(() => {
@@ -336,7 +382,8 @@ export default function App() {
     void loadDiff(selected, base);
     void loadComments(selected);
     void loadReview(selected);
-  }, [selected, base, loadDiff, loadComments, loadReview]);
+    void loadLenses(selected);
+  }, [selected, base, loadDiff, loadComments, loadReview, loadLenses]);
 
   // Branch list for the compare-against picker. Keyed on the workspace only: branches change far
   // less often than the diff, and refetching them on every base change would be pure noise.
@@ -376,8 +423,11 @@ export default function App() {
         if (state === "open") void loadReview(selectedRef.current);
         else setReview(null);
       },
+      onLenses: (event) => {
+        if (event.ws === selectedRef.current) void loadLenses(selectedRef.current);
+      },
     });
-  }, [loadWorkspaces, refetchDiffSoon, loadComments, loadReview]);
+  }, [loadWorkspaces, refetchDiffSoon, loadComments, loadReview, loadLenses]);
 
   const onDoneReviewing = useCallback(
     () =>
@@ -426,11 +476,60 @@ export default function App() {
     return comments.filter((c) => c.status === filter);
   }, [comments, filter]);
 
+  // A name that matches nothing resolves to null, which shows the full diff. An unknown lens must
+  // never produce an empty screen — the reviewer would have no way to tell it apart from no changes.
+  const activeLens = useMemo(
+    () => lenses.find((lens) => lens.name === lensName) ?? null,
+    [lenses, lensName],
+  );
+
   const visibleFiles = useMemo(() => {
     const files = diff?.files ?? [];
-    if (!dir) return files;
-    return files.filter((f) => f.path === dir || f.path.startsWith(`${dir}/`));
-  }, [diff, dir]);
+    const underDir = dir
+      ? files.filter((f) => f.path === dir || f.path.startsWith(`${dir}/`))
+      : files;
+    if (!activeLens) return underDir;
+    const inLens = pathMatcher(activeLens.paths);
+    return underDir.filter((f) => inLens(f.path));
+  }, [diff, dir, activeLens]);
+
+  const lensCounts = useMemo(() => {
+    const files = diff?.files ?? [];
+    const counts = new Map<string, number>();
+    for (const lens of lenses) {
+      const inLens = pathMatcher(lens.paths);
+      counts.set(
+        lens.name,
+        files.reduce((n, f) => (inLens(f.path) ? n + 1 : n), 0),
+      );
+    }
+    return counts;
+  }, [diff, lenses]);
+
+  const lensHighlights = useMemo(
+    () => (activeLens ? highlightedLines(activeLens.highlights) : NO_HIGHLIGHTS),
+    [activeLens],
+  );
+
+  const applyLens = useCallback((name: string | null) => {
+    setLensName(name);
+    const url = new URL(window.location.href);
+    if (name === null) url.searchParams.delete("lens");
+    else url.searchParams.set("lens", name);
+    window.history.replaceState(null, "", url);
+  }, []);
+
+  // Only the rail goes through this — the effects that resolve the initial workspace must keep the
+  // lens the URL asked for. A lens belongs to the worktree whose agent wrote it, so carrying the
+  // name across would either filter a different diff by a same-named lens or leave a dead `?lens=`
+  // in a URL the reviewer might hand to someone else.
+  const selectWorkspace = useCallback(
+    (id: string) => {
+      if (id !== selected) applyLens(null);
+      setSelected(id);
+    },
+    [selected, applyLens],
+  );
 
   const commentsByFile = useMemo(() => {
     const map = new Map<string, Comment[]>();
@@ -563,6 +662,12 @@ export default function App() {
               <option key={name} value={name} />
             ))}
           </datalist>
+          <LensPicker
+            lenses={lenses}
+            active={activeLens}
+            counts={lensCounts}
+            onSelect={applyLens}
+          />
           <div className="flex overflow-hidden rounded border border-neutral-300 dark:border-neutral-700">
             {(
               [
@@ -608,7 +713,7 @@ export default function App() {
           <WorkspaceRail
             workspaces={workspaces}
             selected={selected}
-            onSelect={setSelected}
+            onSelect={selectWorkspace}
             onRemove={onRemoveWorkspace}
             onAdd={onAddWorkspace}
           />
@@ -717,7 +822,19 @@ export default function App() {
           {selectedWs && diff && visibleFiles.length === 0 && (
             <div className="flex min-h-0 flex-1">
               <div className="flex flex-1 flex-col items-center justify-center gap-3 text-sm text-neutral-400">
-                <p>{dir ? `No changes under ${dir}.` : "No changes in this worktree."}</p>
+                <p>{emptyDiffMessage(dir, activeLens)}</p>
+                {/* A lens that matches nothing looks exactly like an empty worktree unless the way
+                    back out is on screen next to the reason. */}
+                {activeLens && (
+                  <button
+                    type="button"
+                    data-lens-escape
+                    onClick={() => applyLens(null)}
+                    className="rounded border border-neutral-300 px-3 py-1 text-xs text-neutral-600 hover:bg-neutral-100 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800"
+                  >
+                    Show the full diff
+                  </button>
+                )}
                 {/* With no files there are no headers to hang them off, and these are exactly the
                     comments worth finding: the diff moved on, the thread did not. */}
                 {comments.length > 0 && (
@@ -751,8 +868,12 @@ export default function App() {
               onAddComment={onAddComment}
               onCommentAction={onCommentAction}
               onActiveFile={setActiveFile}
+              highlight={lensHighlights}
             />
           )}
+          {selectedWs && !fast && visibleFiles.length > 0 && activeLens?.highlights.length ? (
+            <ClassicHighlightNotice lens={activeLens} />
+          ) : null}
           {selectedWs && !fast && visibleFiles.length > 0 && (
             <Suspense
               fallback={

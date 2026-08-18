@@ -1,0 +1,6 @@
+# Read by oxfmt (it honours .prettierignore by default), despite the name.
+
+# A verbatim export from Claude Design, kept as a source document rather than as source. It uses a
+# custom template dialect that is not valid HTML, so no formatter can parse it — and reformatting a
+# vendored artifact would only make it harder to diff against a re-export.
+docs/design/livediff-ai-wireframes.dc.html

@@ -11,7 +11,7 @@
  * lies. That is the whole reason this can virtualize without feeling like it virtualizes.
  */
 
-import type { Comment, DiffFile } from "../shared/types.js";
+import type { Comment, DiffFile, Highlight } from "../shared/types.js";
 
 export const ROW = {
   FILE: "file",
@@ -397,6 +397,59 @@ export function rowHeight(row: DiffRow, metrics: DiffMetrics): number {
  * Running offsets for every row, plus the total. One pass, and the result supports binary search
  * for "which row is at scrollTop" — the two things a virtualizer needs.
  */
+/** Where a row sits in a highlighted run, which is what decides its rounded corners. */
+export type HighlightMark = "start" | "middle" | "end" | "only" | null;
+
+export type HighlightLookup = (path: string, newNo: number | null) => HighlightMark;
+
+/**
+ * Resolve a lens's ranges into a per-row lookup.
+ *
+ * Overlapping and adjoining ranges are merged first: a reader sees one region, and two ranges that
+ * touch must not render as two bubbles with a seam between them.
+ *
+ * The lookup answers only for new-side line numbers, since that is the only side a highlight can
+ * describe. It returns `null` for any line no range covers, including lines the diff never shows —
+ * a range pointing outside the available hunks simply renders nothing.
+ */
+export function highlightedLines(highlights: readonly Highlight[]): HighlightLookup {
+  const byPath = new Map<string, { start: number; end: number }[]>();
+  for (const { path, start, end } of highlights) {
+    const ranges = byPath.get(path);
+    if (ranges) ranges.push({ start, end });
+    else byPath.set(path, [{ start, end }]);
+  }
+
+  for (const [path, ranges] of byPath) {
+    ranges.sort((a, b) => a.start - b.start);
+    const merged: { start: number; end: number }[] = [];
+    for (const range of ranges) {
+      const last = merged[merged.length - 1];
+      // `end + 1` so ranges that merely touch still merge into one run.
+      if (last && range.start <= last.end + 1) last.end = Math.max(last.end, range.end);
+      else merged.push({ ...range });
+    }
+    byPath.set(path, merged);
+  }
+
+  return (path, newNo) => {
+    if (newNo === null) return null;
+    const ranges = byPath.get(path);
+    if (!ranges) return null;
+    for (const { start, end } of ranges) {
+      if (newNo < start || newNo > end) continue;
+      if (start === end) return "only";
+      if (newNo === start) return "start";
+      if (newNo === end) return "end";
+      return "middle";
+    }
+    return null;
+  };
+}
+
+/** A lookup for when no lens is applied. Kept stable so it never invalidates a memo. */
+export const NO_HIGHLIGHTS: HighlightLookup = () => null;
+
 export function buildOffsets(rows: DiffRow[], metrics: DiffMetrics): Float64Array {
   const offsets = new Float64Array(rows.length + 1);
   for (let i = 0; i < rows.length; i++) {

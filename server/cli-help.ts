@@ -16,6 +16,7 @@ export type CompletionKind =
   | "comment-open"
   | "comment-archived"
   | "config-key"
+  | "lens"
   | "shell";
 
 export interface ArgSpec {
@@ -76,7 +77,8 @@ export const COMMANDS: readonly CommandHelp[] = [
   {
     id: "open",
     name: "open",
-    usage: "livediff open [path] [--base <ref>] [--no-open] [--wait] [--timeout <sec>]",
+    usage:
+      "livediff open [path] [--base <ref>] [--no-open] [--wait] [--timeout <sec>] [--lens <name>]",
     summary: "register a worktree and open its focused view",
     args: [{ name: "path", required: false, completion: "workspace" }],
     details:
@@ -97,6 +99,7 @@ export const COMMANDS: readonly CommandHelp[] = [
       ["--no-open", "register only; print the URL instead of launching a browser"],
       ["--wait", 'block until "Done reviewing" is clicked in the browser'],
       ["--timeout <sec>", "give up waiting after <sec> seconds (default: never)"],
+      ["--lens <name>", "open with one lens already applied"],
     ],
     examples: [
       ["livediff open", "register the current worktree and open it"],
@@ -127,7 +130,7 @@ export const COMMANDS: readonly CommandHelp[] = [
   {
     id: "review",
     name: "review",
-    usage: "livediff review [path] [--base <ref>] [--no-open] [--timeout <sec>]",
+    usage: "livediff review [path] [--base <ref>] [--no-open] [--timeout <sec>] [--lens <name>]",
     summary: "open a worktree and wait for the reviewer to finish",
     args: [{ name: "path", required: false, completion: "workspace" }],
     details:
@@ -140,10 +143,12 @@ export const COMMANDS: readonly CommandHelp[] = [
       ["--base <ref>", "review against <ref> instead of the last commit, and remember it"],
       ["--no-open", "register only; print the URL instead of launching a browser"],
       ["--timeout <sec>", "give up waiting after <sec> seconds (default: never)"],
+      ["--lens <name>", "open with one lens already applied"],
     ],
     examples: [
       ["livediff review", "review the current worktree and wait"],
       ["livediff review --base main", "review the whole branch, not just uncommitted work"],
+      ["livediff review . --lens retry", "hand off with one lens applied on arrival"],
     ],
   },
   {
@@ -212,6 +217,25 @@ export const COMMANDS: readonly CommandHelp[] = [
       ["livediff comments --base main", "judge staleness against main, just this once"],
       ["livediff comments --stale", "comments whose file is no longer in the diff"],
       ["livediff comments --archived", "what is archived and when it will be deleted"],
+    ],
+  },
+  {
+    id: "lens",
+    name: "lens",
+    usage: "livediff lens <set|add|list|rm|clear> [...]",
+    summary: "define the ways to read this change",
+    args: [{ name: "subcommand", required: false }],
+    details:
+      "A lens narrows the diff to a set of files and marks ranges inside them. A lens set\n" +
+      "belongs to a review handoff: the agent writes the whole set when it stops working,\n" +
+      "and the next handoff replaces it.\n" +
+      "\n" +
+      "`lens set` reads the whole set as JSON on stdin and is the path an agent should use —\n" +
+      "one write, no chance of two concurrent commands dropping each other's lenses.",
+    flags: [],
+    examples: [
+      ["livediff lens list", "show this workspace's lenses and what each one matches"],
+      ["livediff lens add tests --path 'test/**'", "add one lens by hand"],
     ],
   },
   {
@@ -522,6 +546,75 @@ export const CONFIG_COMMANDS: readonly CommandHelp[] = [
   },
 ];
 
+export const LENS_COMMANDS: readonly CommandHelp[] = [
+  {
+    id: "set",
+    name: "set",
+    usage: "livediff lens set",
+    summary: "replace the whole lens set from JSON on stdin",
+    args: [],
+    details:
+      "Reads `{ lenses: [...] }` (or a bare array) from stdin and replaces the workspace's\n" +
+      "entire lens set in one write. This is the command an agent should use at handoff —\n" +
+      "one write means no chance of two concurrent commands dropping each other's lenses.",
+    flags: [],
+    examples: [["livediff lens set < lenses.json", "replace the set from a file"]],
+  },
+  {
+    id: "add",
+    name: "add",
+    usage: "livediff lens add <name> --path <glob> [--why <text>] [--highlight <path:start-end>]",
+    summary: "add or replace one lens by hand",
+    args: [{ name: "name", required: true }],
+    details:
+      "--path may be repeated; the lens matches the union of all of them. --highlight may also\n" +
+      "be repeated, one per range. Adding a name that already exists replaces that lens in place,\n" +
+      "keeping its position in the list.",
+    flags: [
+      ["--path <glob>", "a file glob the lens matches (repeatable, required)"],
+      ["--why <text>", "a short note on what this lens is for"],
+      ["--highlight <path:start-end>", "a new-side line range to mark (repeatable)"],
+    ],
+    examples: [
+      ["livediff lens add tests --path 'test/**' --why coverage", "add a lens over the tests"],
+      [
+        "livediff lens add retry --path src/retry.ts --highlight src/retry.ts:88-104",
+        "add a lens with one highlighted range",
+      ],
+    ],
+  },
+  {
+    id: "list",
+    name: "list",
+    usage: "livediff lens list",
+    summary: "show this workspace's lenses",
+    args: [],
+    details: "Each lens's file count is resolved against the current diff, so a zero is visible.",
+    flags: [],
+    examples: [["livediff lens list --json", "list lenses as JSON"]],
+  },
+  {
+    id: "rm",
+    name: "rm",
+    usage: "livediff lens rm <name>",
+    summary: "remove one lens",
+    args: [{ name: "name", required: true, completion: "lens" }],
+    details: "",
+    flags: [],
+    examples: [["livediff lens rm tests", "remove the tests lens"]],
+  },
+  {
+    id: "clear",
+    name: "clear",
+    usage: "livediff lens clear",
+    summary: "remove every lens",
+    args: [],
+    details: "",
+    flags: [],
+    examples: [["livediff lens clear", "empty this workspace's lens set"]],
+  },
+];
+
 export const COMPLETION_COMMANDS: readonly CommandHelp[] = [
   {
     id: "bash",
@@ -599,10 +692,15 @@ export const COMPLETION_COMMANDS: readonly CommandHelp[] = [
 export const VALUE_FLAGS = new Set([
   ...COMMANDS.flatMap(valueOptionNames),
   ...CONFIG_COMMANDS.flatMap(valueOptionNames),
+  ...LENS_COMMANDS.flatMap(valueOptionNames),
 ]);
 
 export function findConfigCommand(token: string): CommandHelp | null {
   return CONFIG_COMMANDS.find((command) => command.name === token) ?? null;
+}
+
+export function findLensCommand(token: string): CommandHelp | null {
+  return LENS_COMMANDS.find((command) => command.name === token) ?? null;
 }
 
 export function findCompletionCommand(token: string): CommandHelp | null {
@@ -611,6 +709,10 @@ export function findCompletionCommand(token: string): CommandHelp | null {
 
 export function renderConfigCommandHelp(command: CommandHelp): string {
   return renderCommandHelp({ ...command, name: `config ${command.name}` });
+}
+
+export function renderLensCommandHelp(command: CommandHelp): string {
+  return renderCommandHelp({ ...command, name: `lens ${command.name}` });
 }
 
 /** Every name a user could type to reach a command. */
@@ -774,6 +876,7 @@ export function describeCli(version: string): CliDescriptor {
   const commands = [
     ...COMMANDS.map((command) => describeCommand(command, [command.name])),
     ...CONFIG_COMMANDS.map((command) => describeCommand(command, ["config", command.name])),
+    ...LENS_COMMANDS.map((command) => describeCommand(command, ["lens", command.name])),
     ...COMPLETION_COMMANDS.map((command) => describeCommand(command, ["completion", command.name])),
   ];
   return { schemaVersion: INTROSPECTION_SCHEMA_VERSION, version, globalOptions, commands };

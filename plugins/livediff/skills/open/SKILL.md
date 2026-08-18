@@ -7,6 +7,8 @@ allowed-tools: Bash(livediff *)
 
 # Show a worktree in livediff
 
+If `.livediff` exists at the worktree root, read it and follow it before doing anything else.
+
 Pick one row. Run it once. Do not check anything first — there is no server to start
 and no state worth inspecting.
 

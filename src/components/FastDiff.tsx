@@ -20,12 +20,15 @@ import {
   fileRowAt,
   stickyPushOff,
   diffTotals,
+  NO_HIGHLIGHTS,
 } from "../diff-model.js";
 import type { DiffTotals } from "../diff-model.js";
 import type {
   CommentRow,
   DiffLine,
   DiffMode,
+  HighlightLookup,
+  HighlightMark,
   SearchOptions,
   SplitLineRow,
   UnifiedLineRow,
@@ -61,6 +64,8 @@ interface FastDiffProps {
   onAddComment: (input: NewComment) => void | Promise<void>;
   onCommentAction: (id: Comment["id"], action: CommentAction) => void | Promise<void>;
   onActiveFile?: (path: string | null) => void;
+  /** Marks the rows the applied lens points at. Defaults to marking nothing. */
+  highlight?: HighlightLookup;
 }
 
 interface MatchRange {
@@ -97,6 +102,27 @@ const GAP = {
   mod: "",
   ctx: "",
 };
+
+/**
+ * A lens marks a region, not a line, so the tint is drawn per row with only the outer corners
+ * rounded — together they read as one translucent bubble over the region.
+ *
+ * It is a translucent overlay rather than a background class because two `bg-*` utilities on one
+ * element do not compose: the tint has to layer over the add/delete colour, or a highlighted
+ * addition would stop reading as an addition.
+ *
+ * Colour and corner radius only. Row boxes come from a computed offset table, never measured, so
+ * anything affecting a row's geometry would desynchronize every row below it.
+ */
+const HIGHLIGHT = {
+  tint: "pointer-events-none absolute inset-0 bg-violet-500/10 dark:bg-violet-400/15",
+  ends: {
+    start: "rounded-t",
+    end: "rounded-b",
+    only: "rounded",
+    middle: "",
+  },
+} as const;
 
 const MARKER: Partial<Record<"add" | "del" | "ctx", string>> = { add: "+", del: "−" };
 
@@ -202,6 +228,7 @@ function Side({
   options,
   onAdd,
   composing,
+  mark,
 }: {
   line: DisplayLine | null;
   lang: string;
@@ -210,10 +237,18 @@ function Side({
   options: SearchOptions;
   onAdd: ((line: DisplayLine) => void) | undefined;
   composing: boolean;
+  mark: HighlightMark;
 }) {
-  const bg = kind === "add" ? GAP.add : kind === "del" ? GAP.del : "";
+  const bg = sideBackground(kind);
   return (
-    <div className={"group flex min-w-0 flex-1 " + bg + (composing ? COMPOSING : "")}>
+    <div className={"group relative flex min-w-0 flex-1 " + bg + (composing ? COMPOSING : "")}>
+      {mark !== null && (
+        <span
+          aria-hidden="true"
+          data-highlight={mark}
+          className={HIGHLIGHT.tint + " " + HIGHLIGHT.ends[mark]}
+        />
+      )}
       <span className={GUTTER}>{line?.oldNo ?? line?.newNo ?? ""}</span>
       {/* Its own column, always present: revealing the button on hover must not reflow the line.
           Beside the number rather than at the far edge, where the line it acts on is obvious. */}
@@ -239,6 +274,12 @@ function Side({
       </div>
     </div>
   );
+}
+
+function sideBackground(kind: "add" | "del" | "ctx"): string {
+  if (kind === "add") return GAP.add;
+  if (kind === "del") return GAP.del;
+  return "";
 }
 
 /** In split mode a paired row shows a deletion on the left and an addition on the right. */
@@ -402,6 +443,7 @@ export default function FastDiff({
   onAddComment,
   onCommentAction,
   onActiveFile,
+  highlight = NO_HIGHLIGHTS,
 }: FastDiffProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const surfaceRef = useRef<HTMLDivElement>(null);
@@ -785,6 +827,7 @@ export default function FastDiff({
                         options={options}
                         onAdd={onAdd}
                         composing={composingHere}
+                        mark={highlight(row.file.path, row.newNo)}
                       />
                     </div>
                   );
@@ -807,6 +850,7 @@ export default function FastDiff({
                       options={options}
                       onAdd={onAdd}
                       composing={composingHere && composing?.side === "old"}
+                      mark={null}
                     />
                     <div className="w-px shrink-0 bg-neutral-200 dark:bg-neutral-800" />
                     <Side
@@ -817,6 +861,7 @@ export default function FastDiff({
                       options={options}
                       onAdd={onAdd}
                       composing={composingHere && composing?.side === "new"}
+                      mark={highlight(row.file.path, row.right?.newNo ?? null)}
                     />
                   </div>
                 );

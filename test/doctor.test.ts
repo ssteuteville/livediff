@@ -6,7 +6,7 @@ import { withTempXdg, makeRepo } from "./helpers.js";
 import { writeJsonAtomic } from "../server/atomic.js";
 import { registryPath, idFor } from "../server/registry.js";
 import { writeState } from "../server/hub-state.js";
-import { diagnose, type Finding } from "../server/doctor.js";
+import { diagnose, checkInstructions, type Finding } from "../server/doctor.js";
 
 const find = (findings: readonly Finding[], title: string): Finding | undefined =>
   findings.find((finding) => finding.title.includes(title));
@@ -168,6 +168,32 @@ test("the newest cached plugin version wins", async () => {
     const plugin = find(findings, "claude plugin");
     assert.ok(plugin);
     assert.match(plugin.detail, /0\.10\.0/);
+  });
+});
+
+test("a worktree with a .livediff says where it found it", async () => {
+  await withTempXdg(async ({ root }) => {
+    const repo = await makeRepo(join(root, "repo"));
+    await writeFile(join(repo, ".livediff"), "Always separate tests into their own lens.\n");
+    const finding = await checkInstructions(repo);
+    assert.equal(finding.level, "ok");
+    assert.match(finding.detail, /\.livediff found/);
+  });
+});
+
+test("a worktree without one is reported, not warned about", async () => {
+  await withTempXdg(async ({ root }) => {
+    const repo = await makeRepo(join(root, "bare"));
+    const finding = await checkInstructions(repo);
+    assert.equal(finding.level, "ok", "most repos have no .livediff; that is not a problem");
+    assert.match(finding.detail, /no \.livediff/);
+  });
+});
+
+test("outside a git worktree the check says so rather than throwing", async () => {
+  await withTempXdg(async ({ root }) => {
+    const finding = await checkInstructions(join(root, "nowhere"));
+    assert.equal(finding.level, "ok");
   });
 });
 

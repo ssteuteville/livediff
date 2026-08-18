@@ -1,4 +1,4 @@
-import type { Comment, Diff, Reply, Review, Workspace } from "../shared/types.ts";
+import type { Comment, Diff, Lens, Reply, Review, Workspace } from "../shared/types.ts";
 import type { Renderer } from "../shared/constants.ts";
 
 /** The payload every hub event carries: which workspace moved, and why. */
@@ -12,6 +12,7 @@ export interface Subscribers {
   onComments?: (e: HubEvent) => void;
   onWorkspaces?: (e: HubEvent) => void;
   onReview?: (e: HubEvent) => void;
+  onLenses?: (e: HubEvent) => void;
 }
 
 /** A workspace as the rail sees it: the registry record plus the hub's live summary. */
@@ -133,6 +134,13 @@ export function removeComment(ws: string, id: string): Promise<{ ok: boolean }> 
   );
 }
 
+/** The workspace's lens set, in the order the agent wrote it — which is the order the picker shows. */
+export function fetchLenses(ws: string): Promise<Lens[]> {
+  return fetch(`/api/lenses?ws=${ws}`)
+    .then(asJson<{ lenses: Lens[] }>())
+    .then((d) => d.lenses);
+}
+
 /** The open review request for a workspace, or null. Set by `livediff <path> --wait`. */
 export function fetchReview(ws: string): Promise<Review | null> {
   return fetch(`/api/reviews?ws=${ws}`)
@@ -148,7 +156,13 @@ export function completeReview(reviewId: string): Promise<{ ok: boolean }> {
  * Subscribe to live hub events. Handlers receive the parsed payload `{ ws, reason }`.
  * Returns an unsubscribe function.
  */
-export function subscribe({ onDiff, onComments, onWorkspaces, onReview }: Subscribers): () => void {
+export function subscribe({
+  onDiff,
+  onComments,
+  onWorkspaces,
+  onReview,
+  onLenses,
+}: Subscribers): () => void {
   const es = new EventSource("/api/events");
   const parse = (fn?: (e: HubEvent) => void) => (e: MessageEvent<string>) => {
     let data: HubEvent = {};
@@ -164,6 +178,7 @@ export function subscribe({ onDiff, onComments, onWorkspaces, onReview }: Subscr
   es.addEventListener("comments", parse(onComments));
   es.addEventListener("workspaces", parse(onWorkspaces));
   es.addEventListener("review", parse(onReview));
+  es.addEventListener("lenses", parse(onLenses));
   return () => es.close();
 }
 

@@ -10,6 +10,7 @@ import {
   listComments,
   getComment,
   updateComment,
+  deleteComment,
   sweep,
   restoreComment,
   purgeArchived,
@@ -234,5 +235,52 @@ test("purgeArchived deletes by an explicit window", async () => {
     const id = await seed({ archivedAt: new Date(now - 11 * DAY).toISOString() });
     assert.equal(await purgeArchived("ws1", { olderThanDays: 10, now }), 1);
     assert.equal(await getComment("ws1", id), null);
+  });
+});
+
+test("two comments added concurrently both survive", async () => {
+  await withTempXdg(async ({ root }) => {
+    const repo = await makeRepo(join(root, "repo"));
+    await Promise.all([
+      addComment("ws1", repo, { ...input, body: "first" }),
+      addComment("ws1", repo, { ...input, body: "second" }),
+    ]);
+    const stored = await listComments("ws1", repo);
+    assert.deepEqual(
+      stored.map((c) => c.body).toSorted(),
+      ["first", "second"],
+      "a concurrent write dropped one comment",
+    );
+  });
+});
+
+test("a delete racing an add does not take the new comment with it", async () => {
+  await withTempXdg(async ({ root }) => {
+    const repo = await makeRepo(join(root, "repo"));
+    const doomed = await addComment("ws1", repo, { ...input, body: "doomed" });
+    await Promise.all([
+      deleteComment("ws1", repo, doomed.id),
+      addComment("ws1", repo, { ...input, body: "survivor" }),
+    ]);
+    const stored = await listComments("ws1", repo);
+    assert.deepEqual(
+      stored.map((c) => c.body),
+      ["survivor"],
+      "the delete wrote back a snapshot taken before the add",
+    );
+  });
+});
+
+test("an update racing an add does not resurrect the pre-add snapshot", async () => {
+  await withTempXdg(async ({ root }) => {
+    const repo = await makeRepo(join(root, "repo"));
+    const first = await addComment("ws1", repo, { ...input, body: "first" });
+    await Promise.all([
+      updateComment("ws1", repo, first.id, { status: "resolved" }),
+      addComment("ws1", repo, { ...input, body: "second" }),
+    ]);
+    const stored = await listComments("ws1", repo);
+    assert.equal(stored.length, 2, "a concurrent write dropped one comment");
+    assert.equal(stored.find((c) => c.body === "first")?.status, "resolved");
   });
 });

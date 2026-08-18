@@ -52,12 +52,16 @@ doing nothing.
 ```
 server/
 ├── cli.ts         argument parsing, command implementations, output   (HTTP client only)
+├── cli-args.ts    pure argv-value parsers, importable without running the CLI
 ├── cli-help.ts    one command table driving dispatch, help, suggestions
 ├── ensure-hub.ts  the auto-start state machine
 ├── hub-state.ts   hub.json, spawn lock, liveness, port blocklist
 ├── index.ts       HTTP + SSE + routing + the gated poll loop
 ├── registry.ts    workspaces.json
 ├── comments.ts    comments/<ws-id>.json
+├── lenses.ts      lenses/<ws-id>.json — the ways to read one change
+├── glob.ts        `*`, `**`, `?` and literals, for lens membership   (no deps; used by the browser)
+├── locks.ts       per-key async mutex around every read-modify-write
 ├── reviews.ts     in-memory review requests
 ├── migrations.ts  one-time data migrations, run at hub startup
 ├── doctor.ts      install and state diagnostics
@@ -130,11 +134,14 @@ Workspaces whose worktree no longer exists are dropped during a poll tick and br
 | GET          | `/api/diff?ws=&base=`   | structured diff                                                                   |
 | GET/POST     | `/api/comments?ws=`     | read / add                                                                        |
 | PATCH/DELETE | `/api/comments/:id?ws=` | edit, reply, resolve / delete                                                     |
+| GET/PUT      | `/api/lenses?ws=`       | read / replace the whole set                                                      |
+| POST         | `/api/lenses?ws=`       | upsert one lens by name, appending if new                                         |
+| DELETE       | `/api/lenses?ws=&name=` | remove one; omit `name` to clear the set                                          |
 | GET          | `/api/reviews?ws=`      | the open review request, or `null`                                                |
 | POST         | `/api/reviews`          | `{ws}` → open (idempotent per workspace)                                          |
 | POST         | `/api/reviews/:id/done` | the Done button                                                                   |
 | DELETE       | `/api/reviews/:id`      | cancel (CLI `Ctrl-C`)                                                             |
-| GET          | `/api/events`           | SSE: `diff`, `comments`, `workspaces`, `review`                                   |
+| GET          | `/api/events`           | SSE: `diff`, `comments`, `workspaces`, `review`, `lenses`                         |
 
 Static `dist/` with SPA fallback. Binds `127.0.0.1` only; no auth, because there is no remote
 surface.
@@ -171,23 +178,72 @@ symlinks, so a logical `cwd` would otherwise never match a stored physical path.
 `lineContent` is the anchor. Line numbers drift as the worktree changes under a comment; agents are
 told to trust the quoted content. Same idea GitHub uses, scaled down.
 
+**Lenses** — `$XDG_CONFIG_HOME/livediff/lenses/<workspace-id>.json`:
+
+```json
+{
+  "version": 1,
+  "lenses": [
+    {
+      "name": "retry",
+      "why": "the actual change; everything else is fallout",
+      "paths": ["src/retry.ts", "src/queue.ts"],
+      "highlights": [{ "path": "src/retry.ts", "start": 88, "end": 104 }],
+      "createdAt": "…"
+    }
+  ]
+}
+```
+
+A lens is one way of reading a change: the files it selects, and the new-side ranges inside them
+worth looking at. `paths` holds globs and literal paths in one field — a pattern with no
+metacharacter matches only itself, which is what lets `test/**` mean "the tests, including ones
+added later" while `src/retry.ts` means exactly one file.
+
+An **ordered array**, not a keyed object like comments. Comments are keyed because `getComment` is
+O(1) against a store holding hundreds; a workspace holds a handful of lenses and always reads them
+as a whole set, and the order is meaningful — it is the order the picker shows.
+
+A lens set belongs to a review handoff, not to the repository: the agent writes the whole set when
+it stops working and the next handoff replaces it. Nothing keeps it current in between, which is
+why highlights carry plain line numbers and need no `lineContent` anchor the way comments do — a
+lens does not outlive the edits that would make it drift.
+
+A store that is not valid JSON fails loudly, naming the file and pointing at `livediff lens clear`,
+rather than being read as an empty set — silently discarding a handoff is worse than an error.
+`lens clear` therefore never parses the file it deletes, so it still works when nothing else does.
+A _well-formed_ store holding one malformed lens is the opposite case: that entry is dropped and
+the rest of the set survives.
+
 **Reviews** are in-memory only. The hub no longer exits on its own, so there is nothing to survive
 — and a request outliving the CLI waiting on it would render a button that does nothing.
 
 **Writes are atomic.** Every JSON write goes through write-temp-then-`rename`, which is atomic on
 POSIX, so a crash mid-write cannot truncate the registry.
 
+**Writes are serialized.** Every read-modify-write against a workspace store runs inside
+`withLock(wsId, …)` from `server/locks.ts`. One process is not one thread of execution: a handler
+that reads a store, awaits anything, then writes it can be interleaved by a second request that
+read the same snapshot, and the later write silently drops the earlier one. Human-paced comments
+never hit that window; an agent writing lenses does.
+
 ### Why not SQLite
 
 The strongest argument was concurrent writers, and the pure-HTTP CLI eliminated that. What remains
-argues against it: `node:sqlite` needs Node 22.5+ against a Node ≥18 target, `better-sqlite3` is a
-native module — exactly what makes a global install fail on an unfamiliar machine — and the data is
-dozens of comments. Plain JSON is also greppable and diffable, which matters for a tool whose pitch
-is that you can read everything it does.
+argues against it: `better-sqlite3` is a native module — exactly what makes a global install fail on
+an unfamiliar machine — and the data is dozens of comments and a handful of lenses. Plain JSON is
+also greppable and diffable, which matters for a tool whose pitch is that you can read everything it
+does.
 
-Revisit if cross-workspace queries become routine, volumes reach thousands, or full-text search over
-comment history is wanted. The migration stays cheap because the hub is the sole writer: the storage
-layer sits behind an unchanged HTTP surface.
+This section used to add that `node:sqlite` needs Node 22.5+ "against a Node ≥18 target." That
+objection is dead: `package.json` now requires `>=24`. Recorded rather than deleted, because an
+argument that quietly stopped being true is worth noticing when the question comes back.
+
+Lenses were the first real test of the remaining reasoning and did not change it — a few KB per
+workspace, read whole, never queried. Revisit if cross-workspace queries become routine, volumes
+reach thousands, or full-text search over comment history is wanted; threaded questions and notes
+with history would be the likely trigger. The migration stays cheap because the hub is the sole
+writer: the storage layer sits behind an unchanged HTTP surface.
 
 ## 8. Review requests
 
@@ -202,8 +258,25 @@ the agent, so the command still exits `0` and reports both counts.
 
 ## 9. CLI
 
-`cli.js` is argument parsing plus a `fetch` wrapper. `registry.js` and `comments.js` are
-server-internal; the CLI does not import them.
+`cli.js` is argument parsing plus a `fetch` wrapper. `registry.js`, `comments.js`, and `lenses.js`
+are server-internal; the CLI does not import them. `glob.js` is the exception it is allowed to
+import — pure path matching, no filesystem, shared with the browser bundle.
+
+`livediff lens set|add|list|rm|clear` manages the lens set, and `--lens <name>` on `open` and
+`review` chooses which one is applied on arrival. `lens set` reads the whole set as JSON on stdin
+and is the path the agent uses: one write cannot lose a lens, and three concurrent ones can.
+An unknown `--lens` is a usage error listing the names that do exist — opening the full diff
+instead would mean reviewing the wrong thing while believing otherwise.
+
+`lens set` and `lens add` register the worktree the way `open` does, rather than requiring it to be
+registered already: writing the lens set is the first step of a handoff, before anything has been
+opened. The read-only lens commands still require a registered workspace.
+
+**`cli.ts` must stay an unguarded entry point.** Importing it runs the CLI, so anything a test needs
+to import belongs in `cli-args.ts` instead. Guarding the tail with
+`process.argv[1] === fileURLToPath(import.meta.url)` looks equivalent and is not: Node resolves
+`import.meta.url` through symlinks but leaves `process.argv[1]` as invoked, so every symlinked
+install — `npm i -g`, `npm link`, `npx`, and `install.sh --dev` — silently does nothing and exits 0.
 
 Help, dispatch, and did-you-mean suggestions all read one command table in `cli-help.js`, so a
 command cannot appear in help without being runnable, or vice versa.

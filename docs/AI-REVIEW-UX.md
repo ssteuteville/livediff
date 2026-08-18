@@ -46,6 +46,13 @@ deciding how to read the change, and a diagram or a walkthrough overview wants t
 
 ## Lenses
 
+> **Shipped so far:** filtering, plus new-side line-range highlights, the header control, and
+> `livediff lens` — designed in
+> [`superpowers/specs/2026-08-07-filter-lenses-design.md`](superpowers/specs/2026-08-07-filter-lenses-design.md).
+> Annotations, rendering, and walkthroughs are not built. The header control opens a dropdown
+> rather than the full-screen overlay described below, which waits on there being four tabs' worth
+> of things to put in it.
+
 A lens does three things. Any given lens might do one, two, or all three.
 
 **1. It filters.** The lens narrows both the file list and the diff body to the set of places it
@@ -168,10 +175,13 @@ actionable rather than merely informative.
 
 - What can an annotation button do, beyond jumping to a location?
 - How do multiple lenses combine — inside a walkthrough, and in general?
-- What is a lens's lifetime? Does it go stale when the diff changes underneath it, regenerate, or
-  depend on the lens?
-- Who authors a lens — the reviewer, the agent, or both? A gitignored `.livediff` file the agent
-  helps write was one idea.
+- ~~What is a lens's lifetime?~~ **Settled:** per handoff. The agent writes the whole set when it
+  stops working, and the next handoff replaces it. Nothing keeps a lens current in between, which
+  is also why highlights need no drift anchor — a lens does not outlive the edits that would move
+  it. Staleness detection stays deferred rather than solved.
+- ~~Who authors a lens?~~ **Settled:** the agent, at handoff, in one `livediff lens set`. A
+  `.livediff` file at the worktree root holds the user's standing instructions in prose — livediff
+  never parses it, which is the whole reason it cannot break.
 - How does a question actually reach a running agent and get answered live?
 - What does "not in this diff" mean without language tooling? livediff runs against arbitrary
   repos and can assume nothing but git — no `tsc`, no `oxlint`, no AST. Blast radius is therefore
