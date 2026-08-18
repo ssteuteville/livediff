@@ -311,6 +311,23 @@ async function checkArchive(): Promise<Finding> {
     : { level: "ok", title: "comment archive", detail, fix };
 }
 
+/**
+ * `.livediff` is prose the agent reads, never something livediff parses. Reporting it here is the
+ * only place the CLI acknowledges it exists — enough to answer "is my file being picked up?"
+ * without giving it a schema that could break.
+ */
+export async function checkInstructions(cwd: string = process.cwd()): Promise<Finding> {
+  const root = await toplevel(cwd);
+  if (!root) return ok("worktree instructions", "not in a git worktree");
+  try {
+    await access(join(root, ".livediff"));
+    return ok("worktree instructions", `.livediff found at ${root}\nskills read it before acting`);
+  } catch {
+    // Absent is the common case and not a problem, so this stays informational.
+    return ok("worktree instructions", "no .livediff at the worktree root");
+  }
+}
+
 /** Every check, in report order. Never throws — a failed check becomes a finding. */
 export async function diagnose(version: string): Promise<Finding[]> {
   const checks: Promise<Finding>[] = [
@@ -321,6 +338,7 @@ export async function diagnose(version: string): Promise<Finding[]> {
     checkLegacyDirs(),
     checkArchive(),
     checkPlugin(version),
+    checkInstructions(),
   ];
   const settled = await Promise.allSettled(checks);
   return settled.map((r) =>

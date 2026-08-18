@@ -4,9 +4,11 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
 import { join } from "node:path";
-import { readFile, writeFile } from "node:fs/promises";
+import { readFile, writeFile, mkdtemp, rm, symlink } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { withTempXdg, makeRepo } from "./helpers.js";
 import { readState, probeMeta } from "../server/hub-state.js";
+import { parseHighlightArg } from "../server/cli-args.js";
 
 const exec = promisify(execFile);
 const CLI = fileURLToPath(new URL("../dist-server/server/cli.js", import.meta.url));
@@ -15,6 +17,7 @@ const CLI = fileURLToPath(new URL("../dist-server/server/cli.js", import.meta.ur
 type CliOptions = {
   cwd?: string;
   env?: NodeJS.ProcessEnv;
+  input?: string;
 };
 
 type CliResult = {
@@ -264,10 +267,12 @@ test("help resolve --json includes the rendered help text and structured argumen
 
 async function cli(args: readonly string[], opts: CliOptions = {}): Promise<CliResult> {
   try {
-    const { stdout, stderr } = await exec(process.execPath, [CLI, ...args], {
+    const child = exec(process.execPath, [CLI, ...args], {
       env: { ...process.env, LIVEDIFF_PORT: "4197", NO_COLOR: "1", ...opts.env },
       cwd: opts.cwd,
     });
+    child.child.stdin?.end(opts.input);
+    const { stdout, stderr } = await child;
     return { code: 0, stdout, stderr };
   } catch (err) {
     if (!isProcessError(err)) return { code: 1, stdout: "", stderr: "" };
@@ -1009,6 +1014,382 @@ test("a multi-word LIVEDIFF_BROWSER that fails is still reported honestly", asyn
       const res = await cli([repo, "--json"], { env: { LIVEDIFF_BROWSER: "false --ignored" } });
       assert.equal(res.code, 0);
       assert.equal(JSON.parse(res.stdout).opened, false);
+    } finally {
+      await stopHub();
+    }
+  });
+});
+
+test("parseHighlightArg accepts a well-formed path:start-end", () => {
+  assert.deepEqual(parseHighlightArg("src/retry.ts:88-104"), {
+    path: "src/retry.ts",
+    start: 88,
+    end: 104,
+  });
+});
+
+test("parseHighlightArg keeps a colon that belongs to the path", () => {
+  assert.deepEqual(parseHighlightArg("C:/repo/a.ts:1-2"), {
+    path: "C:/repo/a.ts",
+    start: 1,
+    end: 2,
+  });
+});
+
+test("parseHighlightArg rejects a value with no colon", () => {
+  assert.throws(() => parseHighlightArg("nope"), /path:start-end/);
+});
+
+test("parseHighlightArg rejects a value with no range", () => {
+  assert.throws(() => parseHighlightArg("src/a.ts"), /path:start-end/);
+});
+
+test("parseHighlightArg rejects a non-numeric range", () => {
+  assert.throws(() => parseHighlightArg("src/a.ts:one-two"), /path:start-end/);
+});
+
+test("parseHighlightArg rejects a start of 0", () => {
+  assert.throws(() => parseHighlightArg("src/a.ts:0-5"), /start must be 1 or more/);
+});
+
+test("parseHighlightArg rejects an end before start", () => {
+  assert.throws(() => parseHighlightArg("src/a.ts:9-4"), /end must not be before start/);
+});
+
+test("parseHighlightArg rejects an empty path", () => {
+  assert.throws(() => parseHighlightArg(":1-2"), /path:start-end/);
+});
+
+test("lens add writes a lens, and lens list --json shows it", async () => {
+  await withTempXdg(async ({ root }) => {
+    const repo = await dirtyRepo(root);
+    try {
+      await cli([repo, "--no-open", "--json"]);
+      const added = await cli(["lens", "add", "tests", "--path", "test/**", "--why", "coverage"], {
+        cwd: repo,
+      });
+      assert.equal(added.code, 0);
+
+      const listed = await cli(["lens", "list", "--json"], { cwd: repo });
+      assert.equal(listed.code, 0);
+      const body = JSON.parse(listed.stdout);
+      assert.equal(body.lenses.length, 1);
+      assert.equal(body.lenses[0].name, "tests");
+      assert.equal(body.lenses[0].why, "coverage");
+    } finally {
+      await stopHub();
+    }
+  });
+});
+
+test("lens add with no --path exits non-zero mentioning --path", async () => {
+  await withTempXdg(async ({ root }) => {
+    const repo = await dirtyRepo(root);
+    try {
+      await cli([repo, "--no-open", "--json"]);
+      const res = await cli(["lens", "add", "tests"], { cwd: repo });
+      assert.notEqual(res.code, 0);
+      assert.match(res.stderr, /--path/);
+    } finally {
+      await stopHub();
+    }
+  });
+});
+
+test("lens add with a name that fails the naming pattern exits non-zero mentioning the rule", async () => {
+  await withTempXdg(async ({ root }) => {
+    const repo = await dirtyRepo(root);
+    try {
+      await cli([repo, "--no-open", "--json"]);
+      const res = await cli(["lens", "add", "BAD", "--path", "a"], { cwd: repo });
+      assert.notEqual(res.code, 0);
+      assert.match(res.stderr, /lowercase/);
+    } finally {
+      await stopHub();
+    }
+  });
+});
+
+test("lens add with a malformed --highlight exits non-zero showing the path:start-end form", async () => {
+  await withTempXdg(async ({ root }) => {
+    const repo = await dirtyRepo(root);
+    try {
+      await cli([repo, "--no-open", "--json"]);
+      const res = await cli(["lens", "add", "t", "--path", "test/**", "--highlight", "nope"], {
+        cwd: repo,
+      });
+      assert.notEqual(res.code, 0);
+      assert.match(res.stderr, /path:start-end/);
+    } finally {
+      await stopHub();
+    }
+  });
+});
+
+test("lens add with --highlight end before start exits non-zero mentioning end", async () => {
+  await withTempXdg(async ({ root }) => {
+    const repo = await dirtyRepo(root);
+    try {
+      await cli([repo, "--no-open", "--json"]);
+      const res = await cli(
+        ["lens", "add", "t", "--path", "test/**", "--highlight", "test/a.ts:9-4"],
+        { cwd: repo },
+      );
+      assert.notEqual(res.code, 0);
+      assert.match(res.stderr, /end/);
+    } finally {
+      await stopHub();
+    }
+  });
+});
+
+test("lens set fed valid JSON on stdin replaces the whole set", async () => {
+  await withTempXdg(async ({ root }) => {
+    const repo = await dirtyRepo(root);
+    try {
+      await cli([repo, "--no-open", "--json"]);
+      await cli(["lens", "add", "old", "--path", "old/**"], { cwd: repo });
+
+      const setBody = JSON.stringify({
+        lenses: [{ name: "fresh", paths: ["src/**"] }],
+      });
+      const res = await cli(["lens", "set"], { cwd: repo, input: setBody });
+      assert.equal(res.code, 0);
+
+      const listed = await cli(["lens", "list", "--json"], { cwd: repo });
+      const body = JSON.parse(listed.stdout);
+      assert.deepEqual(
+        body.lenses.map((l: { name: string }) => l.name),
+        ["fresh"],
+      );
+    } finally {
+      await stopHub();
+    }
+  });
+});
+
+test("lens set fed invalid JSON exits non-zero", async () => {
+  await withTempXdg(async ({ root }) => {
+    const repo = await dirtyRepo(root);
+    try {
+      await cli([repo, "--no-open", "--json"]);
+      const res = await cli(["lens", "set"], { cwd: repo, input: "{ not json" });
+      assert.notEqual(res.code, 0);
+      assert.match(res.stderr, /invalid JSON/);
+    } finally {
+      await stopHub();
+    }
+  });
+});
+
+test("lens set fed a bad lens shape exits non-zero naming the offending lens index", async () => {
+  await withTempXdg(async ({ root }) => {
+    const repo = await dirtyRepo(root);
+    try {
+      await cli([repo, "--no-open", "--json"]);
+      const badShape = JSON.stringify({ lenses: [{ name: "Bad Name!", paths: ["a"] }] });
+      const res = await cli(["lens", "set"], { cwd: repo, input: badShape });
+      assert.notEqual(res.code, 0);
+      assert.match(res.stderr, /lens 0/);
+    } finally {
+      await stopHub();
+    }
+  });
+});
+
+test("lens rm on an absent name exits non-zero", async () => {
+  await withTempXdg(async ({ root }) => {
+    const repo = await dirtyRepo(root);
+    try {
+      await cli([repo, "--no-open", "--json"]);
+      const res = await cli(["lens", "rm", "absent"], { cwd: repo });
+      assert.notEqual(res.code, 0);
+    } finally {
+      await stopHub();
+    }
+  });
+});
+
+test("lens clear empties the set", async () => {
+  await withTempXdg(async ({ root }) => {
+    const repo = await dirtyRepo(root);
+    try {
+      await cli([repo, "--no-open", "--json"]);
+      await cli(["lens", "add", "a", "--path", "a/**"], { cwd: repo });
+      await cli(["lens", "add", "b", "--path", "b/**"], { cwd: repo });
+
+      const cleared = await cli(["lens", "clear"], { cwd: repo });
+      assert.equal(cleared.code, 0);
+
+      const listed = await cli(["lens", "list", "--json"], { cwd: repo });
+      assert.deepEqual(JSON.parse(listed.stdout).lenses, []);
+    } finally {
+      await stopHub();
+    }
+  });
+});
+
+test("lens list on an empty set prints a human line and exits 0", async () => {
+  await withTempXdg(async ({ root }) => {
+    const repo = await dirtyRepo(root);
+    try {
+      await cli([repo, "--no-open", "--json"]);
+      const res = await cli(["lens", "list"], { cwd: repo });
+      assert.equal(res.code, 0);
+      assert.match(res.stdout, /no lenses/);
+    } finally {
+      await stopHub();
+    }
+  });
+});
+
+test("a lens command outside a registered worktree exits non-zero", async () => {
+  await withTempXdg(async ({ root }) => {
+    const repo = await makeRepo(join(root, "unregistered"));
+    try {
+      const res = await cli(["lens", "list"], { cwd: repo });
+      assert.notEqual(res.code, 0);
+    } finally {
+      await stopHub();
+    }
+  });
+});
+
+test("open --lens puts the lens in the focused url", async () => {
+  await withTempXdg(async ({ root }) => {
+    const repo = await dirtyRepo(root);
+    try {
+      await cli([repo, "--no-open", "--json"]);
+      await cli(["lens", "add", "tests", "--path", "test/**"], { cwd: repo });
+
+      const res = await cli(["open", ".", "--no-open", "--json", "--lens", "tests"], { cwd: repo });
+      assert.equal(res.code, 0);
+      const body = JSON.parse(res.stdout);
+      assert.match(body.url, /[?&]lens=tests(&|$)/);
+      assert.equal(body.lens, "tests");
+    } finally {
+      await stopHub();
+    }
+  });
+});
+
+test("open without --lens leaves lens out of the url entirely", async () => {
+  await withTempXdg(async ({ root }) => {
+    const repo = await dirtyRepo(root);
+    try {
+      await cli([repo, "--no-open", "--json"]);
+      await cli(["lens", "add", "tests", "--path", "test/**"], { cwd: repo });
+
+      const res = await cli(["open", ".", "--no-open", "--json"], { cwd: repo });
+      assert.equal(res.code, 0);
+      const body = JSON.parse(res.stdout);
+      assert.doesNotMatch(body.url, /lens=/);
+      assert.equal(body.lens, null);
+    } finally {
+      await stopHub();
+    }
+  });
+});
+
+test("open --lens with an unknown name fails and lists the names that do exist", async () => {
+  await withTempXdg(async ({ root }) => {
+    const repo = await dirtyRepo(root);
+    try {
+      await cli([repo, "--no-open", "--json"]);
+      await cli(["lens", "add", "tests", "--path", "test/**"], { cwd: repo });
+
+      const res = await cli(["open", ".", "--no-open", "--lens", "nope"], { cwd: repo });
+      assert.notEqual(res.code, 0, "a silently unfiltered diff is worse than a stopped command");
+      const output = res.stderr + res.stdout;
+      assert.match(output, /unknown lens: nope/);
+      assert.match(output, /tests/);
+    } finally {
+      await stopHub();
+    }
+  });
+});
+
+test("open --lens against an empty set says so rather than printing an empty list", async () => {
+  await withTempXdg(async ({ root }) => {
+    const repo = await dirtyRepo(root);
+    try {
+      await cli([repo, "--no-open", "--json"]);
+
+      const res = await cli(["open", ".", "--no-open", "--lens", "nope"], { cwd: repo });
+      assert.notEqual(res.code, 0);
+      assert.match(res.stderr + res.stdout, /no lenses/);
+    } finally {
+      await stopHub();
+    }
+  });
+});
+
+test("a lens name is url-encoded in the emitted url", async () => {
+  await withTempXdg(async ({ root }) => {
+    const repo = await dirtyRepo(root);
+    try {
+      await cli([repo, "--no-open", "--json"]);
+      await cli(["lens", "add", "a-b-c", "--path", "src/**"], { cwd: repo });
+
+      const res = await cli(["open", ".", "--no-open", "--json", "--lens", "a-b-c"], { cwd: repo });
+      const body = JSON.parse(res.stdout);
+      assert.match(body.url, /[?&]lens=a-b-c(&|$)/);
+    } finally {
+      await stopHub();
+    }
+  });
+});
+
+test("the cli still runs when invoked through a symlink, as every global install does", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "livediff-symlink-"));
+  const link = join(dir, "livediff");
+  try {
+    await symlink(CLI, link);
+    const { stdout } = await exec(process.execPath, [link, "--version"]);
+    assert.ok(
+      stdout.trim().length > 0,
+      "stdout must not be empty — an empty stdout with code 0 is the silent no-op bug",
+    );
+    assert.match(stdout.trim(), /\d+\.\d+\.\d+/);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("lens writes register an unregistered worktree", async () => {
+  await withTempXdg(async ({ root }) => {
+    const repo = await makeRepo(join(root, "unregistered"));
+    try {
+      const added = await cli(["lens", "add", "tests", "--path", "test/**"], { cwd: repo });
+      assert.equal(added.code, 0);
+
+      const listed = await cli(["lens", "list", "--json"], { cwd: repo });
+      assert.equal(listed.code, 0);
+      const body = JSON.parse(listed.stdout);
+      assert.equal(body.lenses.length, 1);
+      assert.equal(body.lenses[0].name, "tests");
+    } finally {
+      await stopHub();
+    }
+  });
+});
+
+test('the plural of "lens" is "lenses"', async () => {
+  await withTempXdg(async ({ root }) => {
+    const repo = await dirtyRepo(root);
+    try {
+      await cli([repo, "--no-open", "--json"]);
+
+      const setBody = JSON.stringify({
+        lenses: [
+          { name: "one", paths: ["a/**"] },
+          { name: "two", paths: ["b/**"] },
+        ],
+      });
+      const res = await cli(["lens", "set"], { cwd: repo, input: setBody });
+      assert.equal(res.code, 0);
+      assert.match(res.stdout, /2 lenses/);
+      assert.doesNotMatch(res.stdout, /lenss/);
     } finally {
       await stopHub();
     }

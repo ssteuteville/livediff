@@ -5,6 +5,8 @@ disable-model-invocation: true
 allowed-tools: Bash(livediff *)
 ---
 
+If `.livediff` exists at the worktree root, read it and follow it before doing anything else.
+
 !`livediff prune --dry-run`
 
 Report exactly what would be deleted. If nothing would be, say so and stop.

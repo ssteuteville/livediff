@@ -3,6 +3,7 @@ import { execFile } from "node:child_process";
 import { mkdtemp, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { test } from "vitest";
 import { renderCompletion } from "../server/cli-completion.js";
@@ -116,6 +117,62 @@ test("dynamic completion candidates are never re-expanded as shell words", async
 
     assert.equal(stdout.trim(), "/tmp/$(touch " + marker + ")/my repo");
     await assert.rejects(stat(marker), "the candidate must not have been executed");
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("every shell knows how to ask the hub for lens names", () => {
+  for (const shell of ["bash", "zsh", "fish"] as const) {
+    assert.match(
+      renderCompletion(shell),
+      /__complete-lenses/,
+      `${shell} completion cannot complete a lens name`,
+    );
+  }
+});
+
+test("lens subcommands and their flags are reachable in bash completion", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "livediff-completion-"));
+  try {
+    await writeFile(join(directory, "livediff.bash"), renderCompletion("bash"), "utf8");
+    const complete = async (words: readonly string[]): Promise<string> => {
+      const script = [
+        `source ${directory}/livediff.bash`,
+        `COMP_WORDS=(${words.map((word) => `'${word}'`).join(" ")})`,
+        `COMP_CWORD=${words.length - 1}`,
+        "_livediff",
+        'printf "%s\\n" "${COMPREPLY[@]}"',
+      ].join("\n");
+      return (await exec("bash", ["-c", script])).stdout;
+    };
+
+    const actions = await complete(["livediff", "lens", ""]);
+    for (const action of ["set", "add", "list", "rm", "clear"]) {
+      assert.match(actions, new RegExp(`^${action}$`, "m"), `lens ${action} is not offered`);
+    }
+    assert.match(await complete(["livediff", "lens", "add", "--"]), /--path/);
+    assert.match(await complete(["livediff", "lens", "add", "--"]), /--highlight/);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("completing lens names outside a worktree prints nothing and exits 0", async () => {
+  // A shell that saw a stack trace here would show it mid-completion, which is worse than no
+  // suggestions at all.
+  const directory = await mkdtemp(join(tmpdir(), "livediff-nolens-"));
+  try {
+    const { stdout, stderr } = await exec(
+      process.execPath,
+      [
+        fileURLToPath(new URL("../dist-server/server/cli.js", import.meta.url)),
+        "__complete-lenses",
+      ],
+      { cwd: directory, env: { ...process.env, XDG_STATE_HOME: directory } },
+    );
+    assert.equal(stdout, "");
+    assert.equal(stderr, "");
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

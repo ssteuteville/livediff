@@ -23,6 +23,7 @@ Available on every command.
 - [list](#list)
 - [rm](#rm)
 - [comments](#comments)
+- [lens](#lens)
 - [restore](#restore)
 - [archive](#archive)
 - [prune](#prune)
@@ -45,6 +46,11 @@ Available on every command.
 - [config unset](#config-unset)
 - [config explain](#config-explain)
 - [config schema](#config-schema)
+- [lens set](#lens-set)
+- [lens add](#lens-add)
+- [lens list](#lens-list)
+- [lens rm](#lens-rm)
+- [lens clear](#lens-clear)
 - [completion bash](#completion-bash)
 - [completion zsh](#completion-zsh)
 - [completion fish](#completion-fish)
@@ -60,7 +66,7 @@ register a worktree and open its focused view
 **Usage:**
 
 ```
-livediff open [path] [--base <ref>] [--no-open] [--wait] [--timeout <sec>]
+livediff open [path] [--base <ref>] [--no-open] [--wait] [--timeout <sec>] [--lens <name>]
 ```
 
 **Arguments:**
@@ -77,6 +83,7 @@ livediff open [path] [--base <ref>] [--no-open] [--wait] [--timeout <sec>]
 | `--no-open` | no          | register only; print the URL instead of launching a browser      |
 | `--wait`    | no          | block until "Done reviewing" is clicked in the browser           |
 | `--timeout` | yes         | give up waiting after <sec> seconds (default: never)             |
+| `--lens`    | yes         | open with one lens already applied                               |
 
 **Examples:**
 
@@ -117,7 +124,7 @@ open a worktree and wait for the reviewer to finish
 **Usage:**
 
 ```
-livediff review [path] [--base <ref>] [--no-open] [--timeout <sec>]
+livediff review [path] [--base <ref>] [--no-open] [--timeout <sec>] [--lens <name>]
 ```
 
 **Arguments:**
@@ -133,11 +140,13 @@ livediff review [path] [--base <ref>] [--no-open] [--timeout <sec>]
 | `--base`    | yes         | review against <ref> instead of the last commit, and remember it |
 | `--no-open` | no          | register only; print the URL instead of launching a browser      |
 | `--timeout` | yes         | give up waiting after <sec> seconds (default: never)             |
+| `--lens`    | yes         | open with one lens already applied                               |
 
 **Examples:**
 
 - `livediff review` — review the current worktree and wait
 - `livediff review --base main` — review the whole branch, not just uncommitted work
+- `livediff review . --lens retry` — hand off with one lens applied on arrival
 
 ## `link`
 
@@ -234,6 +243,27 @@ livediff comments [path] [--status open|resolved|all] [--branch <name>] [--base 
 - `livediff comments --base main` — judge staleness against main, just this once
 - `livediff comments --stale` — comments whose file is no longer in the diff
 - `livediff comments --archived` — what is archived and when it will be deleted
+
+## `lens`
+
+define the ways to read this change
+
+**Usage:**
+
+```
+livediff lens <set|add|list|rm|clear> [...]
+```
+
+**Arguments:**
+
+| Name         | Required | Variadic |
+| ------------ | -------- | -------- |
+| `subcommand` | no       | no       |
+
+**Examples:**
+
+- `livediff lens list` — show this workspace's lenses and what each one matches
+- `livediff lens add tests --path 'test/**'` — add one lens by hand
 
 ## `restore`
 
@@ -623,6 +653,97 @@ livediff config schema [--update]
 | Flags      | Takes value | Description                          |
 | ---------- | ----------- | ------------------------------------ |
 | `--update` | no          | replace only the bundled schema file |
+
+## `lens set`
+
+replace the whole lens set from JSON on stdin
+
+**Usage:**
+
+```
+livediff lens set
+```
+
+**Examples:**
+
+- `livediff lens set < lenses.json` — replace the set from a file
+
+## `lens add`
+
+add or replace one lens by hand
+
+**Usage:**
+
+```
+livediff lens add <name> --path <glob> [--why <text>] [--highlight <path:start-end>]
+```
+
+**Arguments:**
+
+| Name   | Required | Variadic |
+| ------ | -------- | -------- |
+| `name` | yes      | no       |
+
+**Options:**
+
+| Flags         | Takes value | Description                                         |
+| ------------- | ----------- | --------------------------------------------------- |
+| `--path`      | yes         | a file glob the lens matches (repeatable, required) |
+| `--why`       | yes         | a short note on what this lens is for               |
+| `--highlight` | yes         | a new-side line range to mark (repeatable)          |
+
+**Examples:**
+
+- `livediff lens add tests --path 'test/**' --why coverage` — add a lens over the tests
+- `livediff lens add retry --path src/retry.ts --highlight src/retry.ts:88-104` — add a lens with one highlighted range
+
+## `lens list`
+
+show this workspace's lenses
+
+**Usage:**
+
+```
+livediff lens list
+```
+
+**Examples:**
+
+- `livediff lens list --json` — list lenses as JSON
+
+## `lens rm`
+
+remove one lens
+
+**Usage:**
+
+```
+livediff lens rm <name>
+```
+
+**Arguments:**
+
+| Name   | Required | Variadic |
+| ------ | -------- | -------- |
+| `name` | yes      | no       |
+
+**Examples:**
+
+- `livediff lens rm tests` — remove the tests lens
+
+## `lens clear`
+
+remove every lens
+
+**Usage:**
+
+```
+livediff lens clear
+```
+
+**Examples:**
+
+- `livediff lens clear` — empty this workspace's lens set
 
 ## `completion bash`
 

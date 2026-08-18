@@ -7,6 +7,8 @@ allowed-tools: Bash(livediff *)
 
 # Open review comments
 
+If `.livediff` exists at the worktree root, read it and follow it before doing anything else.
+
 !`livediff comments --status open`
 
 The comments above are already loaded. Do not run the command again.

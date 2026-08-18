@@ -17,6 +17,7 @@ import {
   stickyTop,
   stickyPushOff,
   diffTotals,
+  highlightedLines,
 } from "../src/diff-model.js";
 import type { DiffMetrics, DiffRow, SplitLineRow, CommentRow } from "../src/diff-model.js";
 import type { Comment, DiffFile, Reply } from "../shared/types.js";
@@ -535,4 +536,86 @@ test("a pinned header is never dragged above its own file", () => {
   assert.ok(governing);
   // A file shorter than the header itself would otherwise compute a negative displacement.
   assert.equal(stickyTop(governing, 140, 1000), 140);
+});
+
+test("a highlight marks its first and last rows so the tint reads as one bubble", () => {
+  const lookup = highlightedLines([{ path: "a.ts", start: 10, end: 12 }]);
+  assert.equal(lookup("a.ts", 9), null);
+  assert.equal(lookup("a.ts", 10), "start");
+  assert.equal(lookup("a.ts", 11), "middle");
+  assert.equal(lookup("a.ts", 12), "end");
+  assert.equal(lookup("a.ts", 13), null);
+});
+
+test("a single-line highlight is both ends at once", () => {
+  const lookup = highlightedLines([{ path: "a.ts", start: 4, end: 4 }]);
+  assert.equal(lookup("a.ts", 4), "only");
+});
+
+test("highlights are scoped to their own file", () => {
+  const lookup = highlightedLines([{ path: "a.ts", start: 1, end: 5 }]);
+  assert.equal(lookup("b.ts", 3), null);
+});
+
+test("overlapping ranges in one file do not double-count their ends", () => {
+  const lookup = highlightedLines([
+    { path: "a.ts", start: 1, end: 5 },
+    { path: "a.ts", start: 3, end: 8 },
+  ]);
+  assert.equal(lookup("a.ts", 1), "start");
+  assert.equal(lookup("a.ts", 5), "middle", "a run that continues is not an end");
+  assert.equal(lookup("a.ts", 8), "end");
+});
+
+test("adjoining ranges merge into one run rather than rendering a seam", () => {
+  const lookup = highlightedLines([
+    { path: "a.ts", start: 1, end: 3 },
+    { path: "a.ts", start: 4, end: 6 },
+  ]);
+  assert.equal(lookup("a.ts", 3), "middle");
+  assert.equal(lookup("a.ts", 4), "middle");
+  assert.equal(lookup("a.ts", 6), "end");
+});
+
+test("ranges given out of order still resolve", () => {
+  const lookup = highlightedLines([
+    { path: "a.ts", start: 20, end: 22 },
+    { path: "a.ts", start: 1, end: 2 },
+  ]);
+  assert.equal(lookup("a.ts", 1), "start");
+  assert.equal(lookup("a.ts", 20), "start");
+  assert.equal(lookup("a.ts", 21), "middle");
+});
+
+test("a range separated by a gap stays two runs", () => {
+  const lookup = highlightedLines([
+    { path: "a.ts", start: 1, end: 3 },
+    { path: "a.ts", start: 6, end: 8 },
+  ]);
+  assert.equal(lookup("a.ts", 3), "end");
+  assert.equal(lookup("a.ts", 4), null);
+  assert.equal(lookup("a.ts", 6), "start");
+});
+
+test("a deletion row has no new-side number and is never highlighted", () => {
+  const lookup = highlightedLines([{ path: "a.ts", start: 1, end: 99 }]);
+  assert.equal(lookup("a.ts", null), null);
+});
+
+test("a range entirely outside the shown hunks simply resolves to nothing", () => {
+  const lookup = highlightedLines([{ path: "a.ts", start: 900, end: 950 }]);
+  for (const line of [1, 2, 50, 899, 951]) assert.equal(lookup("a.ts", line), null);
+});
+
+test("a range partly outside the shown hunks still marks the part that exists", () => {
+  // The rows the diff actually renders are 88..95; the lens asked for 88..300.
+  const lookup = highlightedLines([{ path: "a.ts", start: 88, end: 300 }]);
+  assert.equal(lookup("a.ts", 87), null);
+  assert.equal(lookup("a.ts", 88), "start");
+  assert.equal(lookup("a.ts", 95), "middle", "the run continues past the last rendered row");
+});
+
+test("an empty highlight list never matches", () => {
+  const lookup = highlightedLines([]);
+  assert.equal(lookup("a.ts", 1), null);
 });

@@ -27,6 +27,16 @@ import {
   purgeArchived,
 } from "./comments.js";
 import {
+  listLenses,
+  setLenses,
+  upsertLens,
+  removeLens,
+  clearLenses,
+  parseLens,
+  parseLensSet,
+} from "./lenses.js";
+import type { Lens } from "../shared/types.ts";
+import {
   readRegistry,
   addWorkspace,
   removeWorkspace,
@@ -45,6 +55,7 @@ import {
   DAY_MS,
   ENV,
   ID_LENGTH,
+  LENSES_DIR_NAME,
   LOOPBACK_HOST,
   PORT_FALLBACK_ATTEMPTS,
   REGISTRY_FILENAME,
@@ -416,6 +427,49 @@ const server = createServer(async (req, res) => {
       }
     }
 
+    if (pathname === "/api/lenses") {
+      const ws = await resolveWs(url);
+      if (!ws) return send(res, 404, { error: "unknown workspace" });
+
+      if (req.method === "GET") return send(res, 200, { lenses: await listLenses(ws.id) });
+
+      if (req.method === "PUT") {
+        let lenses: Lens[];
+        try {
+          lenses = parseLensSet(await readBody(req));
+        } catch (err) {
+          if (err instanceof TypeError) return send(res, 400, { error: err.message });
+          throw err;
+        }
+        await setLenses(ws.id, lenses);
+        broadcast("lenses", { reason: "set", ws: ws.id });
+        return send(res, 200, { lenses });
+      }
+
+      if (req.method === "POST") {
+        let lens: Lens;
+        try {
+          lens = parseLens(await readBody(req), "lens");
+        } catch (err) {
+          if (err instanceof TypeError) return send(res, 400, { error: err.message });
+          throw err;
+        }
+        const lenses = await upsertLens(ws.id, lens);
+        broadcast("lenses", { reason: "added", ws: ws.id });
+        return send(res, 200, { lenses });
+      }
+
+      if (req.method === "DELETE") {
+        // Absent `name` clears the set; an empty one is a client that serialized undefined, and
+        // must not be read as "clear everything" — it removes nothing, because no lens is unnamed.
+        const name = url.searchParams.get("name");
+        const clearing = name === null;
+        const ok = clearing ? await clearLenses(ws.id) : await removeLens(ws.id, name);
+        if (ok) broadcast("lenses", { reason: clearing ? "cleared" : "removed", ws: ws.id });
+        return send(res, 200, { ok });
+      }
+    }
+
     if (pathname === "/api/reviews" && req.method === "GET") {
       const ws = await resolveWs(url);
       if (!ws) return send(res, 404, { error: "unknown workspace" });
@@ -632,13 +686,25 @@ function stopPolling() {
  */
 function watchConfigDir(): void {
   const dir = configDir();
-  const fire = debounce((file: string) => {
+  const fireComments = debounce((file: string) => {
     if (file === REGISTRY_FILENAME) return broadcast("workspaces", { reason: "file" });
     const match = new RegExp(`^([0-9a-f]{${ID_LENGTH}})\\.json$`).exec(file ?? "");
     if (match) broadcast("comments", { reason: "file", ws: match[1] });
   }, 50);
 
-  const attach = (target: string, mapName: (name: string | Buffer | null) => string | null) => {
+  const fireLenses = debounce((file: string) => {
+    const match = new RegExp(`^([0-9a-f]{${ID_LENGTH}})\\.json$`).exec(file ?? "");
+    if (match) broadcast("lenses", { reason: "file", ws: match[1] });
+  }, 50);
+
+  const toName = (name: string | Buffer | null): string | null =>
+    typeof name === "string" ? name : (name?.toString() ?? null);
+
+  const attach = (
+    target: string,
+    fire: (key: string | null) => void,
+    mapName: (name: string | Buffer | null) => string | null,
+  ) => {
     try {
       const watcher = watch(target, (_event, name) => fire(mapName(name)));
       watcher.on("error", () => {});
@@ -649,10 +715,10 @@ function watchConfigDir(): void {
   };
 
   mkdirSync(join(dir, COMMENTS_DIR_NAME), { recursive: true });
-  attach(dir, (name) => (typeof name === "string" ? name : (name?.toString() ?? null)));
-  attach(join(dir, COMMENTS_DIR_NAME), (name) =>
-    typeof name === "string" ? name : (name?.toString() ?? null),
-  );
+  mkdirSync(join(dir, LENSES_DIR_NAME), { recursive: true });
+  attach(dir, fireComments, toName);
+  attach(join(dir, COMMENTS_DIR_NAME), fireComments, toName);
+  attach(join(dir, LENSES_DIR_NAME), fireLenses, toName);
 }
 
 function debounce(fn: (key: string) => void, ms: number): (key: string | null) => void {

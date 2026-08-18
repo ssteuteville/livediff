@@ -5,6 +5,12 @@ disable-model-invocation: true
 allowed-tools: Bash(livediff *)
 ---
 
+If `.livediff` exists at the worktree root, read it and follow it before doing anything else.
+
+Handing off a change is two steps, not one. Define the lenses first — load `/livediff:lens`
+— then start the review. A large change handed over without them is a wall the user has to
+find their own way through.
+
 Run `livediff . --wait` as a **background** command. A review takes longer than any
 foreground command timeout allows, and backgrounding keeps the session usable while
 the user reads.

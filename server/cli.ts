@@ -2,10 +2,12 @@
 import { stat } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import { relative, resolve } from "node:path";
+import { flagValues, parseHighlightArg } from "./cli-args.js";
 import { renderCompletion } from "./cli-completion.js";
 import { normalizeBase } from "./registry.js";
 import { ensureHub, hubVersion } from "./ensure-hub.js";
 import { probeMeta, readState, shutdownHub } from "./hub-state.js";
+import { filesMatching } from "./glob.js";
 import {
   arity,
   describeCli,
@@ -13,11 +15,13 @@ import {
   findCommand,
   findCompletionCommand,
   findConfigCommand,
+  findLensCommand,
   GLOBAL_OPTION_NAMES,
   optionNames,
   renderCommandHelp,
   renderCompletionCommandHelp,
   renderConfigCommandHelp,
+  renderLensCommandHelp,
   renderMainHelp,
   suggest,
   VALUE_FLAGS,
@@ -53,7 +57,15 @@ import {
   emptyMessage,
 } from "./comment-format.js";
 import type { CommentStatus, LifecycleComment } from "./comment-lifecycle.js";
-import { EXIT_ERROR, EXIT_OK, EXIT_USAGE, ID_PATTERN, PURGE_DAYS } from "./constants.js";
+import {
+  EXIT_ERROR,
+  EXIT_OK,
+  EXIT_USAGE,
+  ID_PATTERN,
+  LENS_NAME_PATTERN,
+  PURGE_DAYS,
+} from "./constants.js";
+import type { Highlight, Lens } from "../shared/types.ts";
 
 type JsonRecord = Record<string, unknown>;
 
@@ -216,7 +228,8 @@ function parseArgv(tokens: readonly string[]): ParsedArgv {
   return { flags, values, args };
 }
 
-const { flags, values, args } = parseArgv(process.argv.slice(2));
+const RAW_ARGV = process.argv.slice(2);
+const { flags, values, args } = parseArgv(RAW_ARGV);
 const JSON_OUT = flags.has("--json");
 const WANTS_HELP = flags.has("-h") || flags.has("--help");
 const WANTS_VERSION = flags.has("-v") || flags.has("--version");
@@ -242,7 +255,7 @@ async function validateInvocation(
   command: string | undefined,
   rest: readonly string[],
 ): Promise<void> {
-  const nested = command === "config" || command === "completion";
+  const nested = command === "config" || command === "completion" || command === "lens";
   const resolved =
     command === undefined
       ? findCommand("hub")
@@ -250,9 +263,11 @@ async function validateInvocation(
         ? findConfigCommand(rest[0] ?? "")
         : command === "completion"
           ? findCompletionCommand(rest[0] ?? "")
-          : (await isPathArg(command))
-            ? findCommand("open")
-            : findCommand(command);
+          : command === "lens"
+            ? findLensCommand(rest[0] ?? "")
+            : (await isPathArg(command))
+              ? findCommand("open")
+              : findCommand(command);
   // An unrecognized command is not an options problem. Let dispatch name it and suggest a
   // correction instead of blaming whichever flag happens to follow it. Nested actions still
   // validate here, so `config --badflag` stays strict.
@@ -375,7 +390,23 @@ async function cmdOpen(
   // silently widened to the whole repo. Carry it as a view filter instead of a second workspace.
   const dir = relative(ws.path, path);
   const scope = dir && !dir.startsWith("..") ? `&dir=${encodeURIComponent(dir)}` : "";
-  const url = `http://localhost:${new URL(base).port}/?ws=${ws.id}&focus=1${scope}`;
+  const lensName = values.get("--lens") ?? undefined;
+  if (lensName !== undefined) {
+    const lenses = await api(base, `/api/lenses?ws=${ws.id}`, parseLensListBody);
+    if (!lenses.some((entry) => entry.name === lensName)) {
+      // Opening the full diff instead would mean reviewing the wrong thing while believing
+      // otherwise, which is worse than a command that stops.
+      const known = lenses.map((entry) => entry.name).join(", ");
+      await die(
+        known
+          ? `unknown lens: ${lensName}\n\nthis worktree has: ${known}`
+          : `unknown lens: ${lensName}\n\nthis worktree has no lenses`,
+        EXIT_USAGE,
+      );
+    }
+  }
+  const applied = lensName === undefined ? "" : `&lens=${encodeURIComponent(lensName)}`;
+  const url = `http://localhost:${new URL(base).port}/?ws=${ws.id}&focus=1${scope}${applied}`;
   const quiet = behavior.open === false || flags.has("--no-open");
   const opened = quiet ? false : await openBrowser(url);
   const scoped = scope ? `${ws.label}/${dir}` : ws.label;
@@ -385,7 +416,7 @@ async function cmdOpen(
     : opened
       ? `opened ${name} → ${url}`
       : `registered ${name} → ${url} (could not open a browser)`;
-  out(human, { ...ws, url, opened, dir: scope ? dir : null });
+  out(human, { ...ws, url, opened, dir: scope ? dir : null, lens: lensName ?? null });
 
   if (behavior.wait !== true && !flags.has("--wait")) return;
 
@@ -429,6 +460,19 @@ async function resolveWs(base: string, pathArg?: string): Promise<Workspace> {
     `/api/resolve?path=${encodeURIComponent(resolve(pathArg || process.cwd()))}`,
     parseWorkspace,
   );
+}
+
+/**
+ * Registers rather than resolves. Writing lenses is the first step of the handoff, before anything
+ * has been opened, so requiring an already-registered worktree would fail the documented flow on
+ * every worktree the user has not visited yet.
+ */
+async function registerWs(base: string): Promise<Workspace> {
+  return api(base, "/api/workspaces", parseWorkspace, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ path: process.cwd() }),
+  });
 }
 
 /**
@@ -487,6 +531,21 @@ async function cmdCompleteComments(status: string | undefined): Promise<void> {
   }
 }
 
+async function cmdCompleteLenses(): Promise<void> {
+  const base = await runningHubBase();
+  if (!base) return;
+  const ws = await tryFetch(
+    base,
+    `/api/resolve?path=${encodeURIComponent(process.cwd())}`,
+    parseWorkspace,
+  );
+  if (!ws) return;
+  const lenses = await tryFetch(base, `/api/lenses?ws=${ws.id}`, parseLensListBody);
+  for (const entry of lenses ?? []) {
+    console.log(`${entry.name}\t${(entry.why ?? "").slice(0, 40).replace(/\s+/g, " ")}`);
+  }
+}
+
 async function cmdRemove(target?: string): Promise<void> {
   const base = await ensureHub();
   const arg = target || process.cwd();
@@ -539,8 +598,8 @@ async function cmdRestore(id?: string): Promise<void> {
   out(`restored ${stringField(body, "id")}`, body);
 }
 
-const plural = (count: number, word: string): string =>
-  `${count} ${count === 1 ? word : `${word}s`}`;
+const plural = (count: number, word: string, many = `${word}s`): string =>
+  `${count} ${count === 1 ? word : many}`;
 
 async function cmdArchive(pathArg?: string): Promise<void> {
   const force = { stale: flags.has("--stale"), resolved: flags.has("--resolved") };
@@ -970,6 +1029,173 @@ async function cmdConfig(rest: readonly string[]): Promise<void> {
   }
 }
 
+interface DiffFile {
+  path: string;
+}
+
+function parseDiffFiles(value: unknown): DiffFile[] {
+  const body = parseRecord(value);
+  const files = body["files"];
+  if (!Array.isArray(files)) throw new Error("invalid API response: expected files");
+  return files.map((entry) => ({ path: stringField(parseRecord(entry), "path") }));
+}
+
+function parseHighlightRecord(value: unknown): Highlight {
+  const record = parseRecord(value);
+  return {
+    path: stringField(record, "path"),
+    start: numberField(record, "start"),
+    end: numberField(record, "end"),
+  };
+}
+
+function parseLensRecord(value: unknown): Lens {
+  const record = parseRecord(value);
+  const paths = record["paths"];
+  if (!Array.isArray(paths) || !paths.every((p) => typeof p === "string")) {
+    throw new Error("invalid API response: expected paths");
+  }
+  const highlights = record["highlights"];
+  if (!Array.isArray(highlights)) throw new Error("invalid API response: expected highlights");
+  const why = record["why"];
+  return {
+    name: stringField(record, "name"),
+    why: typeof why === "string" ? why : null,
+    paths,
+    highlights: highlights.map(parseHighlightRecord),
+    createdAt: stringField(record, "createdAt"),
+  };
+}
+
+function parseLensListBody(value: unknown): Lens[] {
+  const body = parseRecord(value);
+  const lenses = body["lenses"];
+  if (!Array.isArray(lenses)) throw new Error("invalid API response: expected lenses");
+  return lenses.map(parseLensRecord);
+}
+
+async function readStdin(): Promise<string> {
+  const chunks: Buffer[] = [];
+  for await (const chunk of process.stdin) chunks.push(Buffer.from(chunk));
+  return Buffer.concat(chunks).toString("utf8");
+}
+
+/** PUT/POST to /api/lenses, dying with EXIT_USAGE on any failure — this command's own mistake or the store's. */
+async function lensWrite(base: string, wsId: string, init: RequestInit): Promise<Lens[]> {
+  const res = await fetch(`${base}/api/lenses?ws=${wsId}`, init);
+  const body: unknown = await res.json().catch(() => ({}));
+  if (!res.ok) await die(errorMessage(body, `${res.status} ${res.statusText}`), EXIT_USAGE);
+  return parseLensListBody(body);
+}
+
+async function cmdLensSet(): Promise<void> {
+  const raw = await readStdin();
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (error) {
+    await die(`invalid JSON on stdin: ${exceptionMessage(error)}`, EXIT_USAGE);
+  }
+  const base = await ensureHub();
+  const ws = await registerWs(base);
+  const lenses = await lensWrite(base, ws.id, {
+    method: "PUT",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(parsed),
+  });
+  out(`set ${plural(lenses.length, "lens", "lenses")}`, { lenses });
+}
+
+async function cmdLensAdd(name: string | undefined): Promise<void> {
+  const command = findLensCommand("add");
+  if (!name || !command) {
+    return die(`usage: ${command?.usage ?? "livediff lens add <name> --path <glob>"}`, EXIT_USAGE);
+  }
+  if (!LENS_NAME_PATTERN.test(name)) {
+    return die(
+      `lens name must be lowercase letters, digits, and dashes, 1-40 characters, not starting with a dash: ${name}`,
+      EXIT_USAGE,
+    );
+  }
+  const paths = flagValues(RAW_ARGV, "--path");
+  if (paths.length === 0) {
+    return die(`usage: ${command.usage}\n\n--path is required and may be repeated.`, EXIT_USAGE);
+  }
+  let highlights: Highlight[] = [];
+  try {
+    highlights = flagValues(RAW_ARGV, "--highlight").map(parseHighlightArg);
+  } catch (error) {
+    await die(error instanceof Error ? error.message : String(error), EXIT_USAGE);
+  }
+  const why = values.get("--why") ?? null;
+  const base = await ensureHub();
+  const ws = await registerWs(base);
+  const lenses = await lensWrite(base, ws.id, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ name, why, paths, highlights }),
+  });
+  out(`added ${name}`, { lenses });
+}
+
+async function cmdLensList(): Promise<void> {
+  const base = await ensureHub();
+  const ws = await resolveWs(base);
+  const lenses = await api(base, `/api/lenses?ws=${ws.id}`, parseLensListBody);
+  if (JSON_OUT) return out("", { lenses });
+  if (!lenses.length) return out("no lenses defined for this workspace", { lenses });
+  const diffFiles = await api(base, `/api/diff?ws=${ws.id}`, parseDiffFiles);
+  const paths = diffFiles.map((f) => f.path);
+  const lines = lenses.map((entry) => {
+    const count = filesMatching(entry.paths, paths).length;
+    const why = entry.why ? `  ${entry.why}` : "";
+    return `${entry.name}  (${plural(count, "file")})${why}`;
+  });
+  out(lines.join("\n"), { lenses });
+}
+
+async function cmdLensRemove(name: string | undefined): Promise<void> {
+  if (!name) return die("usage: livediff lens rm <name>", EXIT_USAGE);
+  const base = await ensureHub();
+  const ws = await resolveWs(base);
+  const body = await api(
+    base,
+    `/api/lenses?ws=${ws.id}&name=${encodeURIComponent(name)}`,
+    parseRecord,
+    { method: "DELETE" },
+  );
+  if (body["ok"] !== true) await die(`no such lens: ${name}`, EXIT_ERROR);
+  out(`removed ${name}`, body);
+}
+
+async function cmdLensClear(): Promise<void> {
+  const base = await ensureHub();
+  const ws = await resolveWs(base);
+  const body = await api(base, `/api/lenses?ws=${ws.id}`, parseRecord, { method: "DELETE" });
+  out(body["ok"] === true ? "cleared" : "no lenses to clear", body);
+}
+
+async function cmdLens(rest: readonly string[]): Promise<void> {
+  const [action = "list", ...actionArgs] = rest;
+  switch (action) {
+    case "set":
+      return cmdLensSet();
+    case "add":
+      return cmdLensAdd(actionArgs[0]);
+    case "list":
+      return cmdLensList();
+    case "rm":
+      return cmdLensRemove(actionArgs[0]);
+    case "clear":
+      return cmdLensClear();
+    default:
+      return die(
+        `unknown lens command: ${action}\n\nRun \`livediff lens --help\` to see available commands.`,
+        EXIT_USAGE,
+      );
+  }
+}
+
 function resolveHelpCommand(
   tokens: readonly string[],
 ): { command: CommandHelp; path: readonly string[] } | null {
@@ -983,6 +1209,10 @@ function resolveHelpCommand(
     const command = findCompletionCommand(subcommand);
     return command ? { command, path: ["completion", command.name] } : null;
   }
+  if (token === "lens" && subcommand) {
+    const command = findLensCommand(subcommand);
+    return command ? { command, path: ["lens", command.name] } : null;
+  }
   const cmd = findCommand(token);
   return cmd ? { command: cmd, path: [token] } : null;
 }
@@ -995,9 +1225,9 @@ function helpFor(tokens: readonly string[]): string | null {
   // Only a resolved nested action renders with its parent prefix; bare `help config` is the
   // top-level command and must not become "config config".
   if (resolved.path.length === 2) {
-    return resolved.path[0] === "config"
-      ? renderConfigCommandHelp(resolved.command)
-      : renderCompletionCommandHelp(resolved.command);
+    if (resolved.path[0] === "config") return renderConfigCommandHelp(resolved.command);
+    if (resolved.path[0] === "lens") return renderLensCommandHelp(resolved.command);
+    return renderCompletionCommandHelp(resolved.command);
   }
   return renderCommandHelp(resolved.command);
 }
@@ -1081,10 +1311,14 @@ async function main(): Promise<void> {
       return cmdCompletion(rest);
     case "config":
       return cmdConfig(rest);
+    case "lens":
+      return cmdLens(rest);
     case "__complete-workspaces":
       return cmdCompleteWorkspaces();
     case "__complete-comments":
       return cmdCompleteComments(rest[0]);
+    case "__complete-lenses":
+      return cmdCompleteLenses();
     default:
       if (await isPathArg(cmd)) return cmdOpen(cmd);
       return cmdHelp([cmd]);

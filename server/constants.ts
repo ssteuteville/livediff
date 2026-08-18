@@ -81,6 +81,10 @@ export const LOCK_FILENAME = "hub.lock";
 export const LOG_FILENAME = "hub.log";
 export const REGISTRY_FILENAME = "workspaces.json";
 export const COMMENTS_DIR_NAME = "comments";
+export const LENSES_DIR_NAME = "lenses";
+
+/** Schema version written into every lens store. */
+export const LENS_STORE_VERSION = 1;
 
 /** Where pre-0.3 versions wrote comments, inside the repo. Detected and migrated away. */
 export const LEGACY_COMMENT_DIR = ".diff-review";
@@ -94,6 +98,9 @@ export const COMMENT_STORE_VERSION = 2;
 export const ID_LENGTH = 8;
 
 export const ID_PATTERN = /^[0-9a-f]{8}$/;
+
+/** Lens names are typed, completed, and put in a URL, so they are kebab-case and bounded. */
+export const LENS_NAME_PATTERN = /^[a-z0-9][a-z0-9-]{0,39}$/;
 
 // ─── Limits ──────────────────────────────────────────────────────────────────
 

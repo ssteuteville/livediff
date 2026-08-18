@@ -87,6 +87,8 @@ livediff list                  list registered workspaces
 livediff rm [path|id]          unregister
 livediff comments [path]       open comments on the current branch
                                (--status open|resolved|all, --branch, --stale, --archived)
+livediff lens <action>         define, list, or clear named filters over the diff
+                               (set|add|list|rm|clear)
 livediff restore <id>          return an archived comment to the live view
 livediff archive [path]        archive comments that are no longer live (all workspaces)
 livediff prune [path]          delete archived comments (all workspaces)
@@ -127,6 +129,35 @@ comments in the browser, then say **"address my diff comments"** — Claude read
 `livediff comments`, makes the edits, and closes each thread with `livediff resolve`.
 
 Claude never reads or writes livediff's storage directly; it only talks to the CLI.
+
+### Lenses
+
+A big change is easier to read a few files at a time. A **lens** is a named filter over the diff:
+the files it covers, why it exists, and optionally the line ranges worth looking at, which render
+as a translucent tint. The browser's header shows which lens is applied and lets you switch or
+clear it.
+
+Lenses belong to a review handoff. Claude writes the whole set as it hands work back:
+
+```bash
+livediff lens set <<'EOF'
+{"lenses": [
+  {"name": "retry", "why": "the actual change; everything else is fallout",
+   "paths": ["src/retry.ts", "src/queue.ts"],
+   "highlights": [{"path": "src/retry.ts", "start": 88, "end": 104}]},
+  {"name": "tests", "why": "coverage I added for the above", "paths": ["test/**"]}
+]}
+EOF
+livediff review . --lens retry
+```
+
+`paths` takes globs (`*`, `**`, `?`) and literal paths in one list — a pattern with no
+metacharacter matches only itself, so `test/**` picks up tests added later while `src/retry.ts` is
+exactly that file.
+
+To steer this, put a **`.livediff`** file at your worktree root — plain markdown, whatever you want
+true of every livediff interaction (_"always separate tests into their own lens"_). livediff never
+parses it; the skills read it and follow it.
 
 ### Reviewing on demand
 

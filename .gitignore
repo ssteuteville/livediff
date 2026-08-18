@@ -20,3 +20,7 @@ __screenshots__/
 
 # Local Codex state.
 .codex/
+
+# Agent scratch worktrees. These are whole checkouts of this repo living inside it — never
+# committable, and their stray config files confuse tools that walk the tree.
+.claude/worktrees/

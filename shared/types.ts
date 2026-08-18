@@ -55,3 +55,27 @@ export interface Review {
   ws: string;
   startedAt: string;
 }
+
+export interface Highlight {
+  path: string;
+  /** New-side line number, 1-based and inclusive. */
+  start: number;
+  /** New-side line number, 1-based and inclusive; never less than `start`. */
+  end: number;
+}
+
+/**
+ * One way of reading a change: the files it selects, and the ranges inside them worth looking at.
+ *
+ * A lens belongs to a review handoff rather than to the repository — the agent writes the whole
+ * set when it stops working, and the next handoff replaces it. Nothing keeps it current in
+ * between, which is why highlights carry plain line numbers and need no drift anchor.
+ */
+export interface Lens {
+  name: string;
+  why: string | null;
+  /** Glob patterns; a pattern with no metacharacter is a literal path matching only itself. */
+  paths: string[];
+  highlights: Highlight[];
+  createdAt: string;
+}

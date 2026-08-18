@@ -10,6 +10,7 @@ import {
 } from "./constants.js";
 import { writeJsonAtomic } from "./atomic.js";
 import { currentBranch } from "./git.js";
+import { withLock } from "./locks.js";
 import type { RetentionPolicy } from "./comment-lifecycle.js";
 import {
   isOrphaned,
@@ -250,26 +251,31 @@ export async function addComment(
   ) {
     throw new TypeError("A comment requires a string file and finite numeric line");
   }
-  const store = await readStore(wsId, repoPath);
-  const now = new Date().toISOString();
-  const comment: Comment = {
-    id: randomUUID().slice(0, ID_LENGTH),
-    file: input["file"],
-    side: input["side"] === "old" ? "old" : "new",
-    line: input["line"],
-    lineContent: stringValue(input["lineContent"]),
-    body: stringValue(input["body"]).trim(),
-    author: input["author"] === "claude" ? "claude" : "user",
-    status: "open",
-    branch: repoPath ? await currentBranch(repoPath).catch(() => null) : null,
-    archivedAt: null,
-    replies: [],
-    createdAt: now,
-    updatedAt: now,
-  };
-  store[comment.id] = comment;
-  await writeStore(wsId, store);
-  return comment;
+  const file = input["file"];
+  const line = input["line"];
+  const record = input;
+  return withLock(wsId, async () => {
+    const store = await readStore(wsId, repoPath);
+    const now = new Date().toISOString();
+    const comment: Comment = {
+      id: randomUUID().slice(0, ID_LENGTH),
+      file,
+      side: record["side"] === "old" ? "old" : "new",
+      line,
+      lineContent: stringValue(record["lineContent"]),
+      body: stringValue(record["body"]).trim(),
+      author: record["author"] === "claude" ? "claude" : "user",
+      status: "open",
+      branch: repoPath ? await currentBranch(repoPath).catch(() => null) : null,
+      archivedAt: null,
+      replies: [],
+      createdAt: now,
+      updatedAt: now,
+    };
+    store[comment.id] = comment;
+    await writeStore(wsId, store);
+    return comment;
+  });
 }
 
 export async function updateComment(
@@ -278,30 +284,32 @@ export async function updateComment(
   id: string,
   patch: unknown,
 ): Promise<Comment | null> {
-  const store = await readStore(wsId, repoPath);
-  const comment = store[id];
-  if (!comment) return null;
-  if (!isRecord(patch)) return comment;
-  if (typeof patch["body"] === "string") comment.body = patch["body"];
-  if (patch["status"] === "open" || patch["status"] === "resolved")
-    comment.status = patch["status"];
-  if ("branch" in patch && (typeof patch["branch"] === "string" || patch["branch"] === null)) {
-    comment.branch = patch["branch"];
-  }
-  if (
-    isRecord(patch["reply"]) &&
-    typeof patch["reply"]["body"] === "string" &&
-    patch["reply"]["body"]
-  ) {
-    comment.replies.push({
-      author: patch["reply"]["author"] === "user" ? "user" : "claude",
-      body: patch["reply"]["body"].trim(),
-      ts: new Date().toISOString(),
-    });
-  }
-  comment.updatedAt = new Date().toISOString();
-  await writeStore(wsId, store);
-  return comment;
+  return withLock(wsId, async () => {
+    const store = await readStore(wsId, repoPath);
+    const comment = store[id];
+    if (!comment) return null;
+    if (!isRecord(patch)) return comment;
+    if (typeof patch["body"] === "string") comment.body = patch["body"];
+    if (patch["status"] === "open" || patch["status"] === "resolved")
+      comment.status = patch["status"];
+    if ("branch" in patch && (typeof patch["branch"] === "string" || patch["branch"] === null)) {
+      comment.branch = patch["branch"];
+    }
+    if (
+      isRecord(patch["reply"]) &&
+      typeof patch["reply"]["body"] === "string" &&
+      patch["reply"]["body"]
+    ) {
+      comment.replies.push({
+        author: patch["reply"]["author"] === "user" ? "user" : "claude",
+        body: patch["reply"]["body"].trim(),
+        ts: new Date().toISOString(),
+      });
+    }
+    comment.updatedAt = new Date().toISOString();
+    await writeStore(wsId, store);
+    return comment;
+  });
 }
 
 export async function deleteComment(
@@ -309,11 +317,13 @@ export async function deleteComment(
   repoPath: string | null,
   id: string,
 ): Promise<boolean> {
-  const store = await readStore(wsId, repoPath);
-  if (!store[id]) return false;
-  delete store[id];
-  await writeStore(wsId, store);
-  return true;
+  return withLock(wsId, async () => {
+    const store = await readStore(wsId, repoPath);
+    if (!store[id]) return false;
+    delete store[id];
+    await writeStore(wsId, store);
+    return true;
+  });
 }
 
 /**
@@ -322,21 +332,25 @@ export async function deleteComment(
  */
 export async function mergeInto(fromWsId: string, intoWsId: string): Promise<number> {
   if (fromWsId === intoWsId) return 0;
-  let incoming: CommentStore = {};
-  try {
-    incoming = await readStore(fromWsId, null);
-  } catch {
-    return 0;
-  }
-  const count = Object.keys(incoming).length;
-  if (!count) {
+  // Only the destination is locked. Taking both keys would invite a deadlock on the reverse merge,
+  // and the source is a registry entry being retired — nothing is still writing to it.
+  return withLock(intoWsId, async () => {
+    let incoming: CommentStore = {};
+    try {
+      incoming = await readStore(fromWsId, null);
+    } catch {
+      return 0;
+    }
+    const count = Object.keys(incoming).length;
+    if (!count) {
+      await rm(storePath(fromWsId), { force: true });
+      return 0;
+    }
+    const existing = await readStore(intoWsId, null);
+    await writeStore(intoWsId, { ...existing, ...incoming });
     await rm(storePath(fromWsId), { force: true });
-    return 0;
-  }
-  const existing = await readStore(intoWsId, null);
-  await writeStore(intoWsId, { ...existing, ...incoming });
-  await rm(storePath(fromWsId), { force: true });
-  return count;
+    return count;
+  });
 }
 
 /** mtime signature used by the hub to detect edits (including migration) for live reload. */
@@ -364,31 +378,33 @@ export async function sweep(
   changed: readonly string[],
   { now = Date.now(), force = {}, policy }: SweepOptions = {},
 ): Promise<{ archived: number; purged: number }> {
-  const store = await readStore(wsId, repoPath);
-  const branch = repoPath ? await currentBranch(repoPath).catch(() => null) : null;
-  const changedSet = new Set(changed);
-  let archived = 0;
-  let purged = 0;
+  return withLock(wsId, async () => {
+    const store = await readStore(wsId, repoPath);
+    const branch = repoPath ? await currentBranch(repoPath).catch(() => null) : null;
+    const changedSet = new Set(changed);
+    let archived = 0;
+    let purged = 0;
 
-  for (const [id, comment] of Object.entries(store)) {
-    if (shouldPurge(comment, now, policy)) {
-      delete store[id];
-      purged++;
-      continue;
+    for (const [id, comment] of Object.entries(store)) {
+      if (shouldPurge(comment, now, policy)) {
+        delete store[id];
+        purged++;
+        continue;
+      }
+      if (comment.branch && branch && comment.branch !== branch) continue;
+      const orphaned = isOrphaned(comment, changedSet);
+      const forced =
+        !comment.archivedAt &&
+        ((force.stale && orphaned) || (force.resolved && comment.status === "resolved"));
+      if (forced || shouldArchive(comment, { orphaned, now }, policy)) {
+        comment.archivedAt = new Date(now).toISOString();
+        archived++;
+      }
     }
-    if (comment.branch && branch && comment.branch !== branch) continue;
-    const orphaned = isOrphaned(comment, changedSet);
-    const forced =
-      !comment.archivedAt &&
-      ((force.stale && orphaned) || (force.resolved && comment.status === "resolved"));
-    if (forced || shouldArchive(comment, { orphaned, now }, policy)) {
-      comment.archivedAt = new Date(now).toISOString();
-      archived++;
-    }
-  }
 
-  if (archived || purged) await writeStore(wsId, store);
-  return { archived, purged };
+    if (archived || purged) await writeStore(wsId, store);
+    return { archived, purged };
+  });
 }
 
 /**
@@ -398,13 +414,15 @@ export async function sweep(
  * broken. Resetting the clock is the reprieve the caller is asking for.
  */
 export async function restoreComment(wsId: string, id: string): Promise<Comment | null> {
-  const store = await readStore(wsId, null);
-  const comment = store[id];
-  if (!comment) return null;
-  comment.archivedAt = null;
-  comment.updatedAt = new Date().toISOString();
-  await writeStore(wsId, store);
-  return comment;
+  return withLock(wsId, async () => {
+    const store = await readStore(wsId, null);
+    const comment = store[id];
+    if (!comment) return null;
+    comment.archivedAt = null;
+    comment.updatedAt = new Date().toISOString();
+    await writeStore(wsId, store);
+    return comment;
+  });
 }
 
 /** Delete archived records older than an explicit window. `olderThanDays: 0` empties the archive. */
@@ -412,17 +430,19 @@ export async function purgeArchived(
   wsId: string,
   { olderThanDays, now = Date.now() }: PurgeArchivedOptions,
 ): Promise<number> {
-  const store = await readStore(wsId, null);
-  const cutoff = now - olderThanDays * 86_400_000;
-  let purged = 0;
-  for (const [id, comment] of Object.entries(store)) {
-    if (!comment.archivedAt) continue;
-    if (Date.parse(comment.archivedAt) > cutoff) continue;
-    delete store[id];
-    purged++;
-  }
-  if (purged) await writeStore(wsId, store);
-  return purged;
+  return withLock(wsId, async () => {
+    const store = await readStore(wsId, null);
+    const cutoff = now - olderThanDays * 86_400_000;
+    let purged = 0;
+    for (const [id, comment] of Object.entries(store)) {
+      if (!comment.archivedAt) continue;
+      if (Date.parse(comment.archivedAt) > cutoff) continue;
+      delete store[id];
+      purged++;
+    }
+    if (purged) await writeStore(wsId, store);
+    return purged;
+  });
 }
 
 /** Test-only escape hatch for seeding aged records without waiting days. */

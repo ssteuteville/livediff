@@ -3,6 +3,7 @@ import {
   COMPLETION_COMMANDS,
   CONFIG_COMMANDS,
   GLOBAL_FLAGS,
+  LENS_COMMANDS,
   optionNamesForRows,
   type CommandHelp,
 } from "./cli-help.js";
@@ -52,6 +53,7 @@ const globalOptions = (): readonly Candidate[] =>
   );
 
 const completionActions = (): readonly Candidate[] => COMPLETION_COMMANDS;
+const lensActions = (): readonly Candidate[] => LENS_COMMANDS;
 const configKeys = (): readonly Candidate[] =>
   CONFIG_KEYS.map((name) => ({ name, summary: "configuration setting" }));
 
@@ -66,7 +68,10 @@ function bashCompletion(): string {
   // those, leaving every per-action flag list unreachable.
   const cases = COMMANDS.filter(
     (command) =>
-      command.name !== "(no arguments)" && command.id !== "config" && command.id !== "completion",
+      command.name !== "(no arguments)" &&
+      command.id !== "config" &&
+      command.id !== "completion" &&
+      command.id !== "lens",
   )
     .map(
       (command) =>
@@ -93,6 +98,14 @@ function bashCompletion(): string {
       words([...globalOptions(), ...optionsFor(command)]) +
       '" ;;',
   ).join("\n");
+  const lensCases = LENS_COMMANDS.map(
+    (command) =>
+      "        " +
+      command.name +
+      ') choices="' +
+      words([...globalOptions(), ...optionsFor(command)]) +
+      '" ;;',
+  ).join("\n");
   return [
     "# bash completion for livediff",
     "# Candidates arrive as untrusted data — a workspace path may contain $(), backticks, or",
@@ -112,6 +125,14 @@ function bashCompletion(): string {
     '    choices="' + words(CONFIG_COMMANDS) + '"',
     '  elif [[ "$command" == completion && $COMP_CWORD -eq 2 ]]; then',
     '    choices="' + words(completionActions()) + '"',
+    '  elif [[ "$command" == lens && $COMP_CWORD -eq 2 ]]; then',
+    '    choices="' + words(lensActions()) + '"',
+    '  elif [[ "$command" == lens && $COMP_CWORD -eq 3 && "$action" == rm ]]; then',
+    '    _livediff_dynamic "$current" livediff __complete-lenses',
+    "    return",
+    '  elif [[ "${COMP_WORDS[COMP_CWORD-1]}" == --lens ]]; then',
+    '    _livediff_dynamic "$current" livediff __complete-lenses',
+    "    return",
     '  elif [[ "$command" == config && $COMP_CWORD -eq 3 && "$action" =~ ^(get|set|unset|explain)$ ]]; then',
     '    choices="' + words(configKeys()) + '"',
     '  elif [[ $COMP_CWORD -eq 2 && "$current" != -* && "$command" =~ ^(' +
@@ -142,6 +163,10 @@ function bashCompletion(): string {
     '        case "$action" in',
     completionCases,
     "        esac ;;",
+    "      lens)",
+    '        case "$action" in',
+    lensCases,
+    "        esac ;;",
     "    esac",
     "  fi",
     '  COMPREPLY=( $(compgen -W "$choices" -- "$current") )',
@@ -158,6 +183,7 @@ function zshCompletion(): string {
     ...COMMANDS.flatMap(optionsFor),
     ...CONFIG_COMMANDS.flatMap(optionsFor),
     ...COMPLETION_COMMANDS.flatMap(optionsFor),
+    ...LENS_COMMANDS.flatMap(optionsFor),
   ];
   return [
     "#compdef livediff",
@@ -166,7 +192,7 @@ function zshCompletion(): string {
     "  compinit",
     "fi",
     "_livediff() {",
-    "  local -a commands config_commands completion_actions config_keys options",
+    "  local -a commands config_commands completion_actions config_keys options lens_actions",
     "  commands=(",
     "    " + commandCandidates().map(zshEntry).join("\n    "),
     "  )",
@@ -178,6 +204,9 @@ function zshCompletion(): string {
     "  )",
     "  config_keys=(",
     "    " + configKeys().map(zshEntry).join("\n    "),
+    "  )",
+    "  lens_actions=(",
+    "    " + lensActions().map(zshEntry).join("\n    "),
     "  )",
     "  options=(",
     "    " + options.map(zshEntry).join("\n    "),
@@ -193,6 +222,17 @@ function zshCompletion(): string {
     "  fi",
     '  if [[ "${words[2]}" == completion && CURRENT -eq 3 ]]; then',
     "    _describe -t commands 'completion action' completion_actions; return",
+    "  fi",
+    '  if [[ "${words[2]}" == lens && CURRENT -eq 3 ]]; then',
+    "    _describe -t commands 'lens action' lens_actions; return",
+    "  fi",
+    '  if [[ ("${words[2]}" == lens && "${words[3]}" == rm && CURRENT -eq 4) || "${words[CURRENT-1]}" == --lens ]]; then',
+    "    local -a lens_names",
+    '    lens_names=(${(f)"$(livediff __complete-lenses 2>/dev/null)"})',
+    "    lens_names=(${lens_names//:/\\\\:})",
+    "    lens_names=(${lens_names//$'\\t'/:})",
+    "    _describe -t lenses 'lens' lens_names",
+    "    return",
     "  fi",
     '  if [[ "${words[2]}" == (' +
       WORKSPACE_PATH_COMMANDS.join("|") +
@@ -258,6 +298,15 @@ function fishCompletion(): string {
         quoteFish(candidate.summary),
     )
     .join("\n");
+  const lensLines = lensActions()
+    .map(
+      (candidate) =>
+        "complete -c livediff -n '__livediff_lens_action' -a " +
+        quoteFish(candidate.name) +
+        " -d " +
+        quoteFish(candidate.summary),
+    )
+    .join("\n");
   const configKeyLines = configKeys()
     .map(
       (candidate) =>
@@ -272,6 +321,7 @@ function fishCompletion(): string {
     ...COMMANDS.flatMap(optionsFor),
     ...CONFIG_COMMANDS.flatMap(optionsFor),
     ...COMPLETION_COMMANDS.flatMap(optionsFor),
+    ...LENS_COMMANDS.flatMap(optionsFor),
   ]
     .filter((candidate) => candidate.name.startsWith("--"))
     .map(
@@ -309,6 +359,26 @@ function fishCompletion(): string {
     "    contains -- $tokens[3] $argv",
     "end",
   ].join("\n");
+  // Same shape as the config helpers, and for the same reason: `lens rm <name>` nests a name under
+  // an action, so a guard that matches at any later token cannot tell the two positions apart.
+  const lensActionHelper = [
+    "function __livediff_lens_action",
+    "    set -l tokens (commandline -poc)",
+    "    test (count $tokens) -eq 2; or return 1",
+    '    test "$tokens[2]" = lens',
+    "end",
+  ].join("\n");
+  const lensNameHelper = [
+    "function __livediff_lens_name",
+    "    set -l tokens (commandline -poc)",
+    '    test "$tokens[-1]" = --lens; and return 0',
+    "    test (count $tokens) -eq 3; or return 1",
+    '    test "$tokens[2]" = lens; or return 1',
+    '    test "$tokens[3]" = rm',
+    "end",
+  ].join("\n");
+  const lensNameLine =
+    "complete -c livediff -n '__livediff_lens_name' -f -a '(livediff __complete-lenses 2>/dev/null)'";
   const dynamic = (commands: readonly string[], producer: string, files: boolean): string =>
     "complete -c livediff -n '__livediff_first_arg " +
     commands.join(" ") +
@@ -321,10 +391,14 @@ function fishCompletion(): string {
     firstArgHelper,
     configActionHelper,
     configKeyHelper,
+    lensActionHelper,
+    lensNameHelper,
     commandLines,
     configLines,
     completionLines,
+    lensLines,
     configKeyLines,
+    lensNameLine,
     dynamic(WORKSPACE_PATH_COMMANDS, "livediff __complete-workspaces", true),
     dynamic(OPEN_COMMENT_ID_COMMANDS, "livediff __complete-comments open", false),
     dynamic(ARCHIVED_COMMENT_ID_COMMANDS, "livediff __complete-comments archived", false),
