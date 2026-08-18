@@ -3,6 +3,7 @@ import { stat } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import { relative, resolve } from "node:path";
 import { renderCompletion } from "./cli-completion.js";
+import { normalizeBase } from "./registry.js";
 import { ensureHub, hubVersion } from "./ensure-hub.js";
 import { probeMeta, readState, shutdownHub } from "./hub-state.js";
 import {
@@ -60,6 +61,8 @@ interface Workspace extends JsonRecord {
   id: string;
   path: string;
   label: string;
+  addedAt: string;
+  base: string | null;
 }
 
 interface Comment extends LifecycleComment, JsonRecord {
@@ -97,11 +100,15 @@ function numberField(value: JsonRecord, key: string): number {
 
 function parseWorkspace(value: unknown): Workspace {
   if (!isRecord(value)) throw new Error("invalid API response: expected workspace");
+  // Spread first: `list --json` passes the whole object through, so naming only the fields read
+  // here would drop the live ones /api/workspaces adds (branch, head, changedFiles, openComments).
   return {
     ...value,
     id: stringField(value, "id"),
     path: stringField(value, "path"),
     label: stringField(value, "label"),
+    addedAt: typeof value["addedAt"] === "string" ? value["addedAt"] : "",
+    base: normalizeBase(value["base"]),
   };
 }
 
@@ -356,10 +363,13 @@ async function cmdOpen(
 ): Promise<void> {
   const base = await ensureHub();
   const path = resolve(pathArg || process.cwd());
+  const reviewBase = values.get("--base");
   const ws = await api(base, "/api/workspaces", parseWorkspace, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ path }),
+    // Omitted rather than sent as null: registering an existing worktree must not clear a base
+    // someone already chose, in the browser or on an earlier run.
+    body: JSON.stringify(reviewBase === undefined ? { path } : { path, base: reviewBase }),
   });
   // Registering resolves to the worktree root, so a subdirectory argument would otherwise be
   // silently widened to the whole repo. Carry it as a view filter instead of a second workspace.
@@ -368,7 +378,8 @@ async function cmdOpen(
   const url = `http://localhost:${new URL(base).port}/?ws=${ws.id}&focus=1${scope}`;
   const quiet = behavior.open === false || flags.has("--no-open");
   const opened = quiet ? false : await openBrowser(url);
-  const name = scope ? `${ws.label}/${dir}` : ws.label;
+  const scoped = scope ? `${ws.label}/${dir}` : ws.label;
+  const name = ws.base ? `${scoped} (vs ${ws.base})` : scoped;
   const human = quiet
     ? `registered ${name} → ${url}`
     : opened
@@ -407,7 +418,8 @@ async function cmdList(): Promise<void> {
   if (JSON_OUT) return out("", { workspaces });
   if (!workspaces.length) return out("no workspaces registered — `livediff .` to add one", {});
   for (const w of workspaces) {
-    console.log(`${w.id}  ${w.label.padEnd(20)}  ${w.path}`);
+    const against = w.base ? `  vs ${w.base}` : "";
+    console.log(`${w.id}  ${w.label.padEnd(20)}  ${w.path}${against}`);
   }
 }
 
@@ -500,7 +512,9 @@ async function cmdComments(pathArg?: string): Promise<void> {
   const branch = values.get("--branch");
   const query = branch ? `&branch=${encodeURIComponent(branch)}` : "";
   const { comments } = await api(base, `/api/comments?ws=${ws.id}${query}`, parseComments);
-  const staleIds = new Set(await api(base, `/api/stale?ws=${ws.id}`, parseStale));
+  const override = values.get("--base");
+  const staleQuery = override === undefined ? "" : `&base=${encodeURIComponent(override ?? "")}`;
+  const staleIds = new Set(await api(base, `/api/stale?ws=${ws.id}${staleQuery}`, parseStale));
 
   const view = comments.filter((c) => {
     if (wantArchived) return Boolean(c.archivedAt);

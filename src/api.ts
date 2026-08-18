@@ -32,8 +32,23 @@ export function fetchDefaultRenderer(): Promise<Renderer> {
     .then((config) => config.defaultRenderer);
 }
 
+/**
+ * The hub explains itself on failure — `{ error: "not a ref in this worktree: mian" }`. Throwing
+ * the status line instead would put "400 Bad Request" in front of the user and drop the sentence
+ * that says what to do about it.
+ */
+async function failure(res: Response): Promise<Error> {
+  try {
+    const body: unknown = await res.json();
+    if (isRecord(body) && typeof body["error"] === "string") return new Error(body["error"]);
+  } catch {
+    /* not JSON — fall back to the status line */
+  }
+  return new Error(`${res.status} ${res.statusText}`);
+}
+
 async function json<T>(res: Response): Promise<T> {
-  if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+  if (!res.ok) throw await failure(res);
   return await res.json();
 }
 
@@ -53,6 +68,15 @@ export function addWorkspace(path: string, label?: string): Promise<Workspace> {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ path, label }),
+  }).then(asJson<Workspace>());
+}
+
+/** Persist the ref this workspace is reviewed against, so the CLI and the sweep agree with it. */
+export function setWorkspaceBase(id: string, base: string | null): Promise<Workspace> {
+  return fetch(`/api/workspaces/${id}`, {
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ base }),
   }).then(asJson<Workspace>());
 }
 

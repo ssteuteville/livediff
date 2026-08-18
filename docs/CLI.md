@@ -1,8 +1,8 @@
 # LiveDiff CLI Reference
 
 > Generated from the command registry by `scripts/generate-cli-docs.ts`. Do not edit by hand —
-> run `pnpm docs` to regenerate. `test/cli-docs.test.ts` fails if this file drifts from the
-> registry.
+> run `pnpm docs:cli` to regenerate. `test/cli-docs.test.ts` fails if this file drifts from
+> the registry.
 
 ## Global options
 
@@ -60,7 +60,7 @@ register a worktree and open its focused view
 **Usage:**
 
 ```
-livediff open [path] [--no-open] [--wait] [--timeout <sec>]
+livediff open [path] [--base <ref>] [--no-open] [--wait] [--timeout <sec>]
 ```
 
 **Arguments:**
@@ -71,11 +71,12 @@ livediff open [path] [--no-open] [--wait] [--timeout <sec>]
 
 **Options:**
 
-| Flags       | Takes value | Description                                                 |
-| ----------- | ----------- | ----------------------------------------------------------- |
-| `--no-open` | no          | register only; print the URL instead of launching a browser |
-| `--wait`    | no          | block until "Done reviewing" is clicked in the browser      |
-| `--timeout` | yes         | give up waiting after <sec> seconds (default: never)        |
+| Flags       | Takes value | Description                                                      |
+| ----------- | ----------- | ---------------------------------------------------------------- |
+| `--base`    | yes         | review against <ref> instead of the last commit, and remember it |
+| `--no-open` | no          | register only; print the URL instead of launching a browser      |
+| `--wait`    | no          | block until "Done reviewing" is clicked in the browser           |
+| `--timeout` | yes         | give up waiting after <sec> seconds (default: never)             |
 
 **Examples:**
 
@@ -83,6 +84,7 @@ livediff open [path] [--no-open] [--wait] [--timeout <sec>]
 - `livediff .` — the shorthand for opening the current worktree
 - `livediff ~/work/feat-a` — register a worktree by path
 - `livediff apps/expo` — open the worktree, scoped to one directory
+- `livediff . --base main` — review everything this branch adds on top of main
 - `livediff . --no-open --json` — register quietly and print JSON
 - `livediff . --wait` — open, then wait for the review to be marked done
 
@@ -115,7 +117,7 @@ open a worktree and wait for the reviewer to finish
 **Usage:**
 
 ```
-livediff review [path] [--no-open] [--timeout <sec>]
+livediff review [path] [--base <ref>] [--no-open] [--timeout <sec>]
 ```
 
 **Arguments:**
@@ -126,14 +128,16 @@ livediff review [path] [--no-open] [--timeout <sec>]
 
 **Options:**
 
-| Flags       | Takes value | Description                                                 |
-| ----------- | ----------- | ----------------------------------------------------------- |
-| `--no-open` | no          | register only; print the URL instead of launching a browser |
-| `--timeout` | yes         | give up waiting after <sec> seconds (default: never)        |
+| Flags       | Takes value | Description                                                      |
+| ----------- | ----------- | ---------------------------------------------------------------- |
+| `--base`    | yes         | review against <ref> instead of the last commit, and remember it |
+| `--no-open` | no          | register only; print the URL instead of launching a browser      |
+| `--timeout` | yes         | give up waiting after <sec> seconds (default: never)             |
 
 **Examples:**
 
 - `livediff review` — review the current worktree and wait
+- `livediff review --base main` — review the whole branch, not just uncommitted work
 
 ## `link`
 
@@ -205,7 +209,7 @@ print review comments for a worktree
 **Usage:**
 
 ```
-livediff comments [path] [--status open|resolved|all] [--branch <name>] [--stale|--archived]
+livediff comments [path] [--status open|resolved|all] [--branch <name>] [--base <ref>] [--stale|--archived]
 ```
 
 **Arguments:**
@@ -220,12 +224,14 @@ livediff comments [path] [--status open|resolved|all] [--branch <name>] [--stale
 | ------------ | ----------- | ------------------------------------------------------- |
 | `--status`   | yes         | open (default), resolved, or all                        |
 | `--branch`   | yes         | a branch name, or all (default: the current branch)     |
+| `--base`     | yes         | judge staleness against <ref> for this command only     |
 | `--stale`    | no          | only comments whose file has left the diff              |
 | `--archived` | no          | only archived comments, with days until they are purged |
 
 **Examples:**
 
 - `livediff comments` — open comments on this worktree's current branch
+- `livediff comments --base main` — judge staleness against main, just this once
 - `livediff comments --stale` — comments whose file is no longer in the diff
 - `livediff comments --archived` — what is archived and when it will be deleted
 

@@ -201,6 +201,26 @@ async function mergeBase(cwd: string, ref: string | null | undefined): Promise<s
   return found || ref;
 }
 
+/**
+ * Whether a ref resolves to a commit here.
+ *
+ * Asked with its own spawn rather than inferred from a diff, because `git()` above deliberately
+ * swallows a failed exit and returns whatever reached stdout. A bad ref therefore produces an
+ * empty diff that looks exactly like "nothing changed" — which is how an unvalidated base could
+ * be stored and quietly hide every comment in the worktree.
+ */
+export async function isValidRef(cwd: string, ref: string): Promise<boolean> {
+  try {
+    await exec("git", ["rev-parse", "--verify", "--quiet", `${ref}^{commit}`], {
+      cwd,
+      windowsHide: true,
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /** Local branches, for the compare-against picker. */
 export async function branches(cwd: string): Promise<string[]> {
   const out = await git(cwd, ["for-each-ref", "--format=%(refname:short)", "refs/heads"]);
@@ -383,13 +403,18 @@ export async function worktreeSignature(cwd: string, base: string | null = null)
 }
 
 /**
- * Paths that differ from HEAD, plus untracked files. Shared by the rail's summary and by the
+ * Paths that differ from `base`, plus untracked files. Shared by the rail's summary and by the
  * lifecycle sweep, so a poll never runs the same git twice for the same information.
+ *
+ * `base` resolves through the same `mergeBase` as `getDiff`, so "is this file still in the diff?"
+ * is answered by the same comparison that produced the diff being reviewed. It used to be pinned
+ * to HEAD, which made every comment on a committed branch orphaned the moment it was written.
  */
-export async function changedPaths(cwd: string): Promise<string[]> {
+export async function changedPaths(cwd: string, base: string | null = null): Promise<string[]> {
   const paths: string[] = [];
   if (await hasHead(cwd)) {
-    const tracked = (await git(cwd, ["diff", "--name-only", "HEAD", ...EXCLUDE]))
+    const against = await mergeBase(cwd, base);
+    const tracked = (await git(cwd, ["diff", "--name-only", against, ...EXCLUDE]))
       .split("\n")
       .filter(Boolean);
     paths.push(...tracked);
@@ -404,7 +429,10 @@ export async function changedPaths(cwd: string): Promise<string[]> {
 }
 
 /** Cheap per-workspace summary for the rail: branch, head, changed-file count. */
-export async function summary(cwd: string): Promise<{
+export async function summary(
+  cwd: string,
+  base: string | null = null,
+): Promise<{
   valid: boolean;
   branch: string | null;
   head: string | null;
@@ -415,5 +443,5 @@ export async function summary(cwd: string): Promise<{
   }
   const branch = await currentBranch(cwd);
   const head = (await git(cwd, ["rev-parse", "--short", "HEAD"])).trim() || null;
-  return { valid: true, branch, head, changedFiles: (await changedPaths(cwd)).length };
+  return { valid: true, branch, head, changedFiles: (await changedPaths(cwd, base)).length };
 }

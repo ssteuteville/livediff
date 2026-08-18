@@ -1,6 +1,11 @@
 /**
- * Renders docs/CLI.md from the command registry in server/cli-help.ts. Run `pnpm docs` to
+ * Renders docs/CLI.md from the command registry in server/cli-help.ts. Run `pnpm docs:cli` to
  * regenerate after changing a command; `test/cli-docs.test.ts` fails the build if it drifts.
+ *
+ * The `:cli` suffix is load-bearing. This script used to be named `docs`, which collides with
+ * pnpm's built-in `docs` command — `pnpm docs` opened the package's page on npm and regenerated
+ * nothing, silently, so the drift test kept failing with no clue why. pnpm has no built-in
+ * containing a colon, so the suffix makes the collision impossible rather than documented.
  */
 
 import { readFile, writeFile } from "node:fs/promises";
@@ -12,8 +17,8 @@ const GENERATED_HEADER = [
   "# LiveDiff CLI Reference",
   "",
   "> Generated from the command registry by `scripts/generate-cli-docs.ts`. Do not edit by hand —",
-  "> run `pnpm docs` to regenerate. `test/cli-docs.test.ts` fails if this file drifts from the",
-  "> registry.",
+  "> run `pnpm docs:cli` to regenerate. `test/cli-docs.test.ts` fails if this file drifts from",
+  "> the registry.",
 ].join("\n");
 
 function slugify(headingText: string): string {

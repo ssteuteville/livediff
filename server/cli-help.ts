@@ -76,7 +76,7 @@ export const COMMANDS: readonly CommandHelp[] = [
   {
     id: "open",
     name: "open",
-    usage: "livediff open [path] [--no-open] [--wait] [--timeout <sec>]",
+    usage: "livediff open [path] [--base <ref>] [--no-open] [--wait] [--timeout <sec>]",
     summary: "register a worktree and open its focused view",
     args: [{ name: "path", required: false, completion: "workspace" }],
     details:
@@ -87,8 +87,13 @@ export const COMMANDS: readonly CommandHelp[] = [
       "\n" +
       'With --wait, the command blocks until you click "Done reviewing" in the\n' +
       "browser, then prints a summary. Open comments are expected at that point —\n" +
-      "they are the output of the review, not a failure.",
+      "they are the output of the review, not a failure.\n" +
+      "\n" +
+      "--base sets what this worktree is reviewed against, and it sticks: the browser,\n" +
+      "`livediff comments`, and the archive sweep all use it until you change it. Set it\n" +
+      "when the work is already committed to a branch, or every comment looks stale.",
     flags: [
+      ["--base <ref>", "review against <ref> instead of the last commit, and remember it"],
       ["--no-open", "register only; print the URL instead of launching a browser"],
       ["--wait", 'block until "Done reviewing" is clicked in the browser'],
       ["--timeout <sec>", "give up waiting after <sec> seconds (default: never)"],
@@ -98,6 +103,7 @@ export const COMMANDS: readonly CommandHelp[] = [
       ["livediff .", "the shorthand for opening the current worktree"],
       ["livediff ~/work/feat-a", "register a worktree by path"],
       ["livediff apps/expo", "open the worktree, scoped to one directory"],
+      ["livediff . --base main", "review everything this branch adds on top of main"],
       ["livediff . --no-open --json", "register quietly and print JSON"],
       ["livediff . --wait", "open, then wait for the review to be marked done"],
     ],
@@ -121,17 +127,24 @@ export const COMMANDS: readonly CommandHelp[] = [
   {
     id: "review",
     name: "review",
-    usage: "livediff review [path] [--no-open] [--timeout <sec>]",
+    usage: "livediff review [path] [--base <ref>] [--no-open] [--timeout <sec>]",
     summary: "open a worktree and wait for the reviewer to finish",
     args: [{ name: "path", required: false, completion: "workspace" }],
     details:
       "Equivalent to `livediff open [path] --wait`. This is the clearest command for\n" +
-      "agent and human review handoffs; it prints the comment summary after Done reviewing.",
+      "agent and human review handoffs; it prints the comment summary after Done reviewing.\n" +
+      "\n" +
+      "If you have already committed the work, pass --base <branch>. Without it the diff\n" +
+      "is only what is uncommitted, and comments left on committed files read as stale.",
     flags: [
+      ["--base <ref>", "review against <ref> instead of the last commit, and remember it"],
       ["--no-open", "register only; print the URL instead of launching a browser"],
       ["--timeout <sec>", "give up waiting after <sec> seconds (default: never)"],
     ],
-    examples: [["livediff review", "review the current worktree and wait"]],
+    examples: [
+      ["livediff review", "review the current worktree and wait"],
+      ["livediff review --base main", "review the whole branch, not just uncommitted work"],
+    ],
   },
   {
     id: "link",
@@ -174,7 +187,7 @@ export const COMMANDS: readonly CommandHelp[] = [
     id: "comments",
     name: "comments",
     usage:
-      "livediff comments [path] [--status open|resolved|all] [--branch <name>] [--stale|--archived]",
+      "livediff comments [path] [--status open|resolved|all] [--branch <name>] [--base <ref>] [--stale|--archived]",
     summary: "print review comments for a worktree",
     args: [{ name: "path", required: false, completion: "workspace" }],
     details:
@@ -182,15 +195,21 @@ export const COMMANDS: readonly CommandHelp[] = [
       "checked out, and to open comments only. Each comment prints the quoted source line\n" +
       "it was left on — trust that text over the line number, which drifts as you edit.\n" +
       "\n" +
-      "Comments whose file has left the diff are hidden; --stale shows them.",
+      "Comments whose file has left the diff are hidden; --stale shows them. What counts\n" +
+      "as the diff is the worktree's stored base — set it with `livediff open --base <ref>`\n" +
+      "or the browser's compare-against box. If everything looks stale, that is the reason:\n" +
+      "the base is the last commit and the work is already committed. --base overrides it\n" +
+      "for one command without changing what is stored.",
     flags: [
       ["--status <which>", "open (default), resolved, or all"],
       ["--branch <name>", "a branch name, or all (default: the current branch)"],
+      ["--base <ref>", "judge staleness against <ref> for this command only"],
       ["--stale", "only comments whose file has left the diff"],
       ["--archived", "only archived comments, with days until they are purged"],
     ],
     examples: [
       ["livediff comments", "open comments on this worktree's current branch"],
+      ["livediff comments --base main", "judge staleness against main, just this once"],
       ["livediff comments --stale", "comments whose file is no longer in the diff"],
       ["livediff comments --archived", "what is archived and when it will be deleted"],
     ],

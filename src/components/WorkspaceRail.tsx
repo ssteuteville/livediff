@@ -19,6 +19,7 @@ interface WorkspaceRailProps {
 function WorkspaceRow({ ws, selected, onSelect, onRemove }: WorkspaceRowProps) {
   return (
     <div
+      data-rail-workspace={ws.id}
       onClick={() => onSelect(ws.id)}
       className={
         "group flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm " +

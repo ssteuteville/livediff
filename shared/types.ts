@@ -46,6 +46,8 @@ export interface Workspace {
   path: string;
   label: string;
   addedAt: string;
+  /** The ref this worktree is reviewed against, or null for "the last commit". */
+  base: string | null;
 }
 
 export interface Review {
