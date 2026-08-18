@@ -1075,6 +1075,13 @@ function parseLensListBody(value: unknown): Lens[] {
 }
 
 async function readStdin(): Promise<string> {
+  // A TTY with no redirect/pipe never sends EOF, so reading here would hang forever.
+  if (process.stdin.isTTY) {
+    await die(
+      "lens set reads the lens JSON on stdin\n\n  livediff lens set < lenses.json",
+      EXIT_USAGE,
+    );
+  }
   const chunks: Buffer[] = [];
   for await (const chunk of process.stdin) chunks.push(Buffer.from(chunk));
   return Buffer.concat(chunks).toString("utf8");

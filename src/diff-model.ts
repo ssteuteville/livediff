@@ -393,10 +393,6 @@ export function rowHeight(row: DiffRow, metrics: DiffMetrics): number {
   return lineHeight * Math.max(1, Math.ceil(chars / charsPerLine));
 }
 
-/**
- * Running offsets for every row, plus the total. One pass, and the result supports binary search
- * for "which row is at scrollTop" — the two things a virtualizer needs.
- */
 /** Where a row sits in a highlighted run, which is what decides its rounded corners. */
 export type HighlightMark = "start" | "middle" | "end" | "only" | null;
 
@@ -450,6 +446,10 @@ export function highlightedLines(highlights: readonly Highlight[]): HighlightLoo
 /** A lookup for when no lens is applied. Kept stable so it never invalidates a memo. */
 export const NO_HIGHLIGHTS: HighlightLookup = () => null;
 
+/**
+ * Running offsets for every row, plus the total. One pass, and the result supports binary search
+ * for "which row is at scrollTop" — the two things a virtualizer needs.
+ */
 export function buildOffsets(rows: DiffRow[], metrics: DiffMetrics): Float64Array {
   const offsets = new Float64Array(rows.length + 1);
   for (let i = 0; i < rows.length; i++) {

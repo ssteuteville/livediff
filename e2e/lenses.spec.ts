@@ -118,6 +118,18 @@ test("the picker lists each lens with its why and a file count", async ({ page }
   await expect(page.locator('[data-lens-option="gone"]')).toContainText("matches nothing");
 });
 
+test("picker counts respect ?dir=, so a count cannot promise files the click would filter away", async ({
+  page,
+}) => {
+  await openDiff(page, "&dir=deep");
+  await page.locator("[data-lens-control]").click();
+
+  // `ui` covers src/components/**, none of which is under deep/. Counting the unfiltered diff
+  // advertised "2 files" here and then landed on an empty screen.
+  await expect(page.locator('[data-lens-option="ui"]')).toContainText("matches nothing");
+  await expect(page.locator('[data-lens-option="deep"]')).toContainText("1 file");
+});
+
 test("a lens matching no files shows an empty state that still offers the way back", async ({
   page,
 }) => {

@@ -483,28 +483,32 @@ export default function App() {
     [lenses, lensName],
   );
 
-  const visibleFiles = useMemo(() => {
+  // Both the picker's counts and the diff body start here, so a count can never advertise files the
+  // lens would not actually show: under `?dir=`, counting the whole diff promised files that a
+  // click then filtered away, down to "12 files" landing on an empty screen.
+  const filesUnderDir = useMemo(() => {
     const files = diff?.files ?? [];
-    const underDir = dir
-      ? files.filter((f) => f.path === dir || f.path.startsWith(`${dir}/`))
-      : files;
-    if (!activeLens) return underDir;
+    if (!dir) return files;
+    return files.filter((f) => f.path === dir || f.path.startsWith(`${dir}/`));
+  }, [diff, dir]);
+
+  const visibleFiles = useMemo(() => {
+    if (!activeLens) return filesUnderDir;
     const inLens = pathMatcher(activeLens.paths);
-    return underDir.filter((f) => inLens(f.path));
-  }, [diff, dir, activeLens]);
+    return filesUnderDir.filter((f) => inLens(f.path));
+  }, [filesUnderDir, activeLens]);
 
   const lensCounts = useMemo(() => {
-    const files = diff?.files ?? [];
     const counts = new Map<string, number>();
     for (const lens of lenses) {
       const inLens = pathMatcher(lens.paths);
       counts.set(
         lens.name,
-        files.reduce((n, f) => (inLens(f.path) ? n + 1 : n), 0),
+        filesUnderDir.reduce((n, f) => (inLens(f.path) ? n + 1 : n), 0),
       );
     }
     return counts;
-  }, [diff, lenses]);
+  }, [filesUnderDir, lenses]);
 
   const lensHighlights = useMemo(
     () => (activeLens ? highlightedLines(activeLens.highlights) : NO_HIGHLIGHTS),
