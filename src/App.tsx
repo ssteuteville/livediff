@@ -522,9 +522,7 @@ export default function App() {
           </span>
         )}
 
-        {review && (
-          <ReviewBanner openCount={openTotal} total={comments.length} onDone={onDoneReviewing} />
-        )}
+        {review && <ReviewBanner openCount={openTotal} onDone={onDoneReviewing} />}
 
         <div className="ml-auto flex items-center gap-2 text-xs">
           <label className="flex items-center gap-1.5 text-neutral-500 dark:text-neutral-400">
