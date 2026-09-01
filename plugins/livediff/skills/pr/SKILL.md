@@ -34,7 +34,8 @@ Then `git worktree add <path> <branch>`.
 ## 3. Register
 
 From the new worktree: honor `.livediff` at its root if present, then run
-`livediff . --base origin/<base>`. The base sticks to the workspace, so later `lens`,
+`livediff . --base origin/<base>`. Always the remote ref, never a bare `main` — a local
+branch can lag the PR's real base. The base sticks to the workspace, so later `lens`,
 `link`, `comments`, and `review` calls from that directory need no extra flags.
 
 ## 4. Read the diff before defining lenses
