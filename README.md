@@ -44,13 +44,14 @@ with two `livediff` binaries racing on `PATH`.
 each installed agent. Restart the agent after installation to load its skills. Re-running the
 installer refreshes the local marketplace and plugin after a pull.
 
-| You say or type       | What happens                                               |
-| --------------------- | ---------------------------------------------------------- |
-| "show me the diff"    | registers this worktree and opens it                       |
-| "address my comments" | reads your open comments and works through them            |
-| `/livediff:link`      | prints the URL, opens nothing                              |
-| `/livediff:review`    | opens the diff and waits for you to finish reviewing       |
-| `/livediff:prune`     | previews what would be deleted from the archive, then asks |
+| You say or type       | What happens                                                         |
+| --------------------- | -------------------------------------------------------------------- |
+| "show me the diff"    | registers this worktree and opens it                                 |
+| "address my comments" | reads your open comments and works through them                      |
+| `/livediff:link`      | prints the URL, opens nothing                                        |
+| `/livediff:review`    | opens the diff and waits for you to finish reviewing                 |
+| `/livediff:pr`        | fetches a PR or branch into a worktree, registers it, and reviews it |
+| `/livediff:prune`     | previews what would be deleted from the archive, then asks           |
 
 The typed-only ones are deliberate: each has side effects whose timing you should own.
 

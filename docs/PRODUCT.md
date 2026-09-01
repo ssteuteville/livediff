@@ -4,7 +4,7 @@
 
 LiveDiff is a local, browser-based workspace diff viewer for people and coding agents working in Git repositories. It makes a worktree's changes easy to inspect, lets a reviewer leave inline comments, and gives any shell-capable agent a simple CLI to read and resolve that feedback.
 
-The important unit is the worktree, not a hosted pull request or a particular coding environment. A reviewer can move between worktrees in one local hub; agents interact with the same review state through the `livediff` CLI.
+The important unit is the worktree, not a hosted pull request or a particular coding environment. A reviewer can move between worktrees in one local hub; agents interact with the same review state through the `livediff` CLI. Reviewing a pull request or a branch works the same way: the plugin's `pr` skill fetches it into a worktree and registers it, with no change to the core. Deeper GitHub PR context — metadata surfaced in the hub itself, say — remains an open direction, not something the core supports today.
 
 ## What it optimizes for
 

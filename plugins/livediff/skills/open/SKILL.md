@@ -9,6 +9,8 @@ allowed-tools: Bash(livediff *)
 
 If `.livediff` exists at the worktree root, read it and follow it before doing anything else.
 
+Given a PR URL, PR number, or branch name instead of a path, load `/livediff:pr` first.
+
 Pick one row. Run it once. Do not check anything first — there is no server to start
 and no state worth inspecting.
 
