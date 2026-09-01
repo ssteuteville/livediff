@@ -1151,7 +1151,8 @@ async function cmdLensList(): Promise<void> {
   const lenses = await api(base, `/api/lenses?ws=${ws.id}`, parseLensListBody);
   if (JSON_OUT) return out("", { lenses });
   if (!lenses.length) return out("no lenses defined for this workspace", { lenses });
-  const diffFiles = await api(base, `/api/diff?ws=${ws.id}`, parseDiffFiles);
+  const baseQuery = ws.base ? `&base=${encodeURIComponent(ws.base)}` : "";
+  const diffFiles = await api(base, `/api/diff?ws=${ws.id}${baseQuery}`, parseDiffFiles);
   const paths = diffFiles.map((f) => f.path);
   const lines = lenses.map((entry) => {
     const count = filesMatching(entry.paths, paths).length;

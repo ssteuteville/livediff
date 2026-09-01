@@ -4,7 +4,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
 import { join } from "node:path";
-import { readFile, writeFile, mkdtemp, rm, symlink } from "node:fs/promises";
+import { readFile, writeFile, mkdir, mkdtemp, rm, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { withTempXdg, makeRepo } from "./helpers.js";
 import { readState, probeMeta } from "../server/hub-state.js";
@@ -1076,6 +1076,28 @@ test("lens add writes a lens, and lens list --json shows it", async () => {
       assert.equal(body.lenses.length, 1);
       assert.equal(body.lenses[0].name, "tests");
       assert.equal(body.lenses[0].why, "coverage");
+    } finally {
+      await stopHub();
+    }
+  });
+});
+
+test("lens list counts files against the workspace's stored base, not HEAD", async () => {
+  await withTempXdg(async ({ root }) => {
+    const repo = await makeRepo(join(root, "repo"));
+    try {
+      await exec("git", ["checkout", "-qb", "feature"], { cwd: repo });
+      await mkdir(join(repo, "test"), { recursive: true });
+      await writeFile(join(repo, "test", "foo.test.ts"), "changed\n", "utf8");
+      await exec("git", ["add", "."], { cwd: repo });
+      await exec("git", ["commit", "-qm", "add test file"], { cwd: repo });
+
+      await cli([repo, "--no-open", "--base", "main", "--json"]);
+      await cli(["lens", "add", "tests", "--path", "test/**"], { cwd: repo });
+
+      const listed = await cli(["lens", "list"], { cwd: repo });
+      assert.equal(listed.code, 0);
+      assert.match(listed.stdout, /tests\s+\(1 file\)/);
     } finally {
       await stopHub();
     }
