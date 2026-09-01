@@ -1,6 +1,6 @@
 {
   "name": "livediff",
-  "version": "0.11.1",
+  "version": "0.11.2",
   "description": "Show a git worktree as a live browser diff and act on its review comments",
   "author": {
     "name": "Shane"
