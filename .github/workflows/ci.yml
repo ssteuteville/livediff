@@ -21,6 +21,62 @@ jobs:
       - run: pnpm test
       - run: pnpm build
 
+  # Packs the artifact once so every platform/Node combination smokes the exact bytes a consumer
+  # would install — not a rebuild per leg, which could silently pass on one platform's build and
+  # fail on another's runtime.
+  package:
+    runs-on: ubuntu-latest
+    needs: check
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - run: pnpm package:check
+      - name: Pack once
+        run: npm pack --ignore-scripts --pack-destination release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: livediff-tarball
+          path: release/*.tgz
+          retention-days: 7
+
+  package-smoke:
+    needs: package
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        # 22.12.0 is the chosen floor (see docs/RELEASING.md); 24 matches .node-version.
+        node: ["22.12.0", "24"]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      # Building the smoke *script* still uses the repo's own Node/pnpm; only the installed CLI
+      # under test runs on the matrix version, via a second Node install below.
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build:server
+      - uses: actions/download-artifact@v4
+        with:
+          name: livediff-tarball
+          path: release
+      # Prepends the matrix Node onto PATH, ahead of the one set up above. smoke-package.js
+      # defaults to `process.execPath`, so the plain invocation below runs on this version.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - run: node dist-server/scripts/smoke-package.js release/*.tgz
+        shell: bash
+
   # Split out so a type or unit failure reports in seconds without paying for a browser download.
   browser:
     runs-on: ubuntu-latest
