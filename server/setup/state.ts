@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { writeJsonAtomic } from "../atomic.js";
 import { configDir } from "../registry.js";
-import { isAgentAlias, type AgentAlias, type AgentRecord } from "./types.js";
+import { isAgentAlias, type AgentAlias, type AgentRecord, type SharedSkill } from "./types.js";
 
 export const SETUP_STATE_VERSION = 1;
 
@@ -21,7 +21,7 @@ export interface SetupState {
   cli: { packageName: string; version: string; bin: string; verifiedAt: string } | null;
   agents: Partial<Record<AgentAlias, AgentRecord>>;
   /** The canonical portable-skill directory and every agent that links to it. */
-  sharedSkill: { path: string; agents: AgentAlias[] } | null;
+  sharedSkill: SharedSkill | null;
   /** The opener argv setup configured, when it did. */
   ownedOpener: string[] | null;
   lastRun: { at: string; outcome: SetupRunOutcome; retry: string | null } | null;

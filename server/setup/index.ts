@@ -13,6 +13,8 @@ import { chooseAgents, chooseBrowser } from "./selection.js";
 import { loadSetupState, saveSetupState, type SetupRunOutcome } from "./state.js";
 import {
   SetupCancelled,
+  type AdapterInspection,
+  type AgentAlias,
   type ComponentOutcome,
   type SetupContext,
   type SetupRequest,
@@ -63,6 +65,9 @@ async function runLocked(request: SetupRequest, ctx: SetupContext): Promise<Setu
     const agents = await chooseAgents(request, ctx, state);
     const browser = await chooseBrowser(request, ctx, prerequisites.cmux);
 
+    const inspections = new Map<AgentAlias, AdapterInspection>();
+    for (const alias of agents) inspections.set(alias, await adapterFor(alias).inspect(ctx));
+
     const cli = await ensurePersistentCli(ctx, { update: request.update });
     outcomes.push(cli.outcome);
     if (cli.persistent !== null) {
@@ -82,10 +87,19 @@ async function runLocked(request: SetupRequest, ctx: SetupContext): Promise<Setu
       const adapter = adapterFor(alias);
       const action = request.update ? "update" : "install";
       ctx.progress.step(`${action === "update" ? "Updating" : "Installing"} ${adapter.label}…`);
-      const result = await adapter.apply(ctx, action);
+      const inspection = inspections.get(alias);
+      if (inspection === undefined) continue;
+      const result = await adapter.apply(ctx, action, {
+        selected: agents,
+        recorded: state.agents,
+        sharedSkill: state.sharedSkill,
+        interactive: request.interactive,
+        inspection,
+      });
       outcomes.push(result.outcome);
       if (result.record === null) delete state.agents[alias];
       else state.agents[alias] = result.record;
+      if (result.sharedSkill !== undefined) state.sharedSkill = result.sharedSkill;
     }
 
     if (!request.cliOnly) outcomes.push(...(await offerGitHubSupport(ctx, request, prerequisites)));

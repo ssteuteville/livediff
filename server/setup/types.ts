@@ -193,8 +193,13 @@ export interface AgentRecord {
 
 export interface AdapterResult {
   outcome: ComponentOutcome;
-  /** Null when nothing verified is installed, so the coordinator drops any stale record. */
+  /**
+   * The verified record after this run. Null only when live inspection shows nothing is
+   * installed; a failed update of a still-present integration returns the prior record.
+   */
   record: AgentRecord | null;
+  /** Set when the canonical shared skill or its agent list changed. */
+  sharedSkill?: SharedSkill | null | undefined;
 }
 
 export interface AgentAdapter {
@@ -205,5 +210,24 @@ export interface AgentAdapter {
   detect(ctx: SetupContext): Promise<boolean>;
   inspect(ctx: SetupContext): Promise<AdapterInspection>;
   /** Install, repair, or update, then verify against live state. Never throws. */
-  apply(ctx: SetupContext, action: AdapterAction): Promise<AdapterResult>;
+  apply(ctx: SetupContext, action: AdapterAction, plan: AdapterPlan): Promise<AdapterResult>;
+}
+
+/** What an adapter needs to know about the rest of the run to act safely. */
+export interface AdapterPlan {
+  /** Every agent this run configures, so shared installs can tell who else they affect. */
+  selected: readonly AgentAlias[];
+  /** Ownership as recorded before this run; a hint, never proof. */
+  recorded: Readonly<Record<string, AgentRecord | undefined>>;
+  sharedSkill: SharedSkill | null;
+  /** Prompts are allowed. When false, anything needing acknowledgement fails with a retry. */
+  interactive: boolean;
+  /** The inspection taken before any mutation this run. */
+  inspection: AdapterInspection;
+}
+
+/** One canonical portable-skill install that several agents read. */
+export interface SharedSkill {
+  path: string;
+  agents: AgentAlias[];
 }
