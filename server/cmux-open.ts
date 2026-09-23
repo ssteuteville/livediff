@@ -17,6 +17,7 @@
 
 import { execFile, spawn } from "node:child_process";
 import { access, constants as fsConstants, realpath } from "node:fs/promises";
+import { constants as osConstants } from "node:os";
 import { delimiter, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
@@ -69,7 +70,16 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-/** The subset of `cmux workspace list --json` this helper reads. */
+function nonEmptyString(value: unknown): value is string {
+  return typeof value === "string" && value !== "";
+}
+
+/**
+ * The subset of `cmux workspace list --json` this helper reads: the first entry with a truthy
+ * `selected`. Matching the old shell script exactly, that entry's `ref` wins only if it's a
+ * non-empty string — a selected entry with no usable ref falls back to `CMUX_WORKSPACE_ID`
+ * rather than the search continuing to a later entry.
+ */
 function selectedWorkspaceRef(listingJson: string | null): string | null {
   if (listingJson === null) return null;
   let parsed: unknown;
@@ -84,25 +94,34 @@ function selectedWorkspaceRef(listingJson: string | null): string | null {
   if (!Array.isArray(workspaces)) return null;
   for (const entry of workspaces) {
     if (!isRecord(entry)) continue;
-    const ref = entry["ref"];
-    if (entry["selected"] === true && typeof ref === "string") return ref;
+    if (entry["selected"]) {
+      const ref = entry["ref"];
+      return nonEmptyString(ref) ? ref : null;
+    }
   }
   return null;
 }
 
 /**
  * Build the `cmux browser open` argv: selected workspace wins, then the inherited
- * `CMUX_WORKSPACE_ID`, then no `--workspace` flag at all (cmux's own default targeting). Pure so
- * it is testable without a real `cmux` on PATH.
+ * `CMUX_WORKSPACE_ID` (an empty value there means no workspace either), then no `--workspace`
+ * flag at all (cmux's own default targeting). Pure so it is testable without a real `cmux` on
+ * PATH.
  */
 export function planCmuxOpen(
   listingJson: string | null,
   env: NodeJS.ProcessEnv,
   url: string,
 ): string[] {
-  const workspace = selectedWorkspaceRef(listingJson) ?? env["CMUX_WORKSPACE_ID"] ?? null;
+  const selected = selectedWorkspaceRef(listingJson);
+  const inherited = env["CMUX_WORKSPACE_ID"];
+  const workspace = nonEmptyString(selected)
+    ? selected
+    : nonEmptyString(inherited)
+      ? inherited
+      : null;
   const args = ["browser", "open"];
-  if (workspace !== null && workspace !== "") args.push("--workspace", workspace);
+  if (workspace !== null) args.push("--workspace", workspace);
   args.push("--focus", "true", url);
   return args;
 }
@@ -117,11 +136,18 @@ async function listWorkspaces(cmux: string): Promise<string | null> {
   }
 }
 
+function exitCodeForClose(code: number | null, signal: NodeJS.Signals | null): number {
+  if (code !== null) return code;
+  if (signal === null) return 1;
+  const signalNumber = osConstants.signals[signal];
+  return signalNumber === undefined ? 1 : 128 + signalNumber;
+}
+
 function runCmux(cmux: string, args: readonly string[]): Promise<number> {
   return new Promise((resolve) => {
     const child = spawn(cmux, args, { stdio: ["ignore", "inherit", "inherit"] });
     child.once("error", () => resolve(127));
-    child.once("close", (code, signal) => resolve(code ?? (signal === null ? 1 : 128)));
+    child.once("close", (code, signal) => resolve(exitCodeForClose(code, signal)));
   });
 }
 
@@ -174,12 +200,10 @@ async function main(): Promise<void> {
 }
 
 /**
- * True only when this module is the file node was told to run, not merely imported. Comparing
- * `import.meta.url` to `process.argv[1]` directly (as `server/cli-args.ts` documents) breaks when
- * either side is reached through a symlink — a real risk for a globally installed CLI, but not
- * for this helper, which `browser.opener` always stores and invokes as one absolute path.
- * Resolving both sides through `realpath` handles the symlink case too, so this check is safe
- * even if that invocation path ever grows a symlink hop.
+ * True only when this module is the file node was told to run, not merely imported. Resolving
+ * both `import.meta.url` and `process.argv[1]` through `realpath` — rather than comparing them
+ * directly, which `server/cli-args.ts` documents as breaking under a symlink — keeps this correct
+ * even if a symlink ever sits between `browser.opener`'s stored path and this file.
  */
 async function isMainModule(): Promise<boolean> {
   const argv1 = process.argv[1];

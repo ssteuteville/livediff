@@ -1,5 +1,14 @@
 import { execFile } from "node:child_process";
-import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import {
+  chmod,
+  copyFile,
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -81,21 +90,71 @@ describe("planCmuxOpen", () => {
     ]);
   });
 
-  it("ignores a selected entry whose ref is not a string", () => {
+  it("falls back to CMUX_WORKSPACE_ID when the selected entry's ref is not a string", () => {
     const listing = JSON.stringify({ workspaces: [{ ref: 42, selected: true }] });
-    expect(planCmuxOpen(listing, {}, "http://x/")).toEqual([
+    const args = planCmuxOpen(listing, { CMUX_WORKSPACE_ID: "fallback" }, "http://x/");
+    expect(args).toEqual([
       "browser",
       "open",
+      "--workspace",
+      "fallback",
       "--focus",
       "true",
       "http://x/",
     ]);
   });
 
-  it("always passes --focus true", () => {
-    const args = planCmuxOpen(null, {}, "http://x/");
-    expect(args).toContain("--focus");
-    expect(args[args.indexOf("--focus") + 1]).toBe("true");
+  it("falls back to CMUX_WORKSPACE_ID when the selected entry's ref is an empty string", () => {
+    const listing = JSON.stringify({ workspaces: [{ ref: "", selected: true }] });
+    const args = planCmuxOpen(listing, { CMUX_WORKSPACE_ID: "fallback" }, "http://x/");
+    expect(args).toEqual([
+      "browser",
+      "open",
+      "--workspace",
+      "fallback",
+      "--focus",
+      "true",
+      "http://x/",
+    ]);
+  });
+
+  it("treats an empty CMUX_WORKSPACE_ID as no workspace", () => {
+    const listing = JSON.stringify({ workspaces: [{ ref: "", selected: true }] });
+    const args = planCmuxOpen(listing, { CMUX_WORKSPACE_ID: "" }, "http://x/");
+    expect(args).toEqual(["browser", "open", "--focus", "true", "http://x/"]);
+  });
+
+  it("matches the first truthy-selected entry, not a later one", () => {
+    const listing = JSON.stringify({
+      workspaces: [
+        { ref: "first", selected: true },
+        { ref: "second", selected: true },
+      ],
+    });
+    const args = planCmuxOpen(listing, {}, "http://x/");
+    expect(args).toEqual([
+      "browser",
+      "open",
+      "--workspace",
+      "first",
+      "--focus",
+      "true",
+      "http://x/",
+    ]);
+  });
+
+  it("treats a truthy non-boolean selected as selected", () => {
+    const listing = JSON.stringify({ workspaces: [{ ref: "truthy-ws", selected: 1 }] });
+    const args = planCmuxOpen(listing, {}, "http://x/");
+    expect(args).toEqual([
+      "browser",
+      "open",
+      "--workspace",
+      "truthy-ws",
+      "--focus",
+      "true",
+      "http://x/",
+    ]);
   });
 
   it("keeps a URL with spaces and special characters as one argv element", () => {
@@ -213,6 +272,52 @@ process.exit(3);
         env: { ...process.env, PATH: `${bin}:${process.env["PATH"] ?? ""}` },
       }),
     ).rejects.toMatchObject({ code: 3, stderr: expect.stringContaining("cmux blew up") });
+  });
+
+  it("translates a signal exit to 128 + the signal number", async () => {
+    const { bin } = await withFakeCmux(`#!/usr/bin/env node
+const args = process.argv.slice(2);
+if (args[0] === "workspace") {
+  process.stdout.write(JSON.stringify({ workspaces: [] }));
+  process.exit(0);
+}
+process.kill(process.pid, "SIGTERM");
+`);
+    // The fake cmux process is killed by SIGTERM (signal 15); cmux-open.js reports that as its
+    // own ordinary numeric exit code (128 + 15 = 143), not by dying from a signal itself.
+    await expect(
+      execFileAsync("node", [HELPER, "http://x/"], {
+        env: { ...process.env, PATH: `${bin}:${process.env["PATH"] ?? ""}` },
+      }),
+    ).rejects.toMatchObject({ code: 143 });
+  });
+});
+
+describe("main-module detection", () => {
+  let dir: string;
+
+  afterEach(async () => {
+    if (dir) await rm(dir, { recursive: true, force: true });
+  });
+
+  it("runs when invoked through a symlink", async () => {
+    dir = await mkdtemp(join(tmpdir(), "livediff-cmux-open-symlink-"));
+    const link = join(dir, "cmux-open-link.js");
+    await symlink(HELPER, link);
+    await expect(execFileAsync("node", [link])).rejects.toMatchObject({
+      code: 64,
+      stderr: expect.stringContaining("usage"),
+    });
+  });
+
+  it("runs when invoked from a path containing spaces", async () => {
+    dir = await mkdtemp(join(tmpdir(), "livediff cmux open "));
+    const dest = join(dir, "cmux-open.js");
+    await copyFile(HELPER, dest);
+    await expect(execFileAsync("node", [dest])).rejects.toMatchObject({
+      code: 64,
+      stderr: expect.stringContaining("usage"),
+    });
   });
 });
 

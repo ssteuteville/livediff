@@ -1,16 +1,12 @@
 import { access, constants as fsConstants } from "node:fs/promises";
 import { basename, join, sep } from "node:path";
-import {
-  environmentNameForKey,
-  setConfigValue,
-  storedBrowserOpener,
-  unsetConfigValue,
-} from "../config.js";
+import { ENV } from "../constants.js";
+import { setConfigValue, storedBrowserOpener, unsetConfigValue } from "../config.js";
 import { findCmux } from "../cmux-open.js";
 import type { SetupState } from "./state.js";
 import type { BrowserChoice, ComponentOutcome, PersistentCli, SetupContext } from "./types.js";
 
-const CMUX_HELPER_RELATIVE = join("dist-server", "server", "cmux-open.js");
+const CMUX_HELPER_SEGMENTS = ["dist-server", "server", "cmux-open.js"];
 const LEGACY_SHIM_NAME = "livediff-cmux-open";
 
 /**
@@ -33,12 +29,39 @@ export interface SavedBrowser {
 }
 
 function cmuxOpenerArgv(persistent: PersistentCli): string[] {
-  return [persistent.node, join(persistent.packageRoot, CMUX_HELPER_RELATIVE)];
+  return [persistent.node, join(persistent.packageRoot, ...CMUX_HELPER_SEGMENTS)];
 }
 
-function classifyOpener(argv: readonly string[] | null): SavedBrowser["kind"] {
+function arraysEqual(a: readonly string[] | null, b: readonly string[] | null): boolean {
+  if (a === null || b === null) return a === b;
+  return a.length === b.length && a.every((value, index) => value === b[index]);
+}
+
+/**
+ * True only for a helper path that actually lives under an installed package's
+ * `node_modules/<name>/dist-server/server/cmux-open.js` — matched on real path segments, so a
+ * dev checkout's `.../dist-server/server/cmux-open.js` (no `node_modules` ancestor) or a
+ * differently-named `.../my-dist-server/...` (wrong segment, not a suffix match) both fail.
+ */
+function isPackagedCmuxHelperPath(path: string): boolean {
+  const segments = path.split(sep);
+  const tail = segments.slice(-CMUX_HELPER_SEGMENTS.length);
+  if (!arraysEqual(tail, CMUX_HELPER_SEGMENTS)) return false;
+  return segments.slice(0, -CMUX_HELPER_SEGMENTS.length).includes("node_modules");
+}
+
+/**
+ * An opener is `cmux` (setup-owned) only when it matches what setup itself last wrote, or when
+ * its helper path has the shape of a real packaged install. Everything else — including a
+ * source checkout's own `dist-server` — is `custom`, and repair must never touch it.
+ */
+function classifyOpener(
+  argv: readonly string[] | null,
+  ownedOpener: readonly string[] | null = null,
+): SavedBrowser["kind"] {
   if (argv === null) return "none";
-  if (argv.length === 2 && argv[1] !== undefined && argv[1].endsWith(CMUX_HELPER_RELATIVE)) {
+  if (arraysEqual(argv, ownedOpener)) return "cmux";
+  if (argv.length === 2 && argv[1] !== undefined && isPackagedCmuxHelperPath(argv[1])) {
     return "cmux";
   }
   if (argv.length === 1 && argv[0] !== undefined && basename(argv[0]) === LEGACY_SHIM_NAME) {
@@ -81,24 +104,17 @@ async function isStaleOpener(
   return !nodeOk || !helperOk;
 }
 
-function arraysEqual(a: readonly string[] | null, b: readonly string[] | null): boolean {
-  if (a === null || b === null) return a === b;
-  return a.length === b.length && a.every((value, index) => value === b[index]);
-}
-
 /** Refuse to persist a path that lives inside an npx temporary cache. */
 function isInNpxCache(path: string): boolean {
   return path.split(sep).includes("_npx");
 }
 
-function environmentOverrideValue(): string | null {
-  const name = environmentNameForKey("browser.opener");
-  if (name === null) return null;
-  return process.env[name] ?? null;
+function environmentOverrideValue(env: NodeJS.ProcessEnv): string | null {
+  return env[ENV.BROWSER] ?? null;
 }
 
-function withEnvironmentNote(detail: string): string {
-  const override = environmentOverrideValue();
+function withEnvironmentNote(env: NodeJS.ProcessEnv, detail: string): string {
+  const override = environmentOverrideValue(env);
   if (override === null) return detail;
   return (
     `${detail} The LIVEDIFF_BROWSER environment override ("${override}") currently takes ` +
@@ -106,16 +122,22 @@ function withEnvironmentNote(detail: string): string {
   );
 }
 
-/** Read-only inspection of the saved browser preference. */
-export async function inspectSavedBrowser(ctx: SetupContext): Promise<SavedBrowser> {
-  void ctx; // config.jsonc and LIVEDIFF_BROWSER are read from the real environment, like config.ts.
+/**
+ * Read-only inspection of the saved browser preference. `ownedOpener` is optional (defaults to
+ * null) so this stays callable without a `SetupState` handy; passing it lets a relocated-but-
+ * still-owned opener classify as `cmux` even if its path no longer has the packaged shape.
+ */
+export async function inspectSavedBrowser(
+  ctx: SetupContext,
+  ownedOpener: readonly string[] | null = null,
+): Promise<SavedBrowser> {
   const stored = storedBrowserOpener();
-  const kind = classifyOpener(stored);
+  const kind = classifyOpener(stored, ownedOpener);
   const stale =
     (kind === "cmux" || kind === "legacy-cmux") && stored !== null
       ? await isStaleOpener(kind, stored)
       : false;
-  return { stored, kind, stale, environmentOverride: environmentOverrideValue() };
+  return { stored, kind, stale, environmentOverride: environmentOverrideValue(ctx.env) };
 }
 
 const RETRY_CMUX = "livediff setup --browser cmux";
@@ -129,11 +151,9 @@ function outcome(partial: Omit<ComponentOutcome, "id" | "label">): ComponentOutc
  * helper under the persistent install; `system` removes the custom opener. Never throws for
  * expected failures — those come back as `status: "failed"` with a targeted retry command.
  *
- * `findCmuxImpl` is an optional seam (defaulting to the real `findCmux`) purely for tests: on a
- * machine that has cmux installed at the standard macOS location — which real dev machines,
- * including the one this was written on, do — there is no way to make the real filesystem report
- * "cmux is missing" to exercise the explicit `--browser cmux` failure path. Every real caller gets
- * the real lookup; only tests pass a fake one.
+ * `findCmuxImpl` defaults to the real `findCmux` and exists only as a test seam: a machine that
+ * has cmux installed at the standard macOS location can't otherwise be made to report "cmux is
+ * missing" for the explicit-failure test below.
  */
 export async function configureBrowser(
   ctx: SetupContext,
@@ -141,23 +161,29 @@ export async function configureBrowser(
   state: SetupState,
   findCmuxImpl: typeof findCmux = findCmux,
 ): Promise<ComponentOutcome> {
-  if (choice === "system") return configureSystem(state);
+  if (choice === "system") return configureSystem(ctx.env, state);
   return configureCmux(ctx, state, findCmuxImpl);
 }
 
-async function configureSystem(state: SetupState): Promise<ComponentOutcome> {
+async function configureSystem(
+  env: NodeJS.ProcessEnv,
+  state: SetupState,
+): Promise<ComponentOutcome> {
   // Explicit system choice removes even a custom opener — the user asked for it deliberately.
   const removed = await unsetConfigValue("browser.opener");
   state.ownedOpener = null;
   if (!removed) {
     return outcome({
       status: "unchanged",
-      detail: withEnvironmentNote("Already using the system browser."),
+      detail: withEnvironmentNote(env, "Already using the system browser."),
     });
   }
   return outcome({
     status: "updated",
-    detail: withEnvironmentNote("Removed the configured browser opener; using the system browser."),
+    detail: withEnvironmentNote(
+      env,
+      "Removed the configured browser opener; using the system browser.",
+    ),
   });
 }
 
@@ -166,17 +192,17 @@ async function configureCmux(
   state: SetupState,
   findCmuxImpl: typeof findCmux,
 ): Promise<ComponentOutcome> {
+  if (ctx.platform !== "darwin") {
+    return outcome({
+      status: "unavailable",
+      detail: `cmux browser integration is only supported on macOS currently (platform: ${ctx.platform}).`,
+    });
+  }
   if (ctx.persistent === null) {
     return outcome({
       status: "failed",
       detail: "cmux needs the persistent CLI; retry after it installs.",
       retry: RETRY_CMUX,
-    });
-  }
-  if (ctx.platform !== "darwin") {
-    return outcome({
-      status: "unavailable",
-      detail: `cmux browser integration is only supported on macOS currently (platform: ${ctx.platform}).`,
     });
   }
   const desired = cmuxOpenerArgv(ctx.persistent);
@@ -186,6 +212,13 @@ async function configureCmux(
       detail:
         "refusing to save a browser opener path inside a temporary npx cache; install a " +
         "persistent CLI first.",
+      retry: RETRY_CMUX,
+    });
+  }
+  if (await isStaleOpener("cmux", desired)) {
+    return outcome({
+      status: "failed",
+      detail: `the packaged cmux helper is missing from this install (expected ${desired[1]}); reinstall livediff and retry.`,
       retry: RETRY_CMUX,
     });
   }
@@ -199,12 +232,12 @@ async function configureCmux(
   }
 
   const stored = storedBrowserOpener();
-  const kind = classifyOpener(stored);
+  const kind = classifyOpener(stored, state.ownedOpener);
   if (kind === "cmux" && arraysEqual(stored, desired)) {
     state.ownedOpener = desired;
     return outcome({
       status: "unchanged",
-      detail: withEnvironmentNote("cmux already configured."),
+      detail: withEnvironmentNote(ctx.env, "cmux already configured."),
     });
   }
 
@@ -216,20 +249,34 @@ async function configureCmux(
     return outcome({
       status: "updated",
       detail: withEnvironmentNote(
+        ctx.env,
         `Migrated from the legacy shim at ${shim} to the packaged cmux helper. ` +
           `The old shim was left in place; remove it manually if you like.`,
       ),
     });
   }
 
+  if (kind === "custom" && stored !== null) {
+    return outcome({
+      status: "updated",
+      detail: withEnvironmentNote(
+        ctx.env,
+        `Replaced the custom opener ("${stored.join(" ")}") with the packaged cmux helper.`,
+      ),
+    });
+  }
+
   const status = stored === null ? "installed" : "updated";
-  return outcome({ status, detail: withEnvironmentNote("Configured cmux as the browser opener.") });
+  return outcome({
+    status,
+    detail: withEnvironmentNote(ctx.env, "Configured cmux as the browser opener."),
+  });
 }
 
 /**
  * Reruns: rewrite an owned cmux opener whose path has gone stale or no longer matches the current
  * persistent install (a new version-manager Node, a moved package root). Returns null when
- * nothing applies — including every custom opener, which this never touches.
+ * nothing applies or nothing changed — including every custom opener, which this never touches.
  */
 export async function repairOwnedOpener(
   ctx: SetupContext,
@@ -238,22 +285,45 @@ export async function repairOwnedOpener(
   if (ctx.persistent === null) return null;
   const stored = storedBrowserOpener();
   if (stored === null) return null;
-  const kind = classifyOpener(stored);
-  const owns = kind === "cmux" || arraysEqual(stored, state.ownedOpener);
-  if (!owns) return null;
+  const kind = classifyOpener(stored, state.ownedOpener);
+  if (kind !== "cmux") return null;
 
   const desired = cmuxOpenerArgv(ctx.persistent);
   if (desired.some(isInNpxCache)) return null;
 
-  const stale = kind === "cmux" ? await isStaleOpener("cmux", stored) : true;
   const matchesDesired = arraysEqual(stored, desired);
-  if (!stale && matchesDesired) return null;
+  const desiredBroken = await isStaleOpener("cmux", desired);
+
+  if (matchesDesired) {
+    if (!desiredBroken) return null; // already correct and healthy
+    return outcome({
+      status: "failed",
+      detail: withEnvironmentNote(
+        ctx.env,
+        "the configured cmux opener is broken (its node or helper path no longer exists), and " +
+          "the current install has nothing newer to point it at.",
+      ),
+      retry: RETRY_CMUX,
+    });
+  }
+
+  if (desiredBroken) {
+    return outcome({
+      status: "failed",
+      detail: withEnvironmentNote(
+        ctx.env,
+        `found a stale cmux opener, but the current install's helper is missing too (expected ${desired[1]}); reinstall livediff and retry.`,
+      ),
+      retry: RETRY_CMUX,
+    });
+  }
 
   await setConfigValue("browser.opener", desired);
   state.ownedOpener = desired;
   return outcome({
     status: "updated",
     detail: withEnvironmentNote(
+      ctx.env,
       "Repaired the cmux browser opener to point at the current install.",
     ),
   });
