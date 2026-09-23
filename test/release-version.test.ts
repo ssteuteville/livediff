@@ -40,7 +40,7 @@ async function fixture(files: Record<string, string>): Promise<string> {
 function targets(root: string): VersionTarget[] {
   return [
     jsonTarget("package.json", undefined, root),
-    jsonTarget("release.json", (json, version) => (json["cliRange"] = `>=${version}`), root),
+    jsonTarget("release.json", [{ path: ["cliRange"], value: (version) => `>=${version}` }], root),
     frontmatterTarget("SKILL.md", root),
   ];
 }
@@ -94,6 +94,19 @@ test("writeVersion rejects a non-semver string and writes nothing", async () => 
   });
   await assert.rejects(() => writeVersion("not-a-version", targets(root)));
   assert.equal(await readJsonField(join(root, "package.json"), "version"), "1.2.3");
+});
+
+test("writeVersion edits package.json in place and leaves an unrelated hand-formatted array untouched", async () => {
+  const root = await fixture({
+    "package.json":
+      '{\n  "name": "x",\n  "version": "1.2.3",\n  "keywords": ["git", "diff", "review"]\n}\n',
+    "release.json": '{"version":"1.2.3","cliRange":">=1.2.3"}\n',
+    "SKILL.md": '---\nname: livediff\nmetadata:\n  version: "1.2.3"\n---\nbody\n',
+  });
+  await writeVersion("1.3.0", targets(root));
+  const pkg = await readFile(join(root, "package.json"), "utf8");
+  assert.match(pkg, /"keywords": \["git", "diff", "review"\]/);
+  assert.match(pkg, /"version": "1\.3\.0"/);
 });
 
 test("frontmatterTarget fails loudly when no version line is present", async () => {

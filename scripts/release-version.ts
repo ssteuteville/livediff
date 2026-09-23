@@ -15,6 +15,7 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { applyEdits, modify, type JSONPath } from "jsonc-parser";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const projectRoot = join(__dirname, "..", "..");
@@ -27,9 +28,25 @@ export interface VersionTarget {
   setVersion: (text: string, version: string) => string;
 }
 
+/** Matches this repo's existing JSON formatting; these are the only files jsonTarget touches. */
+const JSON_FORMATTING = { tabSize: 2, insertSpaces: true, eol: "\n" };
+
+/** A field to set in-place alongside `version`, e.g. release.json's derived `cliRange`. */
+export interface ExtraField {
+  path: JSONPath;
+  value: (version: string) => unknown;
+}
+
+/**
+ * Edits only the `version` field (and any `extraFields`) in place via jsonc-parser's `modify` +
+ * `applyEdits`, rather than re-stringifying the whole document. A round-trip through
+ * `JSON.parse`/`JSON.stringify` would reflow every array and object in the file — this repo's
+ * `keywords` arrays are hand-formatted on one line, and a full re-stringify silently changed
+ * that on every version bump.
+ */
 export function jsonTarget(
   relPath: string,
-  onWrite?: (json: Record<string, unknown>, version: string) => void,
+  extraFields?: ExtraField[],
   root: string = projectRoot,
 ): VersionTarget {
   const path = join(root, relPath);
@@ -42,10 +59,17 @@ export function jsonTarget(
       return version;
     },
     setVersion: (text, version) => {
-      const json = parseJsonObject(text, relPath);
-      json["version"] = version;
-      onWrite?.(json, version);
-      return `${JSON.stringify(json, null, 2)}\n`;
+      let result = applyEdits(
+        text,
+        modify(text, ["version"], version, { formattingOptions: JSON_FORMATTING }),
+      );
+      for (const field of extraFields ?? []) {
+        result = applyEdits(
+          result,
+          modify(result, field.path, field.value(version), { formattingOptions: JSON_FORMATTING }),
+        );
+      }
+      return result;
     },
   };
 }
@@ -112,13 +136,7 @@ export function defaultTargets(root: string = projectRoot): VersionTarget[] {
     jsonTarget("package.json", undefined, root),
     jsonTarget("plugins/livediff/.claude-plugin/plugin.json", undefined, root),
     jsonTarget("plugins/livediff/.codex-plugin/plugin.json", undefined, root),
-    jsonTarget(
-      "release.json",
-      (json, version) => {
-        json["cliRange"] = `>=${version}`;
-      },
-      root,
-    ),
+    jsonTarget("release.json", [{ path: ["cliRange"], value: (version) => `>=${version}` }], root),
     // The portable livediff skill: not in the npm `files` allowlist (the pinned skills installer
     // fetches it straight from git), but its frontmatter still carries `metadata.version`, and
     // `release --promote` separately confirms this file exists at the tag before pushing `stable`.

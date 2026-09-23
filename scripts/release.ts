@@ -72,6 +72,11 @@ async function assertTaggableOrTagged(version: string): Promise<void> {
   }
 }
 
+/** Redacts the value following `--otp` so a failure message never echoes the one-time password. */
+export function redactArgs(args: readonly string[]): string[] {
+  return args.map((arg, i) => (args[i - 1] === "--otp" ? "***" : arg));
+}
+
 async function runInherited(
   command: string,
   args: readonly string[],
@@ -82,7 +87,7 @@ async function runInherited(
     child.on("error", reject);
     child.on("exit", (code) => {
       if (code === 0) resolveRun();
-      else reject(new Error(`${command} ${args.join(" ")} exited with code ${code}`));
+      else reject(new Error(`${command} ${redactArgs(args).join(" ")} exited with code ${code}`));
     });
   });
 }
@@ -344,7 +349,10 @@ async function main(): Promise<void> {
   await dryRun();
 }
 
-main().catch((error: unknown) => {
-  console.error(error instanceof Error ? (error.stack ?? error.message) : String(error));
-  process.exitCode = 1;
-});
+const isMain = process.argv[1] && import.meta.url === new URL(process.argv[1], "file://").href;
+if (isMain) {
+  main().catch((error: unknown) => {
+    console.error(error instanceof Error ? (error.stack ?? error.message) : String(error));
+    process.exitCode = 1;
+  });
+}
