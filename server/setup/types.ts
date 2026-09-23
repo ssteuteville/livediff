@@ -70,11 +70,6 @@ export interface ComponentOutcome {
   required?: boolean | undefined;
 }
 
-export interface SetupResult {
-  outcomes: readonly ComponentOutcome[];
-  exitCode: number;
-}
-
 export interface RunOptions {
   env?: NodeJS.ProcessEnv | undefined;
   cwd?: string | undefined;

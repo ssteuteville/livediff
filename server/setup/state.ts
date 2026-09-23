@@ -1,5 +1,7 @@
+import { randomUUID } from "node:crypto";
+import { mkdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
-import { join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { writeJsonAtomic } from "../atomic.js";
 import { configDir } from "../registry.js";
 import { isAgentAlias, type AgentAlias, type AgentRecord, type SharedSkill } from "./types.js";
@@ -45,7 +47,9 @@ export function setupStatePath(): string {
 export type LoadedSetupState =
   | { kind: "missing"; state: SetupState }
   | { kind: "loaded"; state: SetupState }
-  | { kind: "unreadable"; state: SetupState; reason: string };
+  | { kind: "unreadable"; state: SetupState; reason: string }
+  /** Written by a newer livediff; this one must not overwrite what it cannot understand. */
+  | { kind: "newer"; state: SetupState; version: number };
 
 /** Never throws: an unreadable record degrades to live inspection, and says so. */
 export async function loadSetupState(path = setupStatePath()): Promise<LoadedSetupState> {
@@ -62,6 +66,8 @@ export async function loadSetupState(path = setupStatePath()): Promise<LoadedSet
   } catch {
     return { kind: "unreadable", state: emptySetupState(), reason: "not valid JSON" };
   }
+  const newer = newerVersion(raw);
+  if (newer !== null) return { kind: "newer", state: emptySetupState(), version: newer };
   const state = parseSetupState(raw);
   if (state === null) {
     return { kind: "unreadable", state: emptySetupState(), reason: "unrecognized format" };
@@ -71,6 +77,24 @@ export async function loadSetupState(path = setupStatePath()): Promise<LoadedSet
 
 export async function saveSetupState(state: SetupState, path = setupStatePath()): Promise<void> {
   await writeJsonAtomic(path, state);
+}
+
+/** The atomic write of `saveSetupState`, for a signal handler that exits right after. */
+export function saveSetupStateSync(state: SetupState, path = setupStatePath()): void {
+  const tmp = join(dirname(path), `.${basename(path)}.${randomUUID()}.tmp`);
+  try {
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(tmp, JSON.stringify(state, null, 2) + "\n", "utf8");
+    renameSync(tmp, path);
+  } catch {
+    rmSync(tmp, { force: true });
+  }
+}
+
+function newerVersion(raw: unknown): number | null {
+  if (!isRecord(raw)) return null;
+  const version = raw["version"];
+  return typeof version === "number" && version > SETUP_STATE_VERSION ? version : null;
 }
 
 export function parseSetupState(raw: unknown): SetupState | null {
