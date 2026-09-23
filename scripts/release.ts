@@ -161,6 +161,20 @@ async function dryRun(): Promise<void> {
 
 // ─── --publish <tarball> ───────────────────────────────────────────────────
 
+/**
+ * npm refuses to publish a prerelease without an explicit dist-tag, and a prerelease must never
+ * become `latest` by default. Stable versions publish under npm's default tag.
+ */
+export function distTagFor(version: string): string | null {
+  return version.includes("-") ? "next" : null;
+}
+
+async function projectVersion(): Promise<string> {
+  const parsed: unknown = JSON.parse(await readFile(join(projectRoot, "package.json"), "utf8"));
+  if (isRecord(parsed) && typeof parsed["version"] === "string") return parsed["version"];
+  throw new Error("package.json has no version");
+}
+
 interface PublishOptions {
   tarballPath: string;
   yes: boolean;
@@ -191,6 +205,8 @@ async function publish(options: PublishOptions): Promise<void> {
     process.env["GITHUB_ACTIONS"] === "true" &&
     Boolean(process.env["ACTIONS_ID_TOKEN_REQUEST_URL"]);
   const args = ["publish", options.tarballPath];
+  const tag = distTagFor(await projectVersion());
+  if (tag !== null) args.push("--tag", tag);
   if (inCi) args.push("--provenance");
   if (options.otp) args.push("--otp", options.otp);
 

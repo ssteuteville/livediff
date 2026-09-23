@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import { test } from "vitest";
-import { redactArgs } from "../scripts/release.js";
+import { distTagFor, redactArgs } from "../scripts/release.js";
+
+test("prereleases publish under next so they never become latest", () => {
+  assert.equal(distTagFor("0.12.0-rc.1"), "next");
+  assert.equal(distTagFor("0.12.0"), null);
+});
 
 test("redactArgs replaces the value after --otp with a placeholder", () => {
   const args = ["publish", "/tmp/livediff-0.11.2.tgz", "--otp", "123456"];
