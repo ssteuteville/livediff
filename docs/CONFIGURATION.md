@@ -108,3 +108,16 @@ with the current LiveDiff CLI; it never changes `config.jsonc` or its values.
 
 LiveDiff supports JSONC only. YAML/TOML and auto-discovered project dotfiles are deliberately not
 supported in v1 so there is one unambiguous, schema-validatable source of per-user settings.
+
+## Environment variables
+
+| Env                 | Default          | Meaning                                                          |
+| ------------------- | ---------------- | ---------------------------------------------------------------- |
+| `LIVEDIFF_PORT`     | `4180`           | preferred hub port; the hub takes the next free one if it's busy |
+| `LIVEDIFF_POLL_MS`  | `1000`           | live-update poll interval                                        |
+| `LIVEDIFF_BROWSER`  | OS opener        | executable and arguments used to open LiveDiff URLs              |
+| `LIVEDIFF_RENDERER` | `fast`           | default diff renderer (`fast` or `classic`)                      |
+| `LIVEDIFF_OPEN`     | –                | `1` opens the browser when the hub starts                        |
+| `NO_COLOR`          | –                | disable colored CLI output                                       |
+| `XDG_CONFIG_HOME`   | `~/.config`      | where the registry and comments live                             |
+| `XDG_STATE_HOME`    | `~/.local/state` | where hub runtime state lives                                    |

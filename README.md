@@ -1,87 +1,95 @@
-# livediff
+# LiveDiff
 
-A local git diff viewer that live-updates with your working tree and lets you leave inline review
-comments that AI agents can read and answer.
+A live diff of your git worktree in the browser, with inline review comments your AI agent can
+read and answer.
 
-```bash
-cd any-git-worktree
-livediff .
-```
+Your agent works; you watch the diff update as it goes, leave comments on the lines you care
+about, and the agent picks them up, fixes things, and replies — without you copying anything
+between windows. It runs entirely on `localhost`: no account, no network, no telemetry.
 
-That registers the worktree, starts the hub if it isn't already running, and opens the diff in your
-browser. There is no server to remember to start.
+## Get started
 
-Runs entirely on `localhost` — no network, no telemetry. The only thing that touches your code is
-`git`.
-
-## Why
-
-It is built for working alongside a swarm of agents, each in its own worktree. Every worktree you
-register shows up in one hub at `http://localhost:4180`, with its branch, change count, and open
-comment count. You review in the browser; the agent reads your comments through the CLI and replies.
-
-## Install
-
-Requires Node ≥ 24. If Claude Code or Codex is installed, the installer also configures LiveDiff
-as a native plugin for it.
+You need Node.js 22.12 or newer and git.
 
 ```bash
-git clone <this-repo-url> livediff
-cd livediff
-./install.sh
+npx livediff@latest setup
 ```
 
-This builds a real package, installs it globally, and installs the shared LiveDiff plugin in any
-available Claude Code and Codex CLIs. Run `./install.sh --dev` instead to link the working tree if
-you are hacking on livediff itself.
+Setup installs the `livediff` command, asks which of your agents to connect, and wires each one
+up. It never opens a repository or starts a review on its own. Then open a repository in your
+agent and say:
 
-Upgrading later is the same command. It removes the previous install first, so you can never end up
-with two `livediff` binaries racing on `PATH`.
+> **"Use LiveDiff to review my changes."**
 
-## Claude Code and Codex
+Prefer to skip the questions?
 
-`./install.sh` registers this clone as a native marketplace and installs the LiveDiff plugin for
-each installed agent. Restart the agent after installation to load its skills. Re-running the
-installer refreshes the local marketplace and plugin after a pull.
-
-| You say or type       | What happens                                                         |
-| --------------------- | -------------------------------------------------------------------- |
-| "show me the diff"    | registers this worktree and opens it                                 |
-| "address my comments" | reads your open comments and works through them                      |
-| `/livediff:link`      | prints the URL, opens nothing                                        |
-| `/livediff:review`    | opens the diff and waits for you to finish reviewing                 |
-| `/livediff:pr`        | fetches a PR or branch into a worktree, registers it, and reviews it |
-| `/livediff:prune`     | previews what would be deleted from the archive, then asks           |
-
-The typed-only ones are deliberate: each has side effects whose timing you should own.
-
-## Comment lifecycle
-
-A comment records the branch it was left on and is only shown on that branch.
-
-Once its file leaves the diff it is _orphaned_ — hidden from the browser and from
-`livediff comments`, but visible with `--stale`. After 5 days orphaned, or 30 days
-resolved, it is archived: still restorable, no longer in the way. Archived comments are
-deleted after 200 days.
-
-```
-livediff comments --stale       what is hidden and heading for the archive
-livediff comments --archived    what is archived, and when it will be deleted
-livediff restore <id>           pull one back
-livediff prune --dry-run        what would be deleted right now
+```bash
+npx livediff@latest setup --agent claude                  # Claude Code
+npx livediff@latest setup --agent codex --browser cmux    # Codex, opening diffs in cmux
+npx livediff@latest setup --agent cursor --agent gemini   # several agents at once
+npx livediff@latest setup --cli-only                      # just the command, no agents
 ```
 
-Nothing is destroyed less than 205 days after a comment's last activity, and
-`/livediff:prune` always previews before it deletes.
+| Agent          | `--agent`  | Installed as         |
+| -------------- | ---------- | -------------------- |
+| Claude Code    | `claude`   | native plugin        |
+| Codex          | `codex`    | native plugin        |
+| Cursor         | `cursor`   | skill (experimental) |
+| GitHub Copilot | `copilot`  | skill (experimental) |
+| Gemini CLI     | `gemini`   | skill (experimental) |
+| OpenCode       | `opencode` | skill (experimental) |
 
-## Use
+Run `livediff setup` again any time to add an agent or repair an install; it keeps what is
+already there. `livediff setup --update` updates the CLI and every connected agent.
+
+## Working with your agent
+
+Ask in plain words:
+
+| You say                                | What happens                                                   |
+| -------------------------------------- | -------------------------------------------------------------- |
+| "show me the diff"                     | registers this worktree and opens it in your browser           |
+| "use LiveDiff to review my changes"    | opens the diff and waits until you click **Done reviewing**    |
+| "address my comments"                  | reads your open comments, makes the fixes, and replies to each |
+| "review PR 482 in LiveDiff"            | checks the PR out into its own worktree and opens it           |
+| "split this change into lenses for me" | groups the diff into named views, like "the fix" and "tests"   |
+
+In Claude Code and Codex, a few actions are also commands you type, because you should own when
+they happen:
+
+| Command            | What it does                                                         |
+| ------------------ | -------------------------------------------------------------------- |
+| `/livediff:link`   | prints the URL, opens nothing                                        |
+| `/livediff:review` | opens the diff and waits for you to finish reviewing                 |
+| `/livediff:pr`     | fetches a PR or branch into a worktree, registers it, and reviews it |
+| `/livediff:prune`  | previews what would be deleted from the archive, then asks           |
+
+Agents never touch LiveDiff's storage; everything goes through the CLI, and anything that deletes
+or checks out code asks you first.
+
+## Using the CLI
+
+```bash
+livediff .                               # open this worktree's diff
+livediff                                 # the hub: every registered worktree at once
+livediff review . --timeout 900          # open, then wait for "Done reviewing"
+livediff . --base origin/main            # review against main instead of the last commit
+livediff comments                        # open comments on this branch
+livediff reply 3f9a2c1b "good catch"     # answer a comment
+livediff resolve 3f9a2c1b "fixed"        # answer and close it
+```
+
+Any subdirectory works: `livediff .` from `src/components` registers the worktree root, and every
+worktree shows up in one hub at `http://localhost:4180` with its branch, change count, and open
+comments. That is the point when several agents each work in their own worktree.
+
+<details>
+<summary>All commands</summary>
 
 ```
 livediff                       open the hub UI (all workspaces)
-livediff hub                   explicit name for the hub command
 livediff open [path]           register a worktree and open its focused view
 livediff <path>                shorthand for `livediff open <path>`
-                               (a subdirectory scopes the view to it)
 livediff link [path]           register only, print the URL
 livediff review [path]         open, then block until "Done reviewing" is clicked
 livediff list                  list registered workspaces
@@ -89,57 +97,31 @@ livediff rm [path|id]          unregister
 livediff comments [path]       open comments on the current branch
                                (--status open|resolved|all, --branch, --stale, --archived)
 livediff lens <action>         define, list, or clear named filters over the diff
-                               (set|add|list|rm|clear)
 livediff restore <id>          return an archived comment to the live view
-livediff archive [path]        archive comments that are no longer live (all workspaces)
-livediff prune [path]          delete archived comments (all workspaces)
+livediff archive [path]        archive comments that are no longer live
+livediff prune [path]          delete archived comments
 livediff resolve <id> [text…]  reply and mark resolved
 livediff reply <id> <text…>    reply without resolving
-livediff restart               restart the hub with current settings
-livediff status                check hub and configuration state without starting anything
-livediff stop                  shut the hub down
 livediff setup                 install or repair the CLI and agent integrations
 livediff doctor                diagnose install and state problems
+livediff status                check hub and configuration state without starting anything
+livediff restart               restart the hub with current settings
+livediff stop                  shut the hub down
 livediff config edit           edit settings in your preferred editor
-livediff config explain <key>  show a setting's value and where it came from
+livediff completion install    install shell completion (bash, zsh, fish)
 ```
 
-Every command takes `--json` for machine-readable output. Exit codes are `0` success, `1` error,
-`2` usage mistake. `livediff help <command>` documents any of them; see
-[docs/CLI.md](docs/CLI.md) for the full generated reference.
+Every command takes `--json`. Exit codes are `0` success, `1` error, `2` usage mistake.
+`livediff help <command>` documents each one, and [docs/CLI.md](docs/CLI.md) is the full
+reference. `livediff help --json` describes the whole command tree for agents.
 
-`livediff help --json` prints a versioned description of the whole command tree — every command,
-nested action, argument, and option — so an agent can read the installed version's contract instead
-of guessing. `livediff help <command> --json` prints one command's entry.
+</details>
 
-For shell completion, run `livediff completion install`. It detects bash, zsh, or fish and writes
-a generated completion file under LiveDiff's XDG configuration directory. Add `--activate` only
-when you want it to append LiveDiff's clearly marked source block to your shell startup file:
-`livediff completion install zsh --activate`. Use `livediff completion status` to inspect it or
-`livediff completion uninstall zsh --deactivate` to remove it. You can still source a one-off
-script directly with `source <(livediff completion zsh)`. Tab completion is state-aware: it
-suggests registered workspace paths for commands like `open` and `comments`, and open or archived
-comment IDs for `resolve`, `reply`, and `restore` — by querying the running hub, never starting one.
-
-Any subdirectory works — `livediff .` from `src/components` registers the worktree root, so a
-worktree never registers twice.
-
-### With Claude
-
-Say **"open a diff of my worktree"**. Claude runs `livediff .` and shares the URL. Leave inline
-comments in the browser, then say **"address my diff comments"** — Claude reads them with
-`livediff comments`, makes the edits, and closes each thread with `livediff resolve`.
-
-Claude never reads or writes livediff's storage directly; it only talks to the CLI.
-
-### Lenses
+## Lenses
 
 A big change is easier to read a few files at a time. A **lens** is a named filter over the diff:
-the files it covers, why it exists, and optionally the line ranges worth looking at, which render
-as a translucent tint. The browser's header shows which lens is applied and lets you switch or
-clear it.
-
-Lenses belong to a review handoff. Claude writes the whole set as it hands work back:
+the files it covers, why it exists, and optionally the line ranges worth looking at. Agents write
+them as they hand work back:
 
 ```bash
 livediff lens set <<'EOF'
@@ -153,83 +135,29 @@ EOF
 livediff review . --lens retry
 ```
 
-`paths` takes globs (`*`, `**`, `?`) and literal paths in one list — a pattern with no
-metacharacter matches only itself, so `test/**` picks up tests added later while `src/retry.ts` is
-exactly that file.
+To steer your agent, put a **`.livediff`** file at your worktree root: plain markdown with whatever
+should be true of every review (_"always put tests in their own lens"_). LiveDiff never parses it;
+agents read it and follow it.
 
-To steer this, put a **`.livediff`** file at your worktree root — plain markdown, whatever you want
-true of every livediff interaction (_"always separate tests into their own lens"_). livediff never
-parses it; the skills read it and follow it.
+## Comments
 
-### Reviewing on demand
-
-`livediff <path> --wait` blocks until you click **Done reviewing** in the browser. The button only
-appears while something is actually waiting on you. Leaving comments open is expected — they are
-the output of the review, so the command still exits `0` and reports the count.
+A comment belongs to the branch it was left on and quotes the line it was left on, so it stays
+meaningful as line numbers shift. When its file leaves the diff it is hidden (`--stale` shows it).
+After 5 days hidden, or 30 days resolved, it is archived, where it can still be restored. Archived
+comments are deleted after 200 days, and `livediff prune --dry-run` shows what would go.
 
 ## How it works
 
-**The hub** is a small Node HTTP server with no framework. It shells out to `git`, serves the built
-UI, exposes a JSON API, and pushes updates over Server-Sent Events. The first CLI command starts it
-automatically and records its port in `~/.local/state/livediff/hub.json`; later commands read the
-port from there. It replaces itself when the CLI is a different version, and it never exits on its
-own — `livediff stop` is the off switch.
+The first command starts a small local hub and every later command reuses it; there is no server to
+remember to start. The hub only polls git while a browser tab is watching, so it costs nothing
+while idle. State lives in `~/.config/livediff`; nothing is ever written into your repositories.
+See [DESIGN.md](DESIGN.md) for the architecture and API, and
+[Configuration](docs/CONFIGURATION.md) for settings and environment variables.
 
-**It costs nothing while idle.** Watching a worktree means running `git status` on a timer, so that
-loop runs only while a browser is attached. With nobody looking, the hub is a resident process at
-roughly zero CPU. That is what makes "never exits" affordable, and it avoids the trap an idle
-timeout would create: a browser tab can't restart a hub that shut itself down.
+## Contributing
 
-**The CLI is a pure HTTP client.** It never writes livediff's files — the hub is the single writer,
-so concurrent commands can't lose each other's updates, and every change broadcasts to the browser
-for free.
-
-**State lives outside your repos.** The registry is `~/.config/livediff/workspaces.json` and
-comments are `~/.config/livediff/comments/<workspace-id>.json`. Nothing is ever written into a
-registered worktree — nothing to gitignore. Comments are keyed per worktree, so parallel agents
-never see each other's.
-
-**Comments anchor to content, not line numbers.** Each stores the exact text of the line it was
-left on. Line numbers drift as the worktree changes underneath; the quoted content is what an agent
-should trust.
-
-**The UI** is Vite + React + Tailwind, rendering diffs with
-[`@git-diff-view/react`](https://github.com/MrWangJustToDo/git-diff-view) — side-by-side or unified,
-syntax highlighted, with per-line comment widgets.
-
-The toolchain is deliberately boring for portability: Vite 6 / esbuild, Tailwind 3 / PostCSS,
-React 19, zero runtime dependencies in the server, and no native modules.
-
-See [DESIGN.md](DESIGN.md) for architecture and the API surface.
-
-## Config
-
-See [Configuration](docs/CONFIGURATION.md) for the JSONC config file, precedence rules, schema,
-and `livediff config` commands.
-
-| Env                 | Default          | Meaning                                                          |
-| ------------------- | ---------------- | ---------------------------------------------------------------- |
-| `LIVEDIFF_PORT`     | `4180`           | preferred hub port; the hub takes the next free one if it's busy |
-| `LIVEDIFF_POLL_MS`  | `1000`           | live-update poll interval                                        |
-| `LIVEDIFF_BROWSER`  | OS opener        | executable and arguments used to open LiveDiff URLs              |
-| `LIVEDIFF_RENDERER` | `fast`           | default diff renderer (`fast` or `classic`)                      |
-| `LIVEDIFF_OPEN`     | –                | `1` opens the browser when the hub starts                        |
-| `NO_COLOR`          | –                | disable colored CLI output                                       |
-| `XDG_CONFIG_HOME`   | `~/.config`      | where the registry and comments live                             |
-| `XDG_STATE_HOME`    | `~/.local/state` | where hub runtime state lives                                    |
-
-## Development
-
-```bash
-pnpm dev     # Vite dev server (5173) + auto-reloading hub (4180), proxied
-pnpm build   # build the UI into dist/
-pnpm test    # run the test suite
-pnpm serve   # run the hub against the current build
-```
-
-`./install.sh --dev` links the working tree globally so `livediff` reflects your edits.
-
-Contributions need a signed-off contributor agreement; see [CONTRIBUTING.md](CONTRIBUTING.md).
+To build from source, run the test suite, or send a change, see
+[CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 

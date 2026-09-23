@@ -1,7 +1,31 @@
 # Contributing to LiveDiff
 
-Issues and pull requests are welcome. See the Development section of the
-[README](README.md) for building and testing.
+Issues and pull requests are welcome.
+
+## Running from source
+
+You need Node 24 and pnpm (via `corepack enable`).
+
+```bash
+git clone https://github.com/ssteuteville/livediff.git
+cd livediff
+./install.sh          # build a real package and install it globally, plus the Claude/Codex plugins
+./install.sh --dev    # or: link this working tree globally so `livediff` reflects your edits
+```
+
+`./install.sh` removes any previous global install first, so two `livediff` binaries never race on
+`PATH`. Re-running it after a pull refreshes the local marketplace and plugins. To open diffs in
+cmux from a source build, run `scripts/cmux-browser-setup.sh`.
+
+```bash
+pnpm dev       # Vite dev server (5173) + auto-reloading hub (4180), proxied
+pnpm build     # build the server and the UI
+pnpm test      # node tests
+pnpm verify    # everything: typecheck, lint, node, browser, and e2e tests
+```
+
+`CLAUDE.md` covers the traps worth knowing before you change anything, and
+[docs/RELEASING.md](docs/RELEASING.md) covers publishing.
 
 ## Contributor License Agreement
 

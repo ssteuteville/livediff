@@ -14,7 +14,7 @@ compatibility: >-
   browser (for example, fully remote or cloud-hosted agents) cannot use the review or
   comment workflows described here.
 metadata:
-  version: "0.12.0-rc.1"
+  version: "0.12.0-rc.2"
 ---
 
 # LiveDiff
