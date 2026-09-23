@@ -1,7 +1,9 @@
 ---
 name: lens
 description: Define the ways to read a change before handing it to the user for review.
-when_to_use: "review with these lenses", "walk me through this", "split this diff up", or whenever you are about to hand a change back for review
+when_to_use: >-
+  "review with these lenses", "walk me through this", "split this diff up", or whenever you
+  are about to hand a change back for review
 allowed-tools: Bash(livediff *)
 ---
 
