@@ -1,0 +1,57 @@
+name: release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to release (must already be tagged v<version>, e.g. 1.0.0)"
+        required: true
+
+# Trusted publishing (OIDC) needs id-token; promoting the stable branch needs contents write.
+permissions:
+  id-token: write
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    environment: npm-publish
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: v${{ inputs.version }}
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      # Trusted publishing requires a recent npm; the runner's bundled npm predates it.
+      - run: npm install -g npm@latest
+
+      - name: Verify release metadata matches the tag
+        run: |
+          set -euo pipefail
+          pnpm build:server
+          node dist-server/scripts/release-version.js --check
+          PKG_VERSION="$(node -p "require('./package.json').version")"
+          if [ "$PKG_VERSION" != "${{ inputs.version }}" ]; then
+            echo "package.json version $PKG_VERSION does not match requested ${{ inputs.version }}" >&2
+            exit 1
+          fi
+
+      - name: Build, pack, and validate the artifact
+        run: pnpm release -- --dry-run
+
+      - name: Publish
+        run: pnpm release -- --publish "$(ls release/livediff-*.tgz)" --yes
+
+      - name: Verify registry
+        run: pnpm release -- --verify-registry "${{ inputs.version }}"
+
+      - name: Promote stable
+        run: pnpm release -- --promote "${{ inputs.version }}" --yes

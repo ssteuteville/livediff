@@ -13,6 +13,10 @@ __screenshots__/
 *.tgz
 *.tsbuildinfo
 
+# Immutable release tarballs assembled by scripts/release.ts. Never committed — the published
+# artifact's provenance is the git tag plus the registry, not a copy in the repo.
+release/
+
 # Local environment files may contain machine-specific configuration or secrets.
 .env
 .env.*

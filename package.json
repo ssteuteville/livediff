@@ -1,9 +1,25 @@
 {
   "name": "livediff",
   "version": "0.11.2",
-  "private": true,
   "description": "Local, live-updating git worktree diff hub with agent-readable review comments",
+  "keywords": [
+    "agent",
+    "cli",
+    "code-review",
+    "diff",
+    "git",
+    "worktree"
+  ],
+  "homepage": "https://github.com/ssteuteville/livediff#readme",
+  "bugs": {
+    "url": "https://github.com/ssteuteville/livediff/issues"
+  },
   "license": "MIT",
+  "author": "Shane Steuteville",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ssteuteville/livediff.git"
+  },
   "bin": {
     "livediff": "dist-server/server/cli.js"
   },
@@ -15,6 +31,9 @@
     "schemas"
   ],
   "type": "module",
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "predev": "pnpm build:server",
     "dev": "concurrently -k -n web,api,types -c cyan,magenta,yellow \"vite\" \"node --watch dist-server/server/index.js\" \"tsc -b --watch tsconfig.node.json\"",
@@ -34,17 +53,23 @@
     "lint": "oxlint --deny-warnings",
     "format": "oxfmt .",
     "format:check": "oxfmt --check .",
-    "prepack": "pnpm build"
+    "prepack": "pnpm build",
+    "prepublishOnly": "node -e \"if (process.env.LIVEDIFF_RELEASE !== '1') { console.error('Refusing to publish: run scripts/release.ts (pnpm release), which sets LIVEDIFF_RELEASE=1. Do not run npm publish directly.'); process.exit(1); }\"",
+    "prepackage:check": "pnpm build:server",
+    "package:check": "node dist-server/scripts/check-package.js",
+    "prepackage:smoke": "pnpm build:server",
+    "package:smoke": "node dist-server/scripts/smoke-package.js",
+    "prerelease": "pnpm build:server",
+    "release": "node dist-server/scripts/release.js",
+    "prerelease:version": "pnpm build:server",
+    "release:version": "node dist-server/scripts/release-version.js"
   },
   "dependencies": {
-    "@git-diff-view/core": "^0.1.7",
-    "@git-diff-view/react": "^0.1.7",
-    "highlight.js": "^11.11.1",
-    "jsonc-parser": "^3.3.1",
-    "react": "^19.2.8",
-    "react-dom": "^19.2.8"
+    "jsonc-parser": "^3.3.1"
   },
   "devDependencies": {
+    "@git-diff-view/core": "^0.1.7",
+    "@git-diff-view/react": "^0.1.7",
     "@playwright/test": "1.62.1",
     "@types/node": "^26.1.2",
     "@types/react": "^19.2.18",
@@ -53,12 +78,15 @@
     "@vitest/browser-playwright": "4.1.10",
     "autoprefixer": "^10.5.4",
     "concurrently": "^10.0.4",
+    "highlight.js": "^11.11.1",
     "lefthook": "2.1.10",
     "oxfmt": "0.62.0",
     "oxlint": "1.77.0",
     "oxlint-tsgolint": "7.0.2001",
     "playwright": "1.62.1",
     "postcss": "^8.5.23",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
     "tailwindcss": "^3.4.19",
     "typescript": "7.0.2",
     "vite": "^6.4.3",
@@ -66,7 +94,7 @@
     "vitest-browser-react": "2.2.0"
   },
   "engines": {
-    "node": ">=24"
+    "node": ">=22.12.0"
   },
   "packageManager": "pnpm@9.15.0",
   "pnpm": {

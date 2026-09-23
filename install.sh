@@ -20,12 +20,13 @@ die()  { printf '\033[31m✗\033[0m %s\n' "$1" >&2; exit 1; }
 
 # --- Node ---
 if ! command -v node >/dev/null 2>&1; then
-  echo "Node.js is required (>= 24). Install it and re-run." >&2
+  echo "Node.js is required (>= 22.12.0). Install it and re-run." >&2
   exit 1
 fi
 NODE_MAJOR="$(node -p 'process.versions.node.split(".")[0]')"
-if [ "$NODE_MAJOR" -lt 24 ]; then
-  echo "Node >= 24 required; found $(node -v)." >&2
+NODE_MINOR="$(node -p 'process.versions.node.split(".")[1]')"
+if [ "$NODE_MAJOR" -lt 22 ] || { [ "$NODE_MAJOR" -eq 22 ] && [ "$NODE_MINOR" -lt 12 ]; }; then
+  echo "Node >= 22.12.0 required; found $(node -v)." >&2
   exit 1
 fi
 ok "Node $(node -v)"
