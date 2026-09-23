@@ -162,13 +162,17 @@ const publishedClaude = {
   url: "https://github.com/ssteuteville/livediff.git",
   ref: "stable",
 };
-const claudePlugin = (version: string | undefined, root: string): Partial<RunResult> =>
+const claudePlugin = (
+  version: string | undefined,
+  root: string,
+  scope: string = "user",
+): Partial<RunResult> =>
   json([
     { id: "other@else", version: "9.9.9", scope: "user", enabled: true, installPath: "/other" },
     {
       id: "livediff@livediff",
       ...(version === undefined ? {} : { version }),
-      scope: "user",
+      scope,
       enabled: true,
       installPath: join(root, ".claude/plugins/cache/livediff/livediff", version ?? "unknown"),
     },
@@ -400,6 +404,24 @@ describe("Claude Code plugin", () => {
     assert.equal(result.outcome.version, undefined);
     assert.match(result.outcome.detail ?? "", /version could not be read/);
     assert.equal(result.record?.version, null);
+  });
+
+  test("a project-scoped plugin does not count as installed at user scope", async () => {
+    const f = await fixture({ bins: ["claude"] });
+    f.harness
+      .on("claude plugin marketplace list --json", claudeMarketplace(publishedClaude))
+      .on(
+        "claude plugin list --json",
+        claudePlugin("0.12.0", f.root, "project"),
+        claudePlugin("0.12.0", f.root, "project"),
+        claudePlugin("0.12.0", f.root, "user"),
+      )
+      .on("claude plugin install livediff@livediff --json", json({ outcome: "ok" }));
+
+    const result = await inspectAndApply("claude", f, "install");
+
+    assert.equal(result.outcome.status, "installed");
+    assert.equal(f.harness.called("claude plugin install").length, 1);
   });
 
   test("a plugin incompatible with the running CLI is installed with a remediation warning", async () => {
@@ -835,6 +857,29 @@ describe("portable skill", () => {
     assert.deepEqual(f.harness.calls, []);
   });
 
+  test("an agent that is no longer detected does not block an unattended shared update", async () => {
+    const f = await fixture({ dirs: [".cursor"] });
+    await writeSkill(f.root, "0.12.0", { ref: "stable" });
+    f.harness.on(installerUpdate, async () => {
+      await writeSkill(f.root, "0.12.1", { ref: "stable" });
+      return {};
+    });
+    const skillDir = join(f.root, ".agents/skills/livediff");
+
+    const result = await inspectAndApply("cursor", f, "update", {
+      recorded: {
+        cursor: priorRecord("portable-skill", "0.12.0"),
+        gemini: priorRecord("portable-skill", "0.12.0"),
+      },
+      sharedSkill: { path: skillDir, agents: ["cursor", "gemini"] },
+      interactive: false,
+    });
+
+    assert.equal(result.outcome.status, "updated");
+    assert.deepEqual(f.asked, []);
+    assert.deepEqual(f.harness.calls, [installerUpdate]);
+  });
+
   test("an acknowledged shared update runs once and reports every agent's verified change", async () => {
     const f = await fixture({ dirs: [".cursor", ".gemini"], answers: [true] });
     await writeSkill(f.root, "0.12.0", { ref: "stable" });
@@ -865,7 +910,7 @@ describe("portable skill", () => {
   });
 
   test("a declined shared update is skipped, not run", async () => {
-    const f = await fixture({ dirs: [".cursor"], answers: [false] });
+    const f = await fixture({ dirs: [".cursor", ".gemini"], answers: [false] });
     await writeSkill(f.root, "0.12.0", { ref: "stable" });
 
     const result = await inspectAndApply("cursor", f, "update", {

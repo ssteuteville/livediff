@@ -6,6 +6,7 @@ import { withTempXdg } from "./helpers.js";
 import { fakeContext, fakeRunner, ok } from "./setup-fixtures.js";
 import {
   SetupCancelled,
+  type AdapterPlan,
   type AgentAdapter,
   type AgentAlias,
   type PersistentCli,
@@ -64,6 +65,7 @@ function cliResult(overrides: Partial<PersistentCliResult> = {}): PersistentCliR
     },
     persistent: PERSISTENT,
     handoff: false,
+    changed: false,
     ...overrides,
   };
 }
@@ -220,6 +222,35 @@ test("each component is recorded on its own; failures keep prior records and exi
     assert.equal(saved.cli?.version, "2.0.0");
     assert.equal(saved.lastRun?.outcome, "partial");
     assert.match(saved.lastRun?.retry ?? "", /--agent gemini/);
+  });
+});
+
+test("the plan is snapshotted before the agent loop, so one agent's shared-skill update does not leak into a sibling's plan in the same run", async () => {
+  await withTempXdg(async () => {
+    const plans: AdapterPlan[] = [];
+    mocks.adapterFor.mockImplementation((alias: AgentAlias) =>
+      adapter(alias, async (_ctx, _action, plan) => {
+        plans.push(plan);
+        if (alias === "cursor") {
+          return {
+            outcome: { id: "agent:cursor", label: "cursor", status: "installed", version: "1" },
+            record,
+            sharedSkill: { path: "/skills/livediff", agents: ["cursor", "opencode"] },
+          };
+        }
+        return {
+          outcome: { id: "agent:opencode", label: "opencode", status: "installed", version: "1" },
+          record,
+        };
+      }),
+    );
+
+    const report = await runSetup(req({ agents: ["cursor", "opencode"] }), ctx());
+
+    assert.equal(report.exitCode, 0);
+    assert.equal(plans.length, 2);
+    assert.equal(plans[0]?.sharedSkill, null);
+    assert.equal(plans[1]?.sharedSkill, null);
   });
 });
 

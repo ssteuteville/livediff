@@ -26,6 +26,12 @@ async function claude(
   return { ok: true, stdout: result.stdout };
 }
 
+/** Project- or local-scoped entries are not visible to other worktrees; only `user` scope counts. */
+function isUserScoped(entry: Record<string, unknown>): boolean {
+  const scope = entry["scope"];
+  return scope === undefined || scope === "user";
+}
+
 /** `marketplace list --json` entries are `{name, source, repo|url|path, ref?}`. */
 function registrationOf(entry: Record<string, unknown>): Registration {
   const ref = stringField(entry, "ref");
@@ -40,8 +46,9 @@ function registrationOf(entry: Record<string, unknown>): Registration {
 }
 
 function pluginOf(entries: unknown[]): NativePlugin | null {
-  const ours = entries.filter(isRecord).filter((entry) => entry["id"] === PLUGIN_ID);
-  const entry = ours.find((candidate) => candidate["scope"] === "user") ?? ours[0];
+  const entry = entries
+    .filter(isRecord)
+    .find((candidate) => candidate["id"] === PLUGIN_ID && isUserScoped(candidate));
   if (entry === undefined) return null;
   const installPath = stringField(entry, "installPath");
   return {
@@ -64,7 +71,10 @@ async function read(ctx: SetupContext): Promise<NativeRead> {
   if (!plugins.ok) return plugins;
   const installed = parseJsonOutput(plugins.stdout);
   if (!Array.isArray(installed)) return { ok: false, error: "unexpected `plugin list` output" };
-  const entry = listed.filter(isRecord).find((candidate) => candidate["name"] === MARKETPLACE);
+  const entry = listed
+    .filter(isRecord)
+    .filter(isUserScoped)
+    .find((candidate) => candidate["name"] === MARKETPLACE);
   return {
     ok: true,
     state: {

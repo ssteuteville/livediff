@@ -16,6 +16,13 @@ import type { ComponentOutcome, PersistentCli, RunResult, SetupContext } from ".
 /** A tarball path or other npm spec to install instead of the registry release, for pre-publication testing. */
 export const SETUP_PACKAGE_ENV = "LIVEDIFF_SETUP_PACKAGE";
 
+/**
+ * Set only on the handoff spawn (like `SETUP_CONTINUATION_ENV`, stripped by the child once read),
+ * so the newly installed CLI reports "updated" only when the parent actually changed the install,
+ * rather than unconditionally on every continuation run.
+ */
+export const SETUP_CLI_CHANGED_ENV = "LIVEDIFF_SETUP_CLI_CHANGED";
+
 const EACCES_HELP =
   "https://docs.npmjs.com/resolving-eacces-permissions-errors-when-installing-packages-globally";
 const NPX_CACHE_PACKAGE = /[\\/]_npx[\\/][0-9a-f]+[\\/]node_modules[\\/]/i;
@@ -44,6 +51,12 @@ export interface PersistentCliOptions {
   update: boolean;
   /** This process is the freshly installed CLI a `--update` parent handed the run to. */
   continuation: boolean;
+  /**
+   * Only meaningful when `continuation` is true: whether the parent that handed off actually
+   * changed the install, read from `SETUP_CLI_CHANGED_ENV`. A continuation never installs
+   * anything itself, so without this it cannot otherwise tell "updated" from "unchanged".
+   */
+  cliChanged?: boolean;
 }
 
 export interface PersistentCliResult {
@@ -54,6 +67,8 @@ export interface PersistentCliResult {
    * belongs to the new CLI (see `handOffSetup`).
    */
   handoff: boolean;
+  /** Whether this call itself changed what is installed; passed on to a handoff, if any. */
+  changed: boolean;
 }
 
 /** Walk up from this module to the package.json that owns it. Never hardcodes the package name. */
@@ -137,6 +152,7 @@ export async function ensurePersistentCli(
     },
     persistent: null,
     handoff: false,
+    changed: false,
   });
 
   ctx.progress.step("Checking npm's global installation…");
@@ -148,7 +164,8 @@ export async function ensurePersistentCli(
   if (options.continuation) {
     const verified = await verify(ctx, env, npm, identity, identity.version);
     if (!verified.ok) return fail(verified.detail, invocation);
-    return succeed(verified.persistent, "updated", false);
+    const cliChanged = options.cliChanged ?? false;
+    return succeed(verified.persistent, cliChanged ? "updated" : "unchanged", false, cliChanged);
   }
 
   let target = identity.version;
@@ -191,7 +208,12 @@ export async function ensurePersistentCli(
   if (changed && before !== null && before.version !== target) {
     ctx.progress.ok(`LiveDiff CLI ${before.version} → ${target}`);
   }
-  return succeed(verified.persistent, status, options.update && target !== identity.version);
+  return succeed(
+    verified.persistent,
+    status,
+    options.update && target !== identity.version,
+    changed,
+  );
 }
 
 function statusFor(
@@ -208,6 +230,7 @@ function succeed(
   persistent: PersistentCli,
   status: ComponentOutcome["status"],
   handoff: boolean,
+  changed: boolean,
 ): PersistentCliResult {
   return {
     outcome: {
@@ -219,6 +242,7 @@ function succeed(
     },
     persistent,
     handoff,
+    changed,
   };
 }
 
@@ -233,9 +257,15 @@ export async function handOffSetup(
   persistent: PersistentCli,
   args: readonly string[],
   token: string,
+  changed: boolean,
 ): Promise<number> {
   ctx.progress.step(`Continuing setup with LiveDiff ${persistent.version}…`);
-  const env = { ...ctx.env, PATH: userPath(ctx.env), [SETUP_CONTINUATION_ENV]: token };
+  const env: NodeJS.ProcessEnv = {
+    ...ctx.env,
+    PATH: userPath(ctx.env),
+    [SETUP_CONTINUATION_ENV]: token,
+  };
+  if (changed) env[SETUP_CLI_CHANGED_ENV] = "1";
   const result = await ctx.run(persistent.node, [persistent.bin, "setup", ...args], {
     env,
     inherit: true,

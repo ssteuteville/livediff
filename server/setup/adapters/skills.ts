@@ -246,7 +246,13 @@ async function performShared(
     }
   }
   const previous = plan.sharedSkill?.agents ?? [];
-  const affected = previous.filter((alias) => !plan.selected.includes(alias));
+  const candidates = previous.filter((alias) => !plan.selected.includes(alias));
+  // A harness that is no longer detected cannot object to being updated, so it must not be able
+  // to block `--update --yes` forever just because it is still listed from an earlier run.
+  const affected: AgentAlias[] = [];
+  for (const alias of candidates) {
+    if (!isPortableAlias(alias) || (await detectTarget(ctx, alias))) affected.push(alias);
+  }
   const retry = retryCommand(union(targets, update ? affected : []), update);
   const before = await readSkill(paths);
   const expected = registrationFromSpec(ctx.source.skills);

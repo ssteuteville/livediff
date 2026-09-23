@@ -13,7 +13,12 @@ import {
 import { tmpdir } from "node:os";
 import { delimiter, dirname, join } from "node:path";
 import { userPath } from "../server/executable-path.js";
-import { ensurePersistentCli, handOffSetup, type PackageIdentity } from "../server/setup/npm.js";
+import {
+  ensurePersistentCli,
+  handOffSetup,
+  SETUP_CLI_CHANGED_ENV,
+  type PackageIdentity,
+} from "../server/setup/npm.js";
 import { SETUP_CONTINUATION_ENV } from "../server/setup/lock.js";
 import type { RunOptions, RunResult } from "../server/setup/types.js";
 import { failed, fakeContext, fakeRunner, ok, recordingProgress } from "./setup-fixtures.js";
@@ -369,10 +374,24 @@ test("the handed-off CLI only verifies: no second lookup, install, or handoff", 
     const { run, calls } = npmWorld(world, { latest: "5.0.0" });
     const result = await ensurePersistentCli(
       fakeContext({ run, env: world.env }),
-      { update: true, continuation: true },
+      { update: true, continuation: true, cliChanged: true },
       world.self,
     );
     assert.equal(result.outcome.status, "updated");
+    assert.equal(result.handoff, false);
+    assert.ok(!calls.some((c) => c.args[0] === "view" || c.args[0] === "install"));
+  });
+});
+
+test("a continuation reports unchanged when the parent did not actually change the install", async () => {
+  await withWorld({ persistent: true }, async (world) => {
+    const { run, calls } = npmWorld(world, { latest: "5.0.0" });
+    const result = await ensurePersistentCli(
+      fakeContext({ run, env: world.env }),
+      { update: true, continuation: true },
+      world.self,
+    );
+    assert.equal(result.outcome.status, "unchanged");
     assert.equal(result.handoff, false);
     assert.ok(!calls.some((c) => c.args[0] === "view" || c.args[0] === "install"));
   });
@@ -438,6 +457,7 @@ test("the handoff runs the new CLI with the chosen flags, a clean PATH, and the 
     },
     ["--update", "--agent", "codex"],
     "token-123",
+    false,
   );
   assert.equal(code, 3);
   assert.equal(seen.length, 1);
@@ -446,6 +466,32 @@ test("the handoff runs the new CLI with the chosen flags, a clean PATH, and the 
   assert.equal(seen[0]?.options?.inherit, true);
   assert.equal(seen[0]?.options?.env?.[SETUP_CONTINUATION_ENV], "token-123");
   assert.equal(seen[0]?.options?.env?.["PATH"], "/usr/bin");
+  assert.equal(seen[0]?.options?.env?.[SETUP_CLI_CHANGED_ENV], undefined);
+});
+
+test("the handoff sets the CLI-changed flag only when the parent actually changed the install", async () => {
+  const seen: { options: RunOptions | undefined }[] = [];
+  const ctx = fakeContext({
+    run: async (_command, _args, options) => {
+      seen.push({ options });
+      return { code: 0, stdout: "", stderr: "" };
+    },
+    env: { PATH: "/usr/bin" },
+  });
+  await handOffSetup(
+    ctx,
+    {
+      packageName: "livediff",
+      version: "2.0.0",
+      bin: "/p/bin/livediff",
+      packageRoot: "/p/lib/node_modules/livediff",
+      node: "/p/bin/node",
+    },
+    ["--update"],
+    "token-123",
+    true,
+  );
+  assert.equal(seen[0]?.options?.env?.[SETUP_CLI_CHANGED_ENV], "1");
 });
 
 test("only npm exec's own PATH entries are removed", () => {

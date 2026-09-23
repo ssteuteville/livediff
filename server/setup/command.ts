@@ -1,6 +1,7 @@
 import { EXIT_ERROR, EXIT_USAGE } from "../constants.js";
 import { runSetup, type SetupRunReport } from "./index.js";
 import { SETUP_CONTINUATION_ENV, SetupLockedError } from "./lock.js";
+import { SETUP_CLI_CHANGED_ENV } from "./npm.js";
 import { parseSetupOptions } from "./options.js";
 import { runProcess } from "./process.js";
 import { createProgress, createPrompter, refusingPrompter } from "./prompts.js";
@@ -28,6 +29,8 @@ export async function setupCommand(
   // Only the handoff spawn may pass the continuation on; no other child may inherit it.
   const continuationToken = process.env[SETUP_CONTINUATION_ENV] ?? null;
   delete process.env[SETUP_CONTINUATION_ENV];
+  const cliChanged = process.env[SETUP_CLI_CHANGED_ENV] === "1";
+  delete process.env[SETUP_CLI_CHANGED_ENV];
 
   const ctx: SetupContext = {
     run: runProcess,
@@ -42,7 +45,7 @@ export async function setupCommand(
 
   let report: SetupRunReport;
   try {
-    report = await runSetup(request, ctx, { continuationToken });
+    report = await runSetup(request, ctx, { continuationToken, cliChanged });
   } catch (error) {
     if (error instanceof SetupLockedError) return reportError(error.message, EXIT_ERROR, json);
     throw error;

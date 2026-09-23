@@ -53,6 +53,8 @@ export interface SetupRunReport {
 export interface RunSetupOptions {
   /** `LIVEDIFF_SETUP_CONTINUATION` as this process received it, already removed from its env. */
   continuationToken?: string | null | undefined;
+  /** `LIVEDIFF_SETUP_CLI_CHANGED` as this process received it, already removed from its env. */
+  cliChanged?: boolean | undefined;
 }
 
 /** Mutable bookkeeping shared with the signal handler. */
@@ -76,8 +78,8 @@ export async function runSetup(
   ctx: SetupContext,
   options: RunSetupOptions = {},
 ): Promise<SetupRunReport> {
-  const lock = await takeLock(options.continuationToken ?? null);
   const identity = await readPackageIdentity();
+  const lock = await takeLock(options.continuationToken ?? null);
   const run: Run = {
     state: emptySetupState(),
     readOnly: true,
@@ -90,7 +92,7 @@ export async function runSetup(
   process.on("SIGINT", onSignal);
   process.on("SIGTERM", onSignal);
   try {
-    return await runLocked(request, ctx, run, lock);
+    return await runLocked(request, ctx, run, lock, options.cliChanged ?? false);
   } finally {
     process.off("SIGINT", onSignal);
     process.off("SIGTERM", onSignal);
@@ -129,6 +131,7 @@ async function runLocked(
   ctx: SetupContext,
   run: Run,
   lock: SetupLock,
+  cliChanged: boolean,
 ): Promise<SetupRunReport> {
   const loaded = await loadSetupState();
   if (loaded.kind === "newer") return refuseNewerRecord(ctx, loaded.version);
@@ -159,6 +162,7 @@ async function runLocked(
     const cli = await ensurePersistentCli(ctx, {
       update: request.update,
       continuation: !lock.owned,
+      cliChanged,
     });
     outcomes.push(cli.outcome);
     if (cli.persistent === null) {
@@ -177,7 +181,7 @@ async function runLocked(
     if (cli.handoff) {
       run.handingOff = true;
       const args = continuationArgs(request, agents, browser);
-      const exitCode = await handOffSetup(ctx, cli.persistent, args, lock.token);
+      const exitCode = await handOffSetup(ctx, cli.persistent, args, lock.token, cli.changed);
       return {
         outcome: exitCode === EXIT_OK ? "success" : "failed",
         outcomes,
@@ -190,13 +194,26 @@ async function runLocked(
     outcomes.push(await browserStep(ctx, request, browser, saved, run));
     await saveSetupState(state);
 
+    // Snapshotted once, before any agent in this run mutates state: an adapter's plan must see
+    // what was true when the run started, not a sibling agent's update from earlier in this loop.
+    const recordedBeforeRun = structuredClone(state.agents);
+    const sharedSkillBeforeRun = structuredClone(state.sharedSkill);
     for (const alias of agents) {
       const inspected = inspections.get(alias);
       if (inspected === undefined) continue;
       const outcome =
         "failure" in inspected
           ? inspected.failure
-          : await applyAgent(ctx, request, alias, agents, inspected.inspection, state);
+          : await applyAgent(
+              ctx,
+              request,
+              alias,
+              agents,
+              inspected.inspection,
+              state,
+              recordedBeforeRun,
+              sharedSkillBeforeRun,
+            );
       run.requested.add(outcome);
       outcomes.push(outcome);
       await saveSetupState(state);
@@ -260,6 +277,8 @@ async function applyAgent(
   agents: readonly AgentAlias[],
   inspection: AdapterInspection,
   state: SetupState,
+  recorded: SetupState["agents"],
+  sharedSkill: SetupState["sharedSkill"],
 ): Promise<ComponentOutcome> {
   const action = request.update ? "update" : "install";
   try {
@@ -267,20 +286,33 @@ async function applyAgent(
     ctx.progress.step(`${action === "update" ? "Updating" : "Installing"} ${adapter.label}…`);
     const result = await adapter.apply(ctx, action, {
       selected: agents,
-      recorded: state.agents,
-      sharedSkill: state.sharedSkill,
+      recorded,
+      sharedSkill,
       interactive: request.interactive,
       inspection,
     });
     if (result.record !== null) state.agents[alias] = result.record;
-    // A failure says nothing about what is still installed; only a verified absence drops it.
-    else if (result.outcome.status !== "failed") delete state.agents[alias];
+    else if (result.outcome.status !== "failed") {
+      // A failure says nothing about what is still installed; only a verified absence drops it.
+      delete state.agents[alias];
+      pruneSharedSkillAgent(state, alias);
+    }
     if (result.sharedSkill !== undefined) state.sharedSkill = result.sharedSkill;
     return result.outcome;
   } catch (error) {
     if (error instanceof SetupCancelled) throw error;
     return agentFailure(alias, messageOf(error));
   }
+}
+
+/** A dropped agent record can no longer justify skipping the shared skill install on its behalf. */
+function pruneSharedSkillAgent(state: SetupState, alias: AgentAlias): void {
+  if (state.sharedSkill === null) return;
+  if (!state.sharedSkill.agents.includes(alias)) return;
+  state.sharedSkill = {
+    ...state.sharedSkill,
+    agents: state.sharedSkill.agents.filter((a) => a !== alias),
+  };
 }
 
 function agentFailure(alias: AgentAlias, detail: string): ComponentOutcome {
