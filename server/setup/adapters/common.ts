@@ -1,5 +1,4 @@
-import { access, constants } from "node:fs/promises";
-import { delimiter, isAbsolute, join, resolve } from "node:path";
+import { isAbsolute, resolve } from "node:path";
 import type {
   AgentAdapter,
   AgentAlias,
@@ -68,41 +67,6 @@ export function failureText(result: RunResult): string {
 export function homeDir(ctx: SetupContext): string | null {
   const home = ctx.env["HOME"] ?? ctx.env["USERPROFILE"];
   return home === undefined || home === "" ? null : home;
-}
-
-async function isExecutable(path: string): Promise<boolean> {
-  try {
-    await access(path, constants.X_OK);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-export async function exists(path: string): Promise<boolean> {
-  try {
-    await access(path);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-/**
- * Minimal PATH scan so detection never spawns anything. A shared `detectAgent` is being built
- * separately; this stays until the two are merged.
- */
-export async function onPath(ctx: SetupContext, names: readonly string[]): Promise<boolean> {
-  const dirs = (ctx.env["PATH"] ?? "").split(delimiter).filter((dir) => dir !== "");
-  const extensions = ctx.platform === "win32" ? ["", ".exe", ".cmd", ".bat"] : [""];
-  for (const dir of dirs) {
-    for (const name of names) {
-      for (const extension of extensions) {
-        if (await isExecutable(join(dir, name + extension))) return true;
-      }
-    }
-  }
-  return false;
 }
 
 export function retryCommand(aliases: readonly AgentAlias[], update: boolean): string {

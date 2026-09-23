@@ -9,12 +9,12 @@ import type {
   ComponentStatus,
   SetupContext,
 } from "../types.js";
+import { detectAgent } from "../detect.js";
 import {
   agentRecord,
   checkCompatibility,
   describeRegistration,
   joinDetails,
-  onPath,
   outcomeId,
   retryCommand,
   sameRegistration,
@@ -64,14 +64,15 @@ export function nativeAdapter(spec: NativeHarness): AgentAdapter {
     alias: spec.alias,
     label: spec.label,
     kind: "native-plugin",
-    detect: (ctx) => onPath(ctx, [spec.executable]),
+    detect: async (ctx) => (await detectAgent(spec.alias, ctx)).detected,
     inspect: (ctx) => inspectNative(spec, ctx),
     apply: (ctx, action, plan) => applyNative(spec, ctx, action, plan),
   };
 }
 
 async function inspectNative(spec: NativeHarness, ctx: SetupContext): Promise<AdapterInspection> {
-  if (!(await onPath(ctx, [spec.executable]))) {
+  // A config directory alone is not enough here: every native step runs the harness's CLI.
+  if ((await detectAgent(spec.alias, ctx)).executable === null) {
     return { available: false, installed: null, conflict: null };
   }
   const read = await spec.read(ctx);

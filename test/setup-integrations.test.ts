@@ -1,12 +1,12 @@
 import assert from "node:assert/strict";
-import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, test } from "vitest";
 import { adapterFor } from "../server/setup/adapters/index.js";
 import { checkCompatibility } from "../server/setup/adapters/common.js";
-import { SKILLS_INSTALLER } from "../server/setup/adapters/skills.js";
+import { SKILLS_INSTALLER, skillVersion } from "../server/setup/adapters/skills.js";
 import { runProcess } from "../server/setup/process.js";
 import { integrationSource } from "../server/setup/source.js";
 import type {
@@ -974,6 +974,24 @@ describe("portable skill", () => {
   });
 });
 
+describe("skill metadata", () => {
+  test("reads metadata.version from the shipped portable skill", async () => {
+    const manifest = await readFile(join(repoRoot, "skills/livediff/SKILL.md"), "utf8");
+    const pkg: unknown = JSON.parse(await readFile(join(repoRoot, "package.json"), "utf8"));
+    assert.ok(typeof pkg === "object" && pkg !== null && "version" in pkg);
+    assert.equal(skillVersion(manifest), pkg.version);
+  });
+
+  test.each([
+    ["inline map", "---\nname: x\nmetadata: { version: 1.2.3, other: y }\n---\n", "1.2.3"],
+    ["quoted block", "---\nmetadata:\n  author: me\n  version: '1.2.3' # pinned\n---\n", "1.2.3"],
+    ["absent", "---\nname: x\n---\n", null],
+    ["no frontmatter", "# LiveDiff\n", null],
+  ])("%s", (_name, text, expected) => {
+    assert.equal(skillVersion(text), expected);
+  });
+});
+
 describe("sources and compatibility", () => {
   test("the published source uses each harness's verified ref syntax", () => {
     const source = integrationSource({});
@@ -1017,7 +1035,8 @@ describe.skipIf(process.env["LIVEDIFF_REAL_HARNESS_TESTS"] !== "1")(
     test.each<AgentAlias>(["claude", "codex"])(
       "%s installs from a local checkout, then a rerun is unchanged",
       async (alias) => {
-        const f = await fixture({ env: { LIVEDIFF_SETUP_SOURCE: repoRoot } });
+        // Codex refuses to load its config when CODEX_HOME names a directory that does not exist.
+        const f = await fixture({ dirs: [".codex"], env: { LIVEDIFF_SETUP_SOURCE: repoRoot } });
         f.ctx.env["PATH"] = process.env["PATH"];
         f.ctx.run = runProcess;
         const first = await inspectAndApply(alias, f, "install");
@@ -1030,5 +1049,20 @@ describe.skipIf(process.env["LIVEDIFF_REAL_HARNESS_TESTS"] !== "1")(
       },
       300_000,
     );
+
+    test("the portable skill installs from a local checkout, then a rerun is unchanged", async () => {
+      const f = await fixture({ dirs: [".cursor"], env: { LIVEDIFF_SETUP_SOURCE: repoRoot } });
+      f.ctx.env["PATH"] = process.env["PATH"];
+      f.ctx.env["npm_config_cache"] = join(f.root, ".npm");
+      f.ctx.run = runProcess;
+      const first = await inspectAndApply("cursor", f, "install");
+      assert.equal(first.outcome.status, "installed", first.outcome.detail ?? "");
+      assert.ok(first.record?.version, "the installed version was read from SKILL.md");
+      const second = await inspectAndApply("cursor", f, "install", {
+        recorded: { cursor: first.record ?? undefined },
+        sharedSkill: first.sharedSkill ?? null,
+      });
+      assert.equal(second.outcome.status, "unchanged", second.outcome.detail ?? "");
+    }, 300_000);
   },
 );

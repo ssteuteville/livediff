@@ -11,16 +11,15 @@ import type {
   SetupContext,
   SharedSkill,
 } from "../types.js";
+import { AGENT_LABELS, detectAgent } from "../detect.js";
 import {
   agentRecord,
   checkCompatibility,
   describeRegistration,
-  exists,
   failureText,
   homeDir,
   isRecord,
   joinDetails,
-  onPath,
   outcomeId,
   registrationFrom,
   registrationFromSpec,
@@ -42,43 +41,30 @@ interface PortableTarget {
   name: string;
   /** The installer's agent id; it rejects `copilot`. */
   installerId: string;
-  executables: readonly string[];
-  configDirs(ctx: SetupContext, home: string): string[];
   installHint: string;
 }
 
 const TARGETS: Record<PortableAlias, PortableTarget> = {
   cursor: {
-    name: "Cursor",
+    name: AGENT_LABELS.cursor,
     installerId: "cursor",
-    executables: ["cursor", "cursor-agent"],
-    configDirs: (_ctx, home) => [join(home, ".cursor")],
     installHint: "Cursor is not installed. Install it from https://cursor.com.",
   },
   copilot: {
-    name: "GitHub Copilot",
+    name: AGENT_LABELS.copilot,
     installerId: "github-copilot",
-    executables: ["copilot"],
-    configDirs: (_ctx, home) => [join(home, ".copilot")],
     installHint:
       "GitHub Copilot CLI is not installed. Install it with `npm install -g @github/copilot`.",
   },
   gemini: {
-    name: "Gemini CLI",
+    name: AGENT_LABELS.gemini,
     installerId: "gemini-cli",
-    executables: ["gemini"],
-    configDirs: (_ctx, home) => [join(home, ".gemini")],
     installHint:
       "Gemini CLI is not installed. Install it with `npm install -g @google/gemini-cli`.",
   },
   opencode: {
-    name: "OpenCode",
+    name: AGENT_LABELS.opencode,
     installerId: "opencode",
-    executables: ["opencode"],
-    configDirs: (ctx, home) => {
-      const xdg = ctx.env["XDG_CONFIG_HOME"];
-      return [join(xdg === undefined || xdg === "" ? join(home, ".config") : xdg, "opencode")];
-    },
     installHint: "OpenCode is not installed. Install it from https://opencode.ai.",
   },
 };
@@ -185,16 +171,11 @@ function conflictOf(ctx: SetupContext, paths: SkillPaths, state: SkillState): st
 }
 
 async function detectTarget(ctx: SetupContext, alias: PortableAlias): Promise<boolean> {
-  const target = TARGETS[alias];
-  if (await onPath(ctx, target.executables)) return true;
-  const home = homeDir(ctx);
-  if (home === null) return false;
-  for (const dir of target.configDirs(ctx, home)) if (await exists(dir)) return true;
-  return false;
+  return (await detectAgent(alias, ctx)).detected;
 }
 
 function names(aliases: readonly AgentAlias[]): string {
-  return aliases.map((alias) => (isPortableAlias(alias) ? TARGETS[alias].name : alias)).join(", ");
+  return aliases.map((alias) => AGENT_LABELS[alias]).join(", ");
 }
 
 function union(...lists: readonly (readonly AgentAlias[])[]): AgentAlias[] {
@@ -224,9 +205,10 @@ type SharedRun =
 /**
  * One installer run serves all four agents (they share a directory), so the first portable
  * adapter applied in a setup run performs it for every selected portable agent and the rest
- * report from its result. Keyed by the run's context so separate runs never share a result.
+ * report from its result. Keyed by the run's `selected` array, which the coordinator passes
+ * unchanged to every adapter in one run and builds afresh for the next, so runs never share.
  */
-const sharedRuns = new WeakMap<SetupContext, Promise<SharedRun>>();
+const sharedRuns = new WeakMap<readonly AgentAlias[], Promise<SharedRun>>();
 
 function sharedRun(
   ctx: SetupContext,
@@ -234,10 +216,10 @@ function sharedRun(
   plan: AdapterPlan,
   self: PortableAlias,
 ): Promise<SharedRun> {
-  const existing = sharedRuns.get(ctx);
+  const existing = sharedRuns.get(plan.selected);
   if (existing !== undefined) return existing;
   const started = performShared(ctx, action, plan, self);
-  sharedRuns.set(ctx, started);
+  sharedRuns.set(plan.selected, started);
   return started;
 }
 
