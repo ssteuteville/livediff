@@ -320,14 +320,15 @@ async function promote(options: PromoteOptions): Promise<void> {
   console.log(`both marketplace catalogs resolve at ${tag}`);
   await validatePortableSkillAtTag(tag);
 
-  const command = `git push origin ${tag}:refs/heads/stable`;
-  console.log(`next: ${command}`);
+  // A branch must point at a commit; pushing an annotated tag object there is rejected.
+  const refspec = `${tag}^{commit}:refs/heads/stable`;
+  console.log(`next: git push origin ${refspec}`);
   if (!options.yes) {
     console.log("(pass --yes to run it)");
     return;
   }
   // No --force: a rejected non-fast-forward push is the safety net, not an error to work around.
-  await runInherited("git", ["push", "origin", `${tag}:refs/heads/stable`]);
+  await runInherited("git", ["push", "origin", refspec]);
   console.log("promoted.");
 }
 
