@@ -1,6 +1,6 @@
 {
   "name": "livediff",
-  "version": "0.11.2",
+  "version": "0.12.0-rc.1",
   "description": "Local, live-updating git worktree diff hub with agent-readable review comments",
   "keywords": [
     "agent",

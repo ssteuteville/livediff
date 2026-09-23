@@ -58,6 +58,7 @@ const MINIMAL_RUNTIME_FILES = {
   "dist-server/server/index.js": "",
   "dist/index.html": "<html></html>",
   "schemas/config-v1.json": "{}",
+  LICENSE: "MIT",
 };
 
 test("rejects a tarball missing dist/index.html", async () => {

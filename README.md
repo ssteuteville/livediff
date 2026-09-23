@@ -228,3 +228,9 @@ pnpm serve   # run the hub against the current build
 ```
 
 `./install.sh --dev` links the working tree globally so `livediff` reflects your edits.
+
+Contributions need a signed-off contributor agreement; see [CONTRIBUTING.md](CONTRIBUTING.md).
+
+## License
+
+[MIT](LICENSE)

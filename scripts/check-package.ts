@@ -26,6 +26,7 @@ const REQUIRED_PATTERNS = [
   /^package\/dist\/index\.html$/,
   /^package\/schemas\/config-v1\.json$/,
   /^package\/package\.json$/,
+  /^package\/LICENSE$/,
 ];
 
 /** Developer-only files that must never ship in the published tarball. */
