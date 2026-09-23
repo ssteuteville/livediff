@@ -3,39 +3,57 @@
 livediff reviews the worktree you are standing in, so reviewing a PR or branch means
 turning it into one first, then following the same opening, lens, and comments workflow.
 
-## 1. Resolve the target
+## 1. Resolve the target — read-only
 
-| Given                 | Head                                                                                                                   | Base                                                                                                                 |
-| --------------------- | ---------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
-| PR URL or bare number | `gh pr view <n> --json number,headRefName,baseRefName,title,body`, then `git fetch origin pull/<n>/head:<headRefName>` | `origin/<baseRefName>`, after `git fetch origin <baseRefName>`                                                       |
-| Branch name           | `git fetch origin <branch>`, then a local branch tracking it                                                           | the remote default branch, via `git symbolic-ref refs/remotes/origin/HEAD` or `gh repo view --json defaultBranchRef` |
+| Given                 | Head                                                              | Base                                                                                                                 |
+| --------------------- | ----------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| PR URL or bare number | `gh pr view <n> --json number,headRefName,baseRefName,title,body` | `origin/<baseRefName>`, the same field                                                                               |
+| Branch name           | the branch name itself                                            | the remote default branch, via `git symbolic-ref refs/remotes/origin/HEAD` or `gh repo view --json defaultBranchRef` |
 
-Fetch `pull/<n>/head` directly rather than checking the PR out with a tool that switches
-branches in place — it works for pull requests from forks and never touches the worktree
-you're already standing in.
+This step only looks things up — it doesn't fetch or create anything yet. Before doing
+either, check `git worktree list --porcelain`: if the branch is already checked out
+somewhere, reuse that path and skip the fetch and worktree creation below entirely.
 
-Before creating anything, check `git worktree list --porcelain`. If the branch is already
-checked out somewhere, reuse that path and skip creating a new one.
+## 2. Confirm before touching the repository
 
-## 2. Place the worktree — with confirmation
+Fetching a PR or branch creates or updates a local branch, and creating a worktree adds a
+new working directory — both change the user's repository state outside the one worktree
+you were asked to work in. **Tell the user, before running anything below: which branch
+you'll fetch or create, and the worktree path** — then get a go-ahead before running any
+`git fetch`, `git worktree add`, or checkout. Skip asking only if the user already told you
+exactly what to fetch and where to place it.
 
-Creating a worktree and fetching or checking out a branch both change the user's repository
-state outside the one worktree you were asked to work in. **Tell the user what you're about
-to create — the branch, and the path — before running `git worktree add <path> <branch>`,**
-unless they already specified the path themselves. Follow whatever convention the project
-has already established (an instruction file, a hook, a stated preference); if none exists,
-suggest a sibling directory named after the repo and branch rather than guessing a
-machine-specific path.
+## 3. Fetch and place the worktree
 
-## 3. Register
+For a PR URL or bare number, fetch `pull/<n>/head` directly rather than checking the PR out
+with a tool that switches branches in place — it works for pull requests from forks and
+never touches the worktree you're already standing in:
 
-From the new worktree, run `livediff open . --base origin/<base>` (or `livediff review .
+```
+git fetch origin pull/<n>/head:<headRefName>
+git fetch origin <baseRefName>
+```
+
+For a branch name, `git fetch origin <branch>` and track it locally.
+
+Then place the worktree: follow whatever convention the project has already established
+(an instruction file, a hook, a stated preference); if none exists, suggest a sibling
+directory named after the repo and branch rather than guessing a machine-specific path.
+
+```
+git worktree add <path> <branch>
+```
+
+## 4. Register
+
+If `.livediff` exists at the root of the new worktree, read it and follow it before doing
+anything else. Otherwise, run `livediff open . --base origin/<base>` (or `livediff review .
 --base origin/<base>` to go straight to waiting). Always use the remote ref, never a bare
 `main` — a local branch can lag the PR's real base. The base sticks to that workspace, so
 later `lens`, `comments`, and `review`/`open` calls from the same directory need no extra
 flags.
 
-## 4. Read the diff before defining lenses
+## 5. Read the diff before defining lenses
 
 You didn't write this change, so you can't know its shape from memory, and lens highlights
 are exact line numbers that have to be right.
@@ -48,7 +66,7 @@ are exact line numbers that have to be right.
 
 Then follow [Adding review context with lenses](lenses.md) and emit one `lens set`.
 
-## 5. Hand off and clean up — with confirmation
+## 6. Hand off and clean up — with confirmation
 
 If the user asked for a review rather than just a look, continue into `livediff review .`
 (see [Opening and waiting for a review](opening-a-review.md)) from the new worktree.

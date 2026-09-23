@@ -1,16 +1,35 @@
 # Retrieving and responding to comments
 
+If `.livediff` exists at the worktree root, read it and follow it before doing anything else.
+
 ```
 livediff comments [path] [--status open|resolved|all] [--branch <name>] [--base <ref>] [--stale|--archived]
 ```
 
-`livediff comments --json` (with `--status open`, the default) prints comments as
-structured data instead of a formatted list — an id, `file:line`, the quoted source line,
-and the reviewer's note, for every comment matching the filters. Prefer `--json` when you
-are going to parse the output rather than show it directly to a person.
+`livediff comments --json` (with `--status open`, the default) prints
+`{ "workspace": "<id>", "comments": [...] }`, where each comment has at least:
 
-**Trust the quoted source line over the line number.** Numbers drift as a file is edited
-after a comment is left; the quoted text is the anchor that still points at the right spot.
+```json
+{
+  "id": "a1b2c3d4",
+  "file": "src/retry.ts",
+  "line": 88,
+  "lineContent": "await sleep(backoff(attempt))",
+  "body": "why exponential and not fixed backoff here?",
+  "status": "open",
+  "replies": [{ "author": "user", "body": "...", "ts": "..." }]
+}
+```
+
+`lineContent` is the quoted source line; `body` is the reviewer's note. Prefer `--json`
+when you are going to parse the output rather than show it directly to a person.
+
+**Trust `lineContent` over `line`.** Line numbers drift as a file is edited after a comment
+is left; the quoted text is the anchor that still points at the right spot.
+
+**A comment whose file has left the diff is excluded by default.** `comments` (without
+`--stale`) only returns comments still anchored to the current diff — pass `--stale` to see
+the ones that aren't, rather than assuming an empty or short result means there are none.
 
 ## Responding
 

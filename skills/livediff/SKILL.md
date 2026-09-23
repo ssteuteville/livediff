@@ -25,6 +25,9 @@ on what comes back — all through the `livediff` CLI.
 
 ## Before you start
 
+- **If `.livediff` exists at the worktree root, read it and follow it before doing anything
+  else.** It's prose the project or user left for an agent working there — not something
+  livediff itself parses — and it can override or add to the defaults below.
 - **The `livediff` CLI must be on PATH.** If a `livediff` command fails with "command not
   found" or similar, tell the user to run `npx livediff@latest setup` once, then retry. Do
   not attempt to install it yourself.
@@ -54,8 +57,9 @@ Use `--base <ref>` to review everything a branch adds instead of just the last c
 prefer a remote ref (`origin/main`) over a bare branch name, since a local branch can lag.
 
 See [Opening and waiting for a review](references/opening-a-review.md) for the blocking
-`review` command, how to bound the wait with `--timeout`, and how to keep a harness with a
-command-execution timeout usable while a human takes their time reading.
+`review` command, what it does and doesn't print when it exits, how to bound the wait with
+`--timeout`, and how to keep a harness with a command-execution timeout usable while a
+human takes their time reading.
 
 ## Adding review context
 
@@ -68,9 +72,11 @@ the rules for what makes a lens worth having.
 
 ## Retrieving and responding to comments
 
-`livediff comments --json` prints open comments as structured data: an id, a `file:line`,
-the quoted source line, and the reviewer's note. Trust the quoted line over the line
-number — line numbers drift as a file is edited after a comment is left.
+`livediff comments --json` prints `{ workspace, comments: [{ id, file, line, lineContent,
+body, status, replies, ... }] }` — `lineContent` is the quoted source line, `body` is the
+reviewer's note. Trust `lineContent` over `line` — line numbers drift as a file is edited
+after a comment is left. Comments whose file has left the diff are excluded unless you pass
+`--stale`.
 
 See [Retrieving and responding to comments](references/comments.md) — it also covers the
 confirmation step required before marking a comment resolved on someone else's behalf.
