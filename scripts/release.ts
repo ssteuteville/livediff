@@ -18,7 +18,7 @@ import { createHash } from "node:crypto";
 import { execFile, spawn } from "node:child_process";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { createInterface } from "node:readline/promises";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { checkVersions } from "./release-version.js";
@@ -329,7 +329,8 @@ async function main(): Promise<void> {
 
   const publishTarball = flagValue(argv, "--publish");
   if (publishTarball) {
-    await publish({ tarballPath: publishTarball, yes, otp: flagValue(argv, "--otp") });
+    // npm reads a relative `dir/file.tgz` as a GitHub `owner/repo` shorthand.
+    await publish({ tarballPath: resolve(publishTarball), yes, otp: flagValue(argv, "--otp") });
     return;
   }
 

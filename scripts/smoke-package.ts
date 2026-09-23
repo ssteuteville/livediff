@@ -10,7 +10,7 @@
 import { execFile } from "node:child_process";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { promisify } from "node:util";
 import { createServer } from "node:net";
 
@@ -29,7 +29,8 @@ function parseArgs(argv: readonly string[]): CliOptions {
   if (!tarballPath) {
     throw new Error("usage: smoke-package <tarball> [--node <path-to-node-binary>]");
   }
-  return { tarballPath, nodeBinary: nodeBinary ?? process.execPath };
+  // npm reads a relative `dir/file.tgz` as a GitHub `owner/repo` shorthand.
+  return { tarballPath: resolve(tarballPath), nodeBinary: nodeBinary ?? process.execPath };
 }
 
 interface Check {
