@@ -37,6 +37,8 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
       - run: pnpm package:check
+      # npm pack won't create its destination, and release/ is gitignored so a fresh checkout lacks it.
+      - run: mkdir -p release
       - name: Pack once
         run: npm pack --ignore-scripts --pack-destination release
       - uses: actions/upload-artifact@v4
