@@ -96,6 +96,15 @@ export function loadConfig(): Config {
 
 export type ConfigValueSource = "default" | "file" | "environment";
 
+/**
+ * The persisted `browser.opener`, ignoring `LIVEDIFF_BROWSER`. `loadConfig` folds the
+ * environment override in, which is right for opening a browser but wrong for setup: setup
+ * needs to tell the user's saved preference apart from a value that merely wins at runtime.
+ */
+export function storedBrowserOpener(): readonly string[] | null {
+  return readConfigFile().browser?.opener ?? null;
+}
+
 /** Identify the winning configuration layer without exposing mutable file internals. */
 export function configValueSource(key: string): ConfigValueSource {
   const segments = configPathSegments(key);
