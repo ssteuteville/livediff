@@ -1,7 +1,9 @@
 ---
 name: open
 description: Show the user the current git worktree as a live browser diff they can comment on.
-when_to_use: "show me the diff", "open a diff", "open livediff", "let me see your changes", "give me a link to the diff", "review my changes in the browser"
+when_to_use: >-
+  "show me the diff", "open a diff", "open livediff", "let me see your changes", "give me a
+  link to the diff", "review my changes in the browser"
 allowed-tools: Bash(livediff *)
 ---
 
