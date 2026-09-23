@@ -33,6 +33,7 @@ Available on every command.
 - [restart](#restart)
 - [status](#status)
 - [stop](#stop)
+- [setup](#setup)
 - [doctor](#doctor)
 - [completion](#completion)
 - [help](#help)
@@ -453,6 +454,33 @@ livediff stop
 **Examples:**
 
 - `livediff stop` — shut the hub down
+
+## `setup`
+
+install livediff persistently and integrate it with your agents
+
+**Usage:**
+
+```
+livediff setup [--agent <name>]... [--browser <cmux|system>] [--cli-only] [--update]
+```
+
+**Options:**
+
+| Flags        | Takes value | Description                                       |
+| ------------ | ----------- | ------------------------------------------------- |
+| `--agent`    | yes         | integrate with an agent; repeat for several       |
+| `--browser`  | yes         | where reviews open, for every agent               |
+| `--cli-only` | no          | install the CLI without changing any agent        |
+| `--update`   | no          | update the CLI and recorded integrations          |
+| `--yes`      | no          | run without prompts (needs --agent or --cli-only) |
+
+**Examples:**
+
+- `npx livediff@latest setup` — guided first installation
+- `npx livediff@latest setup --agent codex --browser cmux` — Codex, opening in cmux
+- `livediff setup --agent gemini` — add Gemini CLI to an existing install
+- `livediff setup --update` — update the CLI and its integrations
 
 ## `doctor`
 

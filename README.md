@@ -98,6 +98,7 @@ livediff reply <id> <text…>    reply without resolving
 livediff restart               restart the hub with current settings
 livediff status                check hub and configuration state without starting anything
 livediff stop                  shut the hub down
+livediff setup                 install or repair the CLI and agent integrations
 livediff doctor                diagnose install and state problems
 livediff config edit           edit settings in your preferred editor
 livediff config explain <key>  show a setting's value and where it came from

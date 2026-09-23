@@ -383,6 +383,32 @@ export const COMMANDS: readonly CommandHelp[] = [
     examples: [["livediff stop", "shut the hub down"]],
   },
   {
+    id: "setup",
+    name: "setup",
+    usage: "livediff setup [--agent <name>]... [--browser <cmux|system>] [--cli-only] [--update]",
+    summary: "install livediff persistently and integrate it with your agents",
+    args: [],
+    details:
+      "Installs the livediff CLI through npm, then installs the LiveDiff integration for each\n" +
+      "selected agent: claude, codex, cursor, copilot, gemini, or opencode. Rerunning it\n" +
+      "reconciles what is installed without resetting other agents or your browser choice.\n" +
+      "Nothing opens a repository or starts a review. Exits non-zero if any requested\n" +
+      "component failed; skipped optional features are not failures.",
+    flags: [
+      ["--agent <name>", "integrate with an agent; repeat for several"],
+      ["--browser <cmux|system>", "where reviews open, for every agent"],
+      ["--cli-only", "install the CLI without changing any agent"],
+      ["--update", "update the CLI and recorded integrations"],
+      ["--yes", "run without prompts (needs --agent or --cli-only)"],
+    ],
+    examples: [
+      ["npx livediff@latest setup", "guided first installation"],
+      ["npx livediff@latest setup --agent codex --browser cmux", "Codex, opening in cmux"],
+      ["livediff setup --agent gemini", "add Gemini CLI to an existing install"],
+      ["livediff setup --update", "update the CLI and its integrations"],
+    ],
+  },
+  {
     id: "doctor",
     name: "doctor",
     usage: "livediff doctor",

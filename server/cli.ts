@@ -734,6 +734,11 @@ async function cmdStatus(): Promise<void> {
 
 const MARK: Record<"ok" | "warn" | "error", string> = { ok: "✓", warn: "!", error: "✗" };
 
+async function cmdSetup(): Promise<void> {
+  const { setupCommand } = await import("./setup/command.js");
+  await exit(await setupCommand(RAW_ARGV, hubVersion()));
+}
+
 async function cmdDoctor(): Promise<void> {
   const findings = await diagnose(hubVersion());
   const failed = findings.some((f) => f.level === "error");
@@ -1313,6 +1318,8 @@ async function main(): Promise<void> {
       return cmdStatus();
     case "stop":
       return cmdStop();
+    case "setup":
+      return cmdSetup();
     case "doctor":
       return cmdDoctor();
     case "completion":
