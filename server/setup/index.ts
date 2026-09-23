@@ -1,6 +1,11 @@
 import { EXIT_ERROR, EXIT_OK } from "../constants.js";
 import { adapterFor } from "./adapters/index.js";
-import { configureBrowser, inspectSavedBrowser, type SavedBrowser } from "./browser.js";
+import {
+  configureBrowser,
+  inspectSavedBrowser,
+  repairOwnedOpener,
+  type SavedBrowser,
+} from "./browser.js";
 import { AGENT_LABELS } from "./detect.js";
 import { acquireSetupLock, adoptSetupLock, type SetupLock } from "./lock.js";
 import {
@@ -141,7 +146,7 @@ async function runLocked(
     if (coreBlocked(outcomes)) return await finish(run, agents);
 
     agents = await chooseAgents(request, ctx, state);
-    const saved = await inspectSavedBrowser(ctx);
+    const saved = await inspectSavedBrowser(ctx, state.ownedOpener);
     const browser = await chooseBrowser(
       request,
       ctx,
@@ -149,7 +154,7 @@ async function runLocked(
       saved,
       state.cli === null,
     );
-    const inspections = await inspectAgents(ctx, agents, run);
+    const inspections = await inspectAgents(ctx, agents);
 
     const cli = await ensurePersistentCli(ctx, {
       update: request.update,
@@ -186,9 +191,12 @@ async function runLocked(
     await saveSetupState(state);
 
     for (const alias of agents) {
-      const inspection = inspections.get(alias);
-      if (inspection === undefined) continue;
-      const outcome = await applyAgent(ctx, request, alias, agents, inspection, state);
+      const inspected = inspections.get(alias);
+      if (inspected === undefined) continue;
+      const outcome =
+        "failure" in inspected
+          ? inspected.failure
+          : await applyAgent(ctx, request, alias, agents, inspected.inspection, state);
       run.requested.add(outcome);
       outcomes.push(outcome);
       await saveSetupState(state);
@@ -225,20 +233,21 @@ function refuseNewerRecord(ctx: SetupContext, version: number): SetupRunReport {
   };
 }
 
+type Inspected = { inspection: AdapterInspection } | { failure: ComponentOutcome };
+
 /** Inspect every selected agent before any mutation; a throwing adapter fails only itself. */
 async function inspectAgents(
   ctx: SetupContext,
   agents: readonly AgentAlias[],
-  run: Run,
-): Promise<Map<AgentAlias, AdapterInspection>> {
-  const inspections = new Map<AgentAlias, AdapterInspection>();
+): Promise<Map<AgentAlias, Inspected>> {
+  const inspections = new Map<AgentAlias, Inspected>();
   for (const alias of agents) {
     try {
-      inspections.set(alias, await adapterFor(alias).inspect(ctx));
+      inspections.set(alias, { inspection: await adapterFor(alias).inspect(ctx) });
     } catch (error) {
-      const outcome = agentFailure(alias, `could not inspect: ${messageOf(error)}`);
-      run.requested.add(outcome);
-      run.outcomes.push(outcome);
+      inspections.set(alias, {
+        failure: agentFailure(alias, `could not inspect: ${messageOf(error)}`),
+      });
     }
   }
   return inspections;
@@ -292,8 +301,20 @@ async function browserStep(
   saved: SavedBrowser,
   run: Run,
 ): Promise<ComponentOutcome> {
-  if (choice === null) return preservedBrowser(saved);
   let outcome: ComponentOutcome;
+  if (choice === null) {
+    try {
+      return (await repairOwnedOpener(ctx, run.state)) ?? preservedBrowser(saved);
+    } catch (error) {
+      return {
+        id: "browser",
+        label: "Browser",
+        status: "failed",
+        detail: `could not repair the saved cmux opener: ${messageOf(error)}`,
+        retry: "livediff setup --browser cmux",
+      };
+    }
+  }
   try {
     ctx.progress.step(`Configuring the ${choice === "cmux" ? "cmux" : "system"} browser…`);
     outcome = await configureBrowser(ctx, choice, run.state);

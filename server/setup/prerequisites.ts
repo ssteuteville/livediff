@@ -1,6 +1,5 @@
-import { homedir } from "node:os";
-import { join } from "node:path";
-import { findExecutable, isExecutableFile, userPath } from "../executable-path.js";
+import { findCmux } from "../cmux-open.js";
+import { findExecutable, userPath } from "../executable-path.js";
 import { readPackageIdentity, setupRetryCommand, type PackageIdentity } from "./npm.js";
 import type { ComponentOutcome, SetupContext, SetupRequest } from "./types.js";
 
@@ -16,45 +15,20 @@ export interface PrerequisiteReport {
 export interface PrerequisiteProbe {
   nodeVersion: string;
   identity: () => Promise<PackageIdentity>;
-  findCmux: CmuxFinder;
+  findCmux: typeof findCmux;
 }
-
-export type CmuxFinder = (
-  env: NodeJS.ProcessEnv,
-  platform: NodeJS.Platform,
-  exists?: (path: string) => Promise<boolean>,
-) => Promise<string | null>;
 
 const GH_LOGIN = "gh auth login";
 const LOCAL_REVIEWS_NOTE = "local reviews work without it";
+/** cmux's browser integration is verified on macOS only. */
+const CMUX_PLATFORMS: readonly NodeJS.Platform[] = ["darwin"];
 
 export function defaultProbe(): PrerequisiteProbe {
   return {
     nodeVersion: process.versions.node,
     identity: () => readPackageIdentity(),
-    findCmux: findCmuxExecutable,
+    findCmux,
   };
-}
-
-/**
- * Stand-in for the cmux worker's `findCmux` in server/cmux-open.ts, with the same shape: the
- * `cmux` on the user's PATH, then the macOS app bundle — not merely an inherited CMUX_*
- * variable. Swap for that export at merge.
- */
-export async function findCmuxExecutable(
-  env: NodeJS.ProcessEnv,
-  platform: NodeJS.Platform,
-  exists: (path: string) => Promise<boolean> = isExecutableFile,
-): Promise<string | null> {
-  if (platform !== "darwin") return null;
-  const onPath = await findExecutable("cmux", userPath(env));
-  if (onPath !== null) return onPath;
-  const home = env["HOME"] ?? homedir();
-  for (const app of ["/Applications", join(home, "Applications")]) {
-    const bundled = join(app, "cmux.app", "Contents", "Resources", "bin", "cmux");
-    if (await exists(bundled)) return bundled;
-  }
-  return null;
 }
 
 /** Read-only checks for Node, npm, Git, cmux, and `gh`. Required failures carry a retry. */
@@ -92,7 +66,8 @@ export async function checkPrerequisites(
     outcomes.push(missingGit(await gitInstallPlan(ctx), retry));
   }
 
-  const cmux = (await probe.findCmux(ctx.env, ctx.platform)) !== null;
+  const cmux =
+    CMUX_PLATFORMS.includes(ctx.platform) && (await probe.findCmux(env, ctx.platform)) !== null;
   if (cmux) ctx.progress.ok("cmux detected");
 
   return { outcomes, git: gitVersion !== null, gh: await ghState(ctx, env), cmux };

@@ -462,18 +462,18 @@ install livediff persistently and integrate it with your agents
 **Usage:**
 
 ```
-livediff setup [--agent <name>]... [--browser <cmux|system>] [--cli-only] [--update]
+livediff setup [--agent <name>]... [--browser <cmux|system>] [--cli-only] [--update] [--yes]
 ```
 
 **Options:**
 
-| Flags        | Takes value | Description                                       |
-| ------------ | ----------- | ------------------------------------------------- |
-| `--agent`    | yes         | integrate with an agent; repeat for several       |
-| `--browser`  | yes         | where reviews open, for every agent               |
-| `--cli-only` | no          | install the CLI without changing any agent        |
-| `--update`   | no          | update the CLI and recorded integrations          |
-| `--yes`      | no          | run without prompts (needs --agent or --cli-only) |
+| Flags        | Takes value | Description                                                  |
+| ------------ | ----------- | ------------------------------------------------------------ |
+| `--agent`    | yes         | integrate with an agent; repeat for several                  |
+| `--browser`  | yes         | where reviews open, for every agent                          |
+| `--cli-only` | no          | install the CLI without changing any agent                   |
+| `--update`   | no          | update the CLI and recorded integrations                     |
+| `--yes`      | no          | run without prompts (needs --agent, --cli-only, or --update) |
 
 **Examples:**
 
