@@ -1,7 +1,9 @@
 ---
 name: comments
 description: Read the user's inline livediff review comments and act on them.
-when_to_use: "address my comments", "what did I comment", "check the diff feedback", "handle my review notes", or after the user says they left comments
+when_to_use: >-
+  "address my comments", "what did I comment", "check the diff feedback", "handle my review
+  notes", or after the user says they left comments
 allowed-tools: Bash(livediff *)
 ---
 

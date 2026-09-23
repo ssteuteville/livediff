@@ -37,6 +37,7 @@
     "prepack": "pnpm build"
   },
   "dependencies": {
+    "@clack/prompts": "1.8.1",
     "@git-diff-view/core": "^0.1.7",
     "@git-diff-view/react": "^0.1.7",
     "highlight.js": "^11.11.1",
@@ -63,7 +64,8 @@
     "typescript": "7.0.2",
     "vite": "^6.4.3",
     "vitest": "4.1.10",
-    "vitest-browser-react": "2.2.0"
+    "vitest-browser-react": "2.2.0",
+    "yaml": "2.9.0"
   },
   "engines": {
     "node": ">=24"

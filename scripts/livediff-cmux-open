@@ -1,49 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# livediff's `browser.opener`, for people running inside cmux.
-#
-# `cmux browser open` picks its target workspace from the caller's $CMUX_WORKSPACE_ID, which is
-# wrong for livediff twice over: the hub is a daemon that outlives the workspace that spawned it,
-# so its copy goes stale and every diff it opens lands in whatever project happened to start it;
-# and even a live agent's value can name a different workspace than the one its human is reading.
-# Opening a diff is a "show the user something" action, so the selected workspace wins over the
-# inherited id. --focus is passed because cmux defaults it to false and a background tab in the
-# right workspace still looks like nothing happened.
+# Thin delegate: the real workspace-selection logic lives in server/cmux-open.ts (compiled to
+# dist-server/server/cmux-open.js) so there is exactly one implementation, shared with
+# `livediff setup --browser cmux`. See that file for the algorithm and its rationale.
 
-url="${1:-}"
-if [ -z "$url" ]; then
-  echo "usage: $(basename "$0") <url>" >&2
-  exit 64
-fi
-
-if ! command -v cmux >/dev/null 2>&1; then
-  echo "cmux is not on PATH — run \`livediff config unset browser.opener\` to fall back to the OS opener" >&2
-  exit 127
-fi
-
-selected_workspace() {
-  local json
-  json="$(cmux workspace list --json 2>/dev/null)" || return 1
-  printf '%s' "$json" | node -e '
-    let raw = "";
-    process.stdin.on("data", (chunk) => (raw += chunk));
-    process.stdin.on("end", () => {
-      try {
-        const found = JSON.parse(raw).workspaces.find((w) => w.selected);
-        if (found && typeof found.ref === "string") process.stdout.write(found.ref);
-      } catch {
-        /* an unreadable listing is not worth failing an open over */
-      }
-    });
-  '
-}
-
-workspace="$(selected_workspace || true)"
-[ -n "$workspace" ] || workspace="${CMUX_WORKSPACE_ID:-}"
-
-if [ -n "$workspace" ]; then
-  exec cmux browser open --workspace "$workspace" --focus true "$url"
-fi
-
-exec cmux browser open --focus true "$url"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+exec node "$SCRIPT_DIR/../dist-server/server/cmux-open.js" "$@"

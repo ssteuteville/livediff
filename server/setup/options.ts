@@ -59,14 +59,21 @@ export function parseSetupOptions(
   const update = has("--update");
   const yes = has("--yes");
   const json = has("--json");
-  if (yes && !cliOnly && agents.length === 0 && !update) {
+  const interactive = terminal.stdinIsTTY && terminal.stdoutIsTTY && !json && !yes;
+  if (!interactive && !cliOnly && agents.length === 0 && !update) {
     return usage(
-      "--yes needs an explicit selection: pass one or more --agent values, or --cli-only",
+      `${nonInteractiveReason(yes, json)} needs an explicit selection: pass one or more ` +
+        "--agent values, --cli-only, or --update",
     );
   }
 
-  const interactive = terminal.stdinIsTTY && terminal.stdoutIsTTY && !json && !yes;
   return { ok: true, request: { agents, cliOnly, browser, update, yes, json, interactive } };
+}
+
+function nonInteractiveReason(yes: boolean, json: boolean): string {
+  if (yes) return "--yes";
+  if (json) return "--json";
+  return "setup without a terminal";
 }
 
 function usage(error: string): ParsedSetupOptions {
