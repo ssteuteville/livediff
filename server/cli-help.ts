@@ -385,21 +385,24 @@ export const COMMANDS: readonly CommandHelp[] = [
   {
     id: "setup",
     name: "setup",
-    usage: "livediff setup [--agent <name>]... [--browser <cmux|system>] [--cli-only] [--update]",
+    usage:
+      "livediff setup [--agent <name>]... [--browser <cmux|system>] [--cli-only] [--update] [--yes]",
     summary: "install livediff persistently and integrate it with your agents",
     args: [],
     details:
       "Installs the livediff CLI through npm, then installs the LiveDiff integration for each\n" +
       "selected agent: claude, codex, cursor, copilot, gemini, or opencode. Rerunning it\n" +
       "reconciles what is installed without resetting other agents or your browser choice.\n" +
-      "Nothing opens a repository or starts a review. Exits non-zero if any requested\n" +
-      "component failed; skipped optional features are not failures.",
+      "Nothing opens a repository or starts a review. Without a terminal, or with --json or\n" +
+      "--yes, pass --agent, --cli-only, or --update; setup never prompts, installs Git or gh,\n" +
+      "or signs in unattended. Exits 1 if any requested component failed (skipped optional\n" +
+      "features such as GitHub PR support are not failures) and 2 on invalid usage.",
     flags: [
       ["--agent <name>", "integrate with an agent; repeat for several"],
       ["--browser <cmux|system>", "where reviews open, for every agent"],
       ["--cli-only", "install the CLI without changing any agent"],
       ["--update", "update the CLI and recorded integrations"],
-      ["--yes", "run without prompts (needs --agent or --cli-only)"],
+      ["--yes", "run without prompts (needs --agent, --cli-only, or --update)"],
     ],
     examples: [
       ["npx livediff@latest setup", "guided first installation"],

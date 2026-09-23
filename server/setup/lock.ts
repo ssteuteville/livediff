@@ -1,16 +1,13 @@
 import { randomUUID } from "node:crypto";
+import { readFileSync, rmSync } from "node:fs";
 import { hostname } from "node:os";
-import { readFile, rm, writeFile, mkdir } from "node:fs/promises";
+import { link, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { configDir } from "../registry.js";
 
-/**
- * Serializes setup runs. Deliberately separate from the hub lock: setup holds it across npm
- * installs that can take minutes, so ownership is decided by whether the owning process is
- * alive, never by the lock's age.
- */
-
 const SETUP_LOCK_FILENAME = "setup.lock";
+const ATTEMPTS = 5;
+const UNREADABLE_RETRY_MS = 50;
 
 /** Carries lock ownership from a `--update` parent to the freshly installed CLI it hands off to. */
 export const SETUP_CONTINUATION_ENV = "LIVEDIFF_SETUP_CONTINUATION";
@@ -27,18 +24,23 @@ export interface SetupLock {
   /** Whether this process created the lock (and must release it) or adopted a parent's. */
   owned: boolean;
   release(): Promise<void>;
+  /** For signal handlers, which cannot wait on a promise before the process exits. */
+  releaseSync(): void;
 }
 
 export class SetupLockedError extends Error {
   readonly owner: { pid: number; startedAt: string };
+  readonly path: string;
 
-  constructor(owner: { pid: number; startedAt: string }) {
+  constructor(owner: { pid: number; startedAt: string }, path: string) {
     super(
       `another livediff setup is already running (pid ${owner.pid}, started ${owner.startedAt}). ` +
-        "Wait for it to finish, or stop that process and run setup again.",
+        `Wait for it to finish, or stop that process and run setup again. If no setup is ` +
+        `running, delete ${path} and retry.`,
     );
     this.name = "SetupLockedError";
     this.owner = owner;
+    this.path = path;
   }
 }
 
@@ -59,8 +61,11 @@ function processAlive(pid: number): boolean {
 }
 
 /**
- * Take the setup lock, reclaiming it only from an owner on this host that is no longer running.
- * A live owner — or one on another host sharing this config directory — is never displaced.
+ * Take the setup lock, which serializes setup runs. It is deliberately separate from the hub
+ * lock: setup holds it across npm installs that can take minutes, so ownership is decided by
+ * whether the owning process is alive, never by the lock's age. A lock is reclaimed only from an
+ * owner on this host that is no longer running; a live owner — or one on another host sharing
+ * this config directory — is never displaced.
  */
 export async function acquireSetupLock(
   path = setupLockPath(),
@@ -73,18 +78,54 @@ export async function acquireSetupLock(
     token: randomUUID(),
     startedAt: new Date().toISOString(),
   };
-  for (let attempt = 0; attempt < 2; attempt++) {
+  for (let attempt = 0; attempt < ATTEMPTS; attempt++) {
     if (await createExclusive(path, owner)) return ownedLock(path, owner.token);
     const existing = await readOwner(path);
-    if (existing === null) continue;
-    if (existing.host !== owner.host || alive(existing.pid)) throw new SetupLockedError(existing);
-    await removeIfToken(path, existing.token);
+    if (existing === null) {
+      // Possibly a lock being written right now; give its owner a moment to finish.
+      await delay(UNREADABLE_RETRY_MS);
+      continue;
+    }
+    if (existing.host !== owner.host || alive(existing.pid)) {
+      throw new SetupLockedError(existing, path);
+    }
+    if ((await reclaimDead(path, existing.token)) === "busy") {
+      const current = await readOwner(path);
+      throw new SetupLockedError(current ?? existing, path);
+    }
   }
   const existing = await readOwner(path);
-  if (existing !== null) throw new SetupLockedError(existing);
+  if (existing !== null) throw new SetupLockedError(existing, path);
   throw new Error(
     `the setup lock at ${path} is unreadable. If no livediff setup is running, delete it and retry.`,
   );
+}
+
+/**
+ * Move a dead owner's lock aside before deleting it, so that two runs reclaiming at once cannot
+ * each delete the lock the other just created: whoever renames the file reads back exactly what
+ * it took. Taking a live lock by mistake puts it back.
+ */
+async function reclaimDead(path: string, deadToken: string): Promise<"reclaimed" | "busy"> {
+  const aside = `${path}.${process.pid}.${randomUUID()}.reclaim`;
+  try {
+    await rename(path, aside);
+  } catch (error) {
+    if (isCode(error, "ENOENT")) return "reclaimed";
+    throw error;
+  }
+  const moved = await readOwner(aside);
+  if (moved?.token === deadToken) {
+    await rm(aside, { force: true });
+    return "reclaimed";
+  }
+  try {
+    await link(aside, path);
+  } catch (error) {
+    if (!isCode(error, "EEXIST")) throw error;
+  }
+  await rm(aside, { force: true });
+  return "busy";
 }
 
 /**
@@ -99,7 +140,12 @@ export async function adoptSetupLock(
 ): Promise<SetupLock | null> {
   const existing = await readOwner(path);
   if (existing === null || existing.token !== token || existing.pid !== parentPid) return null;
-  return { token, owned: false, release: async () => undefined };
+  return {
+    token,
+    owned: false,
+    release: async () => undefined,
+    releaseSync: () => undefined,
+  };
 }
 
 async function createExclusive(path: string, owner: LockOwner): Promise<boolean> {
@@ -107,15 +153,23 @@ async function createExclusive(path: string, owner: LockOwner): Promise<boolean>
     await writeFile(path, JSON.stringify(owner) + "\n", { flag: "wx" });
     return true;
   } catch (error) {
-    if (error instanceof Error && "code" in error && error.code === "EEXIST") return false;
+    if (isCode(error, "EEXIST")) return false;
     throw error;
   }
 }
 
 async function readOwner(path: string): Promise<LockOwner | null> {
+  try {
+    return parseOwner(await readFile(path, "utf8"));
+  } catch {
+    return null;
+  }
+}
+
+function parseOwner(text: string): LockOwner | null {
   let raw: unknown;
   try {
-    raw = JSON.parse(await readFile(path, "utf8"));
+    raw = JSON.parse(text);
   } catch {
     return null;
   }
@@ -136,6 +190,14 @@ async function removeIfToken(path: string, token: string): Promise<void> {
   if (current?.token === token) await rm(path, { force: true });
 }
 
+function removeIfTokenSync(path: string, token: string): void {
+  try {
+    if (parseOwner(readFileSync(path, "utf8"))?.token === token) rmSync(path, { force: true });
+  } catch {
+    // Already gone, or unreadable — either way it is not ours to remove.
+  }
+}
+
 function ownedLock(path: string, token: string): SetupLock {
   let released = false;
   const release = async (): Promise<void> => {
@@ -143,5 +205,18 @@ function ownedLock(path: string, token: string): SetupLock {
     released = true;
     await removeIfToken(path, token);
   };
-  return { token, owned: true, release };
+  const releaseSync = (): void => {
+    if (released) return;
+    released = true;
+    removeIfTokenSync(path, token);
+  };
+  return { token, owned: true, release, releaseSync };
+}
+
+function isCode(error: unknown, code: string): boolean {
+  return error instanceof Error && "code" in error && error.code === code;
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolveDelay) => setTimeout(resolveDelay, ms));
 }
