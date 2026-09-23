@@ -1,7 +1,9 @@
 ---
 name: pr
 description: Turn a PR URL, PR number, or branch name into a registered livediff worktree, ready to review.
-when_to_use: "review this PR", "open PR 12 in livediff", "review branch x", a pasted github.com pull URL
+when_to_use: >-
+  "review this PR", "open PR 12 in livediff", "review branch x", a pasted github.com pull
+  URL
 allowed-tools: Bash(livediff *), Bash(git *), Bash(gh *)
 ---
 
